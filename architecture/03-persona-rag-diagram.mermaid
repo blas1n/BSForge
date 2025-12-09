@@ -1,0 +1,141 @@
+---
+title: 페르소나 RAG 시스템 상세
+---
+flowchart TB
+    subgraph Input["📥 입력"]
+        Topic[주제<br/>정규화된 토픽]
+        ChannelId[채널 ID]
+    end
+
+    subgraph PersonaConfig["🎭 페르소나 Config"]
+        Identity[정체성<br/>이름, 소개, 전문분야]
+        Voice[음성 설정<br/>성별, TTS ID, 속도]
+        Communication[커뮤니케이션<br/>톤, 말투, 금지어]
+        Perspective[관점<br/>가치관, 편향, 반주류]
+        Examples[예시<br/>좋은/나쁜 스크립트]
+    end
+
+    subgraph ContentDB["📚 콘텐츠 DB"]
+        PastScripts[(과거 스크립트)]
+        
+        subgraph Indexing["인덱싱"]
+            Chunker[청킹<br/>Hook/Body/Conclusion]
+            CharacterAnalyzer[특성 분석<br/>의견/예시/비유]
+            Embedder[임베딩<br/>BGE-M3]
+        end
+        
+        VectorDB[(벡터 DB<br/>Chroma/Pinecone)]
+        KeywordIndex[(키워드 인덱스<br/>BM25)]
+        
+        PastScripts --> Chunker --> CharacterAnalyzer --> Embedder --> VectorDB
+        PastScripts --> KeywordIndex
+    end
+
+    subgraph Retrieval["🔍 검색"]
+        subgraph QueryProcess["쿼리 처리"]
+            QueryExpand[쿼리 확장<br/>LLM 생성]
+            QueryEmbed[쿼리 임베딩]
+        end
+        
+        subgraph HybridSearch["하이브리드 검색"]
+            SemanticSearch[시맨틱 검색<br/>벡터 유사도]
+            BM25Search[키워드 검색<br/>BM25]
+            Merge[결과 병합<br/>70:30 가중치]
+        end
+        
+        subgraph PostRetrieval["후처리"]
+            Reranker[리랭커<br/>BGE-Reranker]
+            MMR[다양성 보장<br/>MMR λ=0.7]
+        end
+        
+        Topic --> QueryExpand --> QueryEmbed
+        QueryEmbed --> SemanticSearch
+        QueryExpand --> BM25Search
+        
+        VectorDB --> SemanticSearch
+        KeywordIndex --> BM25Search
+        
+        SemanticSearch --> Merge
+        BM25Search --> Merge
+        Merge --> Reranker --> MMR
+    end
+
+    subgraph SpecializedRetrieval["🎯 특화 검색"]
+        SimilarSearch[유사 주제<br/>일반 검색]
+        OpinionSearch[의견 검색<br/>과거 관점]
+        ExampleSearch[예시 검색<br/>비유/사례]
+        HookSearch[훅 검색<br/>좋은 도입부]
+        
+        MMR --> SimilarSearch
+        MMR --> OpinionSearch
+        MMR --> ExampleSearch
+        MMR --> HookSearch
+    end
+
+    subgraph ContextBuild["🏗️ 컨텍스트 구성"]
+        ContextBuilder[컨텍스트 빌더]
+        
+        SimilarSearch --> ContextBuilder
+        OpinionSearch --> ContextBuilder
+        ExampleSearch --> ContextBuilder
+        HookSearch --> ContextBuilder
+        
+        PersonaConfig --> ContextBuilder
+        Topic --> ContextBuilder
+    end
+
+    subgraph Generation["✨ 생성"]
+        PromptBuilder[프롬프트 빌더<br/>페르소나 + 컨텍스트 + 주제]
+        LLM[LLM<br/>Claude 3.5 Sonnet]
+        
+        subgraph PostProcess["후처리"]
+            AvoidWordCheck[금지어 체크]
+            AvoidWordReplace[금지어 대체]
+            StyleCheck[스타일 점수]
+            HookEval[훅 평가]
+            LengthAdjust[길이 조정]
+        end
+        
+        ContextBuilder --> PromptBuilder --> LLM --> AvoidWordCheck
+        AvoidWordCheck --> AvoidWordReplace --> StyleCheck --> HookEval --> LengthAdjust
+    end
+
+    subgraph QualityGate["✅ 품질 게이트"]
+        QualityCheck{품질 통과?}
+        Regenerate[재생성<br/>최대 2회]
+        
+        LengthAdjust --> QualityCheck
+        QualityCheck -->|No| Regenerate --> PromptBuilder
+    end
+
+    subgraph Output["📤 출력"]
+        GeneratedScript[(생성된 스크립트)]
+        
+        QualityCheck -->|Yes| GeneratedScript
+    end
+
+    subgraph FeedbackLoop["📊 피드백 루프"]
+        Performance[성과 수집]
+        HighPerformer{고성과?}
+        FTDataset[(파인튜닝 데이터)]
+        
+        GeneratedScript -->|발행 후| Performance
+        Performance --> HighPerformer
+        HighPerformer -->|Yes| FTDataset
+        FTDataset -->|학습| LLM
+        
+        Performance -->|콘텐츠 저장| PastScripts
+    end
+
+    %% 스타일
+    classDef config fill:#e8eaf6,stroke:#3f51b5
+    classDef storage fill:#e3f2fd,stroke:#1565c0
+    classDef search fill:#fff3e0,stroke:#ef6c00
+    classDef generate fill:#f3e5f5,stroke:#7b1fa2
+    classDef quality fill:#c8e6c9,stroke:#388e3c
+    
+    class Identity,Voice,Communication,Perspective,Examples config
+    class PastScripts,VectorDB,KeywordIndex,FTDataset storage
+    class SemanticSearch,BM25Search,Reranker,MMR search
+    class LLM,PromptBuilder generate
+    class QualityCheck,StyleCheck quality
