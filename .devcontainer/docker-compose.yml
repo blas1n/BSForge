@@ -1,0 +1,89 @@
+services:
+  # Development container
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PYTHON_VERSION: "3.11"
+        TZ: ${TZ:-Asia/Seoul}
+        CLAUDE_CODE_VERSION: latest
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    user: vscode
+    working_dir: /workspace
+    volumes:
+      - ..:/workspace:cached
+      - claude-code-bashhistory:/commandhistory
+      - claude-code-config:/home/node/.claude
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - ENVIRONMENT=development
+      - CLAUDE_CONFIG_DIR=/home/node/.claude
+      - LANG=C.UTF-8
+      - LC_ALL=C.UTF-8
+      - DEBUG=true
+    stdin_open: true
+    tty: true
+    command: >
+      sh -c "zsh && sudo /usr/local/bin/init-firewall.sh"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - bsforge-network
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: bsforge-postgres-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: bsforge
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --locale=C"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d bsforge"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - bsforge-network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: bsforge-redis-dev
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass "" --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - bsforge-network
+
+volumes:
+  claude-code-bashhistory:
+  claude-code-config:
+  postgres-data:
+  redis-data:
+
+networks:
+  bsforge-network:
+    driver: bridge
