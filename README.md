@@ -25,6 +25,7 @@ Topic Collection → Script Generation → Video Production → Optimal Upload �
 - **📊 Auto-Series Detection**: Identify high-performing content patterns automatically
 - **⏰ Optimal Timing**: YouTube Analytics-based upload scheduling
 - **🛡️ AI Content Filter**: Risk detection and review pipeline
+- **🧪 A/B Testing**: Data-driven optimization for underperforming channels
 - **🔁 Self-Improving**: Automatic fine-tuning data collection
 
 ---
@@ -173,6 +174,7 @@ bsforge/
 | [05-upload-scheduling.md](./architecture/05-upload-scheduling.md) | Upload & optimal timing |
 | [06-database-schema.md](./architecture/06-database-schema.md) | Database schema |
 | [07-review-dashboard.md](./architecture/07-review-dashboard.md) | Review dashboard |
+| [08-ab-testing.md](./architecture/08-ab-testing.md) | A/B testing system |
 
 ---
 
@@ -202,6 +204,12 @@ bsforge/
 - Automatic performance collection
 - High-performing content → Fine-tuning dataset
 - Auto-detect series patterns
+
+### 6️⃣ A/B Testing
+- Run experiments when channel underperforms
+- Test hooks, titles, thumbnails, voice, timing
+- Statistical significance analysis (t-test, ANOVA)
+- Auto-apply winning variants to config
 
 ---
 

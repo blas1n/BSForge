@@ -6,7 +6,6 @@
   // Wait for services to be ready
   "waitFor": "onCreateCommand",
   // Lifecycle scripts
-  "onCreateCommand": "bash .devcontainer/scripts/on-create.sh",
   "postStartCommand": "bash .devcontainer/scripts/post-start.sh",
   // VS Code customization
   "customizations": {
@@ -62,7 +61,7 @@
   "forwardPorts": [
     8000, // FastAPI
     5432, // PostgreSQL
-    6379, // Redis
+    6379 // Redis
   ],
   "portsAttributes": {
     "8000": {

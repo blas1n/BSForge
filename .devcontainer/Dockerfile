@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     procps \
     sudo \
     fzf \
+    curl \
     zsh \
     man-db \
     unzip \
@@ -24,27 +25,35 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     aggregate \
     jq \
     vim \
+    nodejs \
+    npm \
+    postgresql-client \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Ensure default node user has access to /usr/local/share
-RUN chown -R vscode:vscode /usr/local/share
-
 ARG USERNAME=vscode
+ARG GROUPNAME=vscode
+ARG USER_UID=1000
+ARG USER_GID=1000
+
+RUN groupadd -g $USER_GID $USERNAME \
+    && useradd -m -u $USER_UID -g $USER_GID -d /home/$USERNAME -s /bin/bash $USERNAME
 
 # Persist bash history
 RUN SNIPPET="export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhistory/.bash_history" \
-  && mkdir /commandhistory \
-  && touch /commandhistory/.bash_history \
-  && chown -R $USERNAME /commandhistory
+    && mkdir /commandhistory \
+    && touch /commandhistory/.bash_history \
+    && chown -R $USER_UID:$USER_GID /commandhistory \
+    && echo $SNIPPET >> /home/$USERNAME/.bashrc
 
-# Set `DEVCONTAINER` environment variable to help with orientation
-ENV DEVCONTAINER=true
+# Set up npm global directory
+RUN mkdir -p /usr/local/share/npm-global && \
+    chown -R $USER_UID:$USER_GID /usr/local/share
+ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global
+ENV PATH=$PATH:/usr/local/share/npm-global/bin
 
-# Create workspace and config directories and set permissions
+# Create workspace and config directories
 RUN mkdir -p /workspace /home/$USERNAME/.claude && \
-  chown -R $USERNAME:$USERNAME /workspace /home/$USERNAME/.claude
-
-WORKDIR /workspace
+    chown -R $USER_UID:$USER_GID /workspace /home/$USERNAME/.claude
 
 # Set up non-root user
 USER $USERNAME
@@ -65,17 +74,10 @@ RUN brew install openssl@3 --force-bottle
 RUN brew install git-delta --force-bottle
 
 # Copy and set up firewall script (for Claude Code)
+COPY scripts/init-firewall.sh /usr/local/bin/
 USER root
-COPY ./.devcontainer/scripts/init-firewall.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/init-firewall.sh && \
     echo "$USERNAME ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh" > /etc/sudoers.d/firewall && \
     chmod 0440 /etc/sudoers.d/firewall
 
-COPY scripts/init-firewall.sh /usr/local/bin/
-USER root
-RUN chmod +x /usr/local/bin/init-firewall.sh && \
-  echo "node ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh" > /etc/sudoers.d/node-firewall && \
-  chmod 0440 /etc/sudoers.d/node-firewall
 USER $USERNAME
-
-CMD ["zsh"]

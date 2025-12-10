@@ -121,6 +121,13 @@ System automatically detects high-performing content patterns and suggests serie
 - Category overlap
 - Consecutive success (3+ videos, >5% engagement)
 
+### 5. A/B Testing System
+When channel performance is low, run experiments to optimize:
+- **Testable variables**: Hook style, title format, thumbnail, TTS voice, upload time, etc.
+- **Statistical analysis**: Welch's t-test, confidence intervals, effect size
+- **Auto-conclude**: When sufficient samples + significant results
+- **Auto-apply**: Winner variant automatically applied to channel config
+
 ---
 
 ## Code Conventions
@@ -209,6 +216,8 @@ logger.error(
 10. **review_queue** - Review items
 11. **content_chunks** - Vector DB references
 12. **job_logs** - Task logs
+13. **experiments** - A/B test experiments
+14. **experiment_assignments** - Experiment variant assignments
 
 ### Key Relationships
 ```
@@ -361,6 +370,7 @@ Detailed designs are in `architecture/`:
 - `05-upload-scheduling.md` - Upload & optimal time
 - `06-database-schema.md` - Full DB schema
 - `07-review-dashboard.md` - Dashboard system
+- `08-ab-testing.md` - A/B testing system
 
 ---
 
