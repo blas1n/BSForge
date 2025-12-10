@@ -62,8 +62,10 @@ See [architecture/](./architecture/) for detailed design documents.
 
 | Layer | Technology |
 |-------|------------|
-| **Backend** | FastAPI (Python 3.11+) |
-| **Database** | PostgreSQL + Redis |
+| **Language** | Python 3.11+ |
+| **Package Manager** | uv + pyproject.toml |
+| **Backend** | FastAPI |
+| **Database** | PostgreSQL 16 + Redis 7 |
 | **Vector DB** | Chroma → Pinecone |
 | **Embedding** | BGE-M3 (HuggingFace) |
 | **LLM** | Claude API (LangChain) |
@@ -71,6 +73,7 @@ See [architecture/](./architecture/) for detailed design documents.
 | **Video** | FFmpeg |
 | **Queue** | Celery + Redis |
 | **Dashboard** | React + TypeScript |
+| **Environment** | Docker + DevContainer (100% isolated) |
 
 ---
 
@@ -78,36 +81,46 @@ See [architecture/](./architecture/) for detailed design documents.
 
 ### Prerequisites
 
-- Python 3.11+
-- PostgreSQL 15+
-- Redis 7+
-- FFmpeg
-- Node.js 18+ (for Dashboard)
+- **Docker Desktop** (for DevContainer)
+- **VSCode** with Dev Containers extension
+
+That's it! Everything else is handled automatically.
 
 ### Installation
 
 ```bash
-# Clone the repository
+# 1. Clone the repository
 git clone https://github.com/yourusername/bsforge.git
 cd bsforge
 
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+# 2. Open in VSCode
+code .
 
-# Install dependencies
-pip install -r requirements.txt
+# 3. Reopen in DevContainer
+# VSCode will prompt: "Reopen in Container" → Click it
+# Or use Command Palette: "Dev Containers: Reopen in Container"
 
-# Set up environment variables
-cp .env.example .env
-# Edit .env with your API keys
+# 4. Wait for automatic setup (first time only)
+# - uv installation
+# - Package installation
+# - Database initialization
+# - Pre-commit hooks
 
-# Run database migrations
-alembic upgrade head
-
-# Start the server
-uvicorn app.main:app --reload
+# 5. Start developing!
+make dev
 ```
+
+### What Happens Automatically
+
+When you open the DevContainer:
+1. ✅ PostgreSQL 16 starts
+2. ✅ Redis 7 starts
+3. ✅ uv gets installed
+4. ✅ All Python dependencies install via `uv pip install -e ".[dev]"`
+5. ✅ Pre-commit hooks configure
+6. ✅ VSCode extensions activate
+
+**No manual setup. No host pollution. 100% isolated.**
 
 ### Channel Setup
 
@@ -116,8 +129,20 @@ uvicorn app.main:app --reload
 cp config/examples/channel.example.yaml config/channels/my-channel.yaml
 # Edit with your channel settings
 
-# Register the channel
+# Register the channel (once implemented)
 python -m app.cli channel register my-channel
+```
+
+### Development Commands
+
+```bash
+make dev            # Start FastAPI server
+make worker         # Start Celery worker
+make test           # Run tests
+make lint           # Run linters
+make format         # Format code
+make migrate        # Create migration
+make upgrade        # Apply migrations
 ```
 
 ---
@@ -235,6 +260,9 @@ This project follows **open source code, private data** principles.
 
 ```bash
 # Run all tests
+make test
+
+# Or directly with pytest
 pytest
 
 # Run with coverage
@@ -244,30 +272,57 @@ pytest --cov=app --cov-report=html
 pytest tests/services/test_collector.py
 ```
 
+**Testing Philosophy**:
+- ✅ Minimum 80% coverage (90%+ for core logic)
+- ✅ Google-style docstrings required
+- ✅ Tests must pass before merging to main
+
 ---
 
-## 🐳 Docker
+## 🐳 DevContainer Architecture
+
+This project uses **100% isolated DevContainer environment**:
+
+```
+.devcontainer/
+├── devcontainer.json        # Container configuration
+├── docker-compose.yml       # PostgreSQL + Redis services
+└── scripts/
+    └── post-create.sh       # Auto-setup script (uv, deps, hooks)
+```
+
+**Philosophy**: No external dependencies. Everything runs inside Docker.
 
 ```bash
-# Build
-docker-compose build
-
-# Run
-docker-compose up -d
-
-# View logs
-docker-compose logs -f
+# All services in DevContainer
+PostgreSQL 16  → localhost:5432
+Redis 7        → localhost:6379
+FFmpeg         → Pre-installed in container
+Python 3.11+   → With uv package manager
 ```
 
 ---
 
 ## 🤝 Contributing
 
+### Development Workflow
+
 1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+2. Clone and open in DevContainer (auto-installs everything)
+3. Create your feature branch (`git checkout -b feature/your-feature`)
+4. Implement feature with tests + docstrings
+5. Run tests: `make test` (must pass with 80%+ coverage)
+6. Run linters: `make lint` (must pass)
+7. Commit and push your changes
+8. Open a Pull Request
+
+### Code Standards
+
+- ✅ **Type hints**: Required for all function signatures
+- ✅ **Docstrings**: Google style, required for all public functions/classes
+- ✅ **Tests**: 80%+ coverage minimum
+- ✅ **Formatting**: black + ruff (enforced by pre-commit)
+- ✅ **Linting**: ruff + mypy (must pass)
 
 ---
 

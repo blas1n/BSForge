@@ -10,8 +10,9 @@
 
 ### Tech Stack
 - **Language**: Python 3.11+
+- **Package Manager**: uv + pyproject.toml
 - **Backend**: FastAPI
-- **Database**: PostgreSQL + Redis
+- **Database**: PostgreSQL 16 + Redis 7
 - **Vector DB**: Chroma (dev) → Pinecone (prod)
 - **LLM**: Claude API via LangChain
 - **Embedding**: BGE-M3 (HuggingFace)
@@ -19,6 +20,46 @@
 - **Video**: FFmpeg
 - **Queue**: Celery + Redis
 - **Dashboard**: React + TypeScript
+
+---
+
+## Development Principles
+
+### 1. 100% Environment Isolation
+- **All dependencies in DevContainer**: PostgreSQL, Redis, FFmpeg, Python packages
+- **No external setup required**: DevContainer Open → Immediate development
+- **Zero host pollution**: Everything runs inside Docker
+
+### 2. Package Management
+- **uv-based**: Fast, modern Python package installer
+- **pyproject.toml only**: No requirements.txt
+- **Auto-install on container open**: postCreateCommand handles everything
+
+### 3. Incremental Construction
+- **No upfront scaffolding**: Create files/folders only when needed
+- **Models per feature**: DB models created alongside the feature that uses them
+- **Branch-based development**: Each feature in its own branch
+
+### 4. Testing & Documentation First
+- **Minimum 80% coverage**: 90%+ for core business logic
+- **Google-style docstrings**: Required for all functions/classes
+- **Test before merge**: All PRs must pass tests
+
+### 5. Branch Strategy
+```
+main (protected)
+├── feature/foundation          → Base + DevContainer integration
+├── feature/config-system       → YAML config loader
+├── feature/topic-collection    → Topic collection (creates Channel, Source, Topic models)
+├── feature/rag-system          → RAG (creates ContentChunk, Script models)
+├── feature/video-generation    → Video gen (creates Video model)
+├── feature/upload-analytics    → Upload (creates Upload, Performance, Series models)
+├── feature/ab-testing          → A/B testing (creates Experiment models)
+├── feature/review-system       → Review (creates ReviewQueue model)
+├── feature/api-layer           → FastAPI endpoints
+├── feature/workers             → Celery tasks (creates JobLog model)
+└── feature/dashboard           → React UI
+```
 
 ---
 
@@ -203,21 +244,37 @@ logger.error(
 
 ## Database Schema Overview
 
-### Core Tables
-1. **channels** - YouTube channel configs
-2. **personas** - Channel personas (1:1 with channel)
-3. **sources** - Topic sources (Reddit, HN, etc.)
-4. **topics** - Collected topics
-5. **scripts** - Generated scripts
-6. **videos** - Generated videos
-7. **uploads** - YouTube uploads
-8. **performances** - Video analytics
-9. **series** - Auto-detected series
-10. **review_queue** - Review items
-11. **content_chunks** - Vector DB references
-12. **job_logs** - Task logs
-13. **experiments** - A/B test experiments
-14. **experiment_assignments** - Experiment variant assignments
+### Core Tables (Created Incrementally)
+
+Models are created alongside the features that use them:
+
+**Phase 3: Topic Collection**
+- `channels` - YouTube channel configs
+- `personas` - Channel personas (1:1 with channel)
+- `sources` - Topic sources (Reddit, HN, etc.)
+- `topics` - Collected topics
+
+**Phase 4: RAG System**
+- `content_chunks` - Vector DB references
+- `scripts` - Generated scripts
+
+**Phase 5: Video Generation**
+- `videos` - Generated videos
+
+**Phase 6: Upload & Analytics**
+- `uploads` - YouTube uploads
+- `performances` - Video analytics
+- `series` - Auto-detected series
+
+**Phase 7: A/B Testing**
+- `experiments` - A/B test experiments
+- `experiment_assignments` - Variant assignments
+
+**Phase 8: Review System**
+- `review_queue` - Review items
+
+**Phase 10: Workers**
+- `job_logs` - Task logs
 
 ### Key Relationships
 ```
@@ -231,6 +288,8 @@ Upload 1:1 Performance
 Channel 1:N Series
 Series 1:N Topics
 ```
+
+See [architecture/06-database-schema.md](./architecture/06-database-schema.md) for complete schema.
 
 ---
 
@@ -337,26 +396,51 @@ WS     /ws/{channel_id}  # Real-time notifications
 
 ---
 
+## DevContainer Setup
+
+### Automatic Environment Setup
+
+**DevContainer Open → Ready to Code**
+
+The DevContainer automatically:
+1. Installs uv package manager
+2. Installs all dependencies via `uv pip install -e ".[dev]"`
+3. Sets up pre-commit hooks
+4. Configures VSCode extensions
+
+### Container Services
+- **PostgreSQL 16**: Available at `localhost:5432`
+- **Redis 7**: Available at `localhost:6379`
+- **FFmpeg**: Pre-installed in container
+
+### Configuration Files
+- `.devcontainer/devcontainer.json` - Container config with postCreateCommand
+- `.devcontainer/scripts/post-create.sh` - Auto-setup script
+- `.devcontainer/docker-compose.yml` - PostgreSQL + Redis services
+
+---
+
 ## Useful Commands
 
 ```bash
-# Start dev server
-uvicorn app.main:app --reload
+# Development (uses Makefile with uv)
+make install-dev    # Install dependencies
+make dev            # Start FastAPI dev server
+make worker         # Start Celery worker
+make beat           # Start Celery beat scheduler
+make test           # Run tests
+make lint           # Run linters (ruff, mypy)
+make format         # Format code (black, ruff)
 
-# Start Celery worker
-celery -A app.workers worker -l info
+# Database migrations
+make migrate msg="Add new feature"  # Create migration
+make upgrade                        # Apply migrations
 
-# Start Celery beat (scheduler)
-celery -A app.workers beat -l info
-
-# Run specific task
-python -m app.cli task run collect --channel-id xxx
-
-# Generate embeddings for channel
-python -m app.cli embeddings generate --channel-id xxx
-
-# Sync YouTube analytics
-python -m app.cli analytics sync --days 7
+# Direct commands (if not using Makefile)
+uv pip install -e ".[dev]"                    # Install deps
+uvicorn app.main:app --reload                 # Dev server
+celery -A app.workers.celery_app worker -l info  # Worker
+pytest                                        # Tests
 ```
 
 ---
