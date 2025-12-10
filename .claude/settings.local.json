@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wsl docker version:*)",
+      "Bash(wsl docker ps:*)",
+      "Bash(wsl -l:*)",
+      "Bash(wsl -d Ubuntu-20.04 -- docker version)",
+      "Bash(wsl -d Ubuntu-20.04 -- docker logs:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

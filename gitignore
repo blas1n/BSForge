@@ -1,0 +1,324 @@
+# ============================================
+# BSForge - AI-Powered YouTube Shorts Factory
+# ============================================
+# 소스 코드: 공개 (포트폴리오)
+# 데이터/설정: 비공개 (수익화 자산)
+# ============================================
+
+# ============================================
+# 🐍 Python
+# ============================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+venv/
+.venv/
+ENV/
+env/
+.env.local
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Cython
+cython_debug/
+
+# ============================================
+# 🔐 크리덴셜 & 시크릿 (절대 공개 금지)
+# ============================================
+.env
+.env.*
+!.env.example
+
+# API Keys & Tokens
+secrets/
+credentials/
+*.pem
+*.key
+*.crt
+
+# YouTube OAuth
+token.pickle
+client_secrets.json
+youtube_credentials.json
+*_oauth.json
+
+# Telegram Bot
+telegram_token.txt
+
+# LLM API Keys
+openai_key.txt
+anthropic_key.txt
+elevenlabs_key.txt
+
+# ============================================
+# 📊 데이터 & 데이터베이스 (수익화 핵심 자산)
+# ============================================
+# PostgreSQL dump
+*.sql
+*.dump
+*.backup
+
+# SQLite (개발용)
+*.db
+*.sqlite
+*.sqlite3
+
+# Redis dump
+dump.rdb
+
+# 데이터 디렉토리
+data/
+database/
+db_backups/
+
+# ============================================
+# ⚙️ 채널 & 페르소나 설정 (수익화 핵심 자산)
+# ============================================
+# 채널별 설정 (실제 운영 설정)
+channels/
+config/channels/
+config/personas/
+
+# 운영 설정
+config/production/
+config/secrets/
+
+# 소스 설정 (크롤링 타겟)
+config/sources/
+
+# 예시 설정은 공개
+!config/examples/
+!config/*.example.yaml
+!config/*.example.json
+
+# ============================================
+# 🎬 생성된 콘텐츠 (저작권 & 용량)
+# ============================================
+# 영상/오디오/이미지
+outputs/
+generated/
+videos/
+audio/
+thumbnails/
+temp/
+tmp/
+
+# 미디어 파일
+*.mp4
+*.mp3
+*.wav
+*.webm
+*.avi
+*.mov
+*.m4a
+*.ogg
+
+# 이미지 (생성된 것)
+# *.png  # 아키텍처 다이어그램은 허용할 수도 있음
+# *.jpg
+# *.jpeg
+*.webp
+*.gif
+
+# 자막
+*.srt
+*.ass
+*.vtt
+
+# ============================================
+# 🧠 AI/ML 데이터 (수익화 핵심 자산)
+# ============================================
+# 벡터 DB
+chroma_db/
+vector_db/
+embeddings/
+*.faiss
+*.index
+
+# 파인튜닝 데이터셋
+datasets/
+training_data/
+finetuning/
+*.jsonl
+*.parquet
+
+# 모델 체크포인트
+checkpoints/
+models/
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.gguf
+
+# HuggingFace 캐시
+.cache/
+huggingface/
+
+# ============================================
+# 📈 분석 & 성과 데이터 (수익화 핵심 자산)
+# ============================================
+analytics/
+reports/
+performance/
+metrics/
+
+# Jupyter Notebooks (분석용)
+*.ipynb
+.ipynb_checkpoints/
+
+# ============================================
+# 📝 로그
+# ============================================
+logs/
+*.log
+*.log.*
+log/
+
+# ============================================
+# 🛠️ IDE & 에디터
+# ============================================
+# VSCode
+.vscode/
+!.vscode/settings.json.example
+!.vscode/extensions.json
+
+# PyCharm
+.idea/
+*.iml
+
+# Vim
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+
+# ============================================
+# 🧪 테스트
+# ============================================
+.coverage
+.pytest_cache/
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# ============================================
+# 📦 패키지 & 의존성
+# ============================================
+# Poetry
+poetry.lock
+
+# pip
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Node (대시보드용)
+node_modules/
+npm-debug.log
+yarn-error.log
+.pnpm-store/
+
+# ============================================
+# 🐳 Docker
+# ============================================
+docker-compose.override.yml
+docker-compose.local.yml
+.docker/
+
+# ============================================
+# ☁️ 배포 & 인프라
+# ============================================
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# Ansible
+*.retry
+
+# Kubernetes
+kubeconfig
+*.kubeconfig
+
+# ============================================
+# 📋 기타
+# ============================================
+# 임시 파일
+*.tmp
+*.temp
+*.bak
+*.old
+
+# 압축 파일
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# 문서 (자동 생성)
+docs/_build/
+site/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# ============================================
+# ✅ 명시적 허용 (예시/템플릿)
+# ============================================
+# 예시 설정 파일
+!*.example
+!*.example.*
+!*.template
+!*.template.*
+!*.sample
+!*.sample.*
+
+# 문서
+!docs/
+!*.md
+!*.rst
+
+# 아키텍처 다이어그램
+!architecture/
+!diagrams/
+!*.mermaid
