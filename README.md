@@ -152,30 +152,50 @@ make upgrade        # Apply migrations
 ```
 bsforge/
 ├── app/
-│   ├── api/              # FastAPI routers
-│   ├── core/             # Config, dependencies
-│   ├── models/           # SQLAlchemy models
-│   ├── schemas/          # Pydantic schemas
+│   ├── api/                   # FastAPI routers
+│   ├── config/                # Channel config models (Pydantic)
+│   │   ├── channel.py         # ChannelInfo, YouTubeConfig
+│   │   ├── persona.py         # PersonaConfig, VoiceConfig
+│   │   ├── content.py         # ContentConfig, ScoringConfig
+│   │   └── operation.py       # OperationConfig, ReviewGates
+│   ├── core/                  # Core utilities
+│   │   ├── config.py          # App settings (env-based)
+│   │   ├── config_loader.py   # YAML config loader
+│   │   ├── database.py        # SQLAlchemy setup
+│   │   ├── redis.py           # Redis client
+│   │   ├── logging.py         # Logging setup
+│   │   └── exceptions.py      # Custom exceptions
+│   ├── models/                # SQLAlchemy ORM models
+│   │   ├── base.py            # Base mixins
+│   │   └── ...                # (created per feature)
+│   ├── schemas/               # API request/response schemas
+│   │   └── ...                # (Pydantic, to be added)
 │   ├── services/
-│   │   ├── collector/    # Topic collection
-│   │   ├── rag/          # Persona RAG
-│   │   ├── generator/    # Video generation
-│   │   ├── uploader/     # YouTube upload
-│   │   └── analyzer/     # Analytics
-│   ├── workers/          # Celery tasks
-│   └── main.py
+│   │   ├── collector/         # Topic collection
+│   │   ├── rag/               # Persona RAG
+│   │   ├── generator/         # Video generation
+│   │   ├── uploader/          # YouTube upload
+│   │   └── analyzer/          # Analytics
+│   ├── workers/               # Celery tasks
+│   └── main.py                # FastAPI app
 ├── config/
-│   ├── examples/         # Example configs (public)
-│   ├── channels/         # Channel configs (private)
-│   └── sources/          # Source configs (private)
-├── dashboard/            # React frontend
-├── architecture/         # Design documents
+│   ├── examples/              # Example configs (public)
+│   ├── channels/              # Channel configs (private)
+│   └── sources/               # Source configs (private)
+├── dashboard/                 # React frontend
+├── architecture/              # Design documents
 ├── tests/
-├── alembic/              # DB migrations
+│   ├── unit/
+│   │   ├── config/            # Config model tests
+│   │   ├── core/              # Core utility tests
+│   │   └── ...
+│   └── integration/
+├── alembic/                   # DB migrations
+├── .devcontainer/             # DevContainer setup
 ├── .env.example
 ├── .gitignore
-├── CLAUDE.md             # Claude Code context
-├── requirements.txt
+├── CLAUDE.md                  # Claude Code context
+├── pyproject.toml             # Package config (uv)
 └── README.md
 ```
 

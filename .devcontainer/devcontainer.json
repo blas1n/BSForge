@@ -31,7 +31,9 @@
         // Git
         "eamodio.gitlens",
         // Claude
-        "anthropic.claude-code"
+        "anthropic.claude-code",
+        // Makefile
+        "ms-vscode.makefile-tools"
       ],
       "settings": {
         "python.defaultInterpreterPath": "/usr/local/bin/python",
