@@ -75,22 +75,29 @@ bsforge/
 │   │   │   ├── stats.py
 │   │   │   └── auth.py
 │   │   └── deps.py           # Dependencies
+│   ├── config/               # Channel config models (Pydantic)
+│   │   ├── __init__.py       # ChannelConfig
+│   │   ├── channel.py        # ChannelInfo, YouTubeConfig
+│   │   ├── persona.py        # PersonaConfig, VoiceConfig, etc.
+│   │   ├── content.py        # ContentConfig, ScoringConfig, etc.
+│   │   └── operation.py      # OperationConfig, ReviewGates, etc.
 │   ├── core/
-│   │   ├── config.py         # Settings (pydantic-settings)
+│   │   ├── config.py         # App settings (pydantic-settings)
+│   │   ├── config_loader.py  # YAML config loader & manager
 │   │   ├── database.py       # SQLAlchemy setup
 │   │   ├── redis.py          # Redis client
-│   │   └── security.py       # JWT, auth
+│   │   ├── logging.py        # Logging setup
+│   │   └── exceptions.py     # Custom exceptions
 │   ├── models/               # SQLAlchemy ORM models
+│   │   ├── base.py           # UUIDMixin, TimestampMixin
 │   │   ├── channel.py
 │   │   ├── topic.py
 │   │   ├── script.py
 │   │   ├── video.py
 │   │   ├── upload.py
 │   │   └── ...
-│   ├── schemas/              # Pydantic schemas
-│   │   ├── channel.py
-│   │   ├── topic.py
-│   │   └── ...
+│   ├── schemas/              # API request/response schemas (Pydantic)
+│   │   └── ...               # (to be added in API layer phase)
 │   ├── services/
 │   │   ├── collector/        # Topic collection
 │   │   │   ├── sources/      # Source implementations
