@@ -65,8 +65,6 @@ async def test_updated_at_changes(db_session: AsyncSession):
     await db_session.commit()
     await db_session.refresh(user)
 
-    original_updated_at = user.updated_at
-
     # Wait a bit to ensure timestamp difference
     await asyncio.sleep(0.1)
 
@@ -145,13 +143,24 @@ async def test_unique_constraint(db_session: AsyncSession):
 @pytest.mark.asyncio
 async def test_session_rollback(db_session: AsyncSession):
     """Test that session rollback works."""
+    # Count initial users
+    result = await db_session.execute(select(TestUser))
+    initial_count = len(result.scalars().all())
+
+    # Add and flush a new user
     user = TestUser(name="Test", email="test@example.com")
     db_session.add(user)
     await db_session.flush()
 
-    # Rollback before commit
+    # Verify user was added
+    result = await db_session.execute(select(TestUser))
+    after_flush_count = len(result.scalars().all())
+    assert after_flush_count == initial_count + 1
+
+    # Rollback
     await db_session.rollback()
 
+    # Verify user was rolled back
     result = await db_session.execute(select(TestUser))
-    users = result.scalars().all()
-    assert len(users) == 0
+    after_rollback_count = len(result.scalars().all())
+    assert after_rollback_count == initial_count

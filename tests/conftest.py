@@ -11,7 +11,6 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.core.config import settings
 from app.core.database import Base
 from app.core.logging import setup_logging
 
@@ -62,21 +61,33 @@ async def test_engine() -> AsyncGenerator[Any, None]:
 async def db_session(test_engine: Any) -> AsyncGenerator[AsyncSession, None]:
     """Create test database session.
 
+    Each test gets a fresh session with transaction that rolls back after test.
+    This ensures test isolation.
+
     Args:
         test_engine: Test database engine
 
     Yields:
         Test database session
     """
-    async_session = async_sessionmaker(
-        test_engine,
-        class_=AsyncSession,
-        expire_on_commit=False,
-    )
+    # Create a connection
+    async with test_engine.connect() as connection:
+        # Start a transaction
+        transaction = await connection.begin()
 
-    async with async_session() as session:
-        yield session
-        await session.rollback()
+        # Create session bound to this connection
+        async_session = async_sessionmaker(
+            bind=connection,
+            class_=AsyncSession,
+            expire_on_commit=False,
+            join_transaction_mode="create_savepoint",
+        )
+
+        async with async_session() as session:
+            yield session
+
+            # Rollback transaction after test
+            await transaction.rollback()
 
 
 @pytest.fixture

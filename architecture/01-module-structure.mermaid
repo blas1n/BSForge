@@ -4,32 +4,32 @@ title: 모듈 구조 및 데이터 플로우
 flowchart LR
     subgraph Modules["모듈 구조"]
         direction TB
-        
+
         subgraph Core["Core"]
             ConfigManager[Config Manager<br/>채널/페르소나/필터 관리]
             QueueManager[Queue Manager<br/>주제/스크립트/영상 큐]
             Scheduler[Scheduler<br/>수집/업로드 스케줄]
         end
-        
+
         subgraph Collection["Collection"]
             SourceManager[Source Manager<br/>소스 등록/관리]
             Collectors[Collectors<br/>RSS, 크롤러, API]
             TopicProcessor[Topic Processor<br/>정규화, 중복제거, 스코어링]
         end
-        
+
         subgraph Persona["Persona"]
             PersonaManager[Persona Manager<br/>페르소나 CRUD]
             ContentIndexer[Content Indexer<br/>콘텐츠 임베딩/저장]
             RAGEngine[RAG Engine<br/>검색/컨텍스트 구성]
             ScriptGenerator[Script Generator<br/>LLM 생성/후처리]
         end
-        
+
         subgraph Filter["Filter"]
             KeywordFilter[Keyword Filter<br/>1차 빠른 필터]
             LLMFilter[LLM Filter<br/>2차 맥락 필터]
             RiskAssessor[Risk Assessor<br/>점수 산출]
         end
-        
+
         subgraph Video["Video"]
             TTSEngine[TTS Engine<br/>음성 생성]
             VisualEngine[Visual Engine<br/>이미지/영상 소싱]
@@ -37,25 +37,25 @@ flowchart LR
             VideoCompositor[Video Compositor<br/>FFmpeg 합성]
             ThumbnailGen[Thumbnail Generator<br/>썸네일]
         end
-        
+
         subgraph Publish["Publish"]
             MetadataGen[Metadata Generator<br/>제목/설명/태그]
             TimeOptimizer[Time Optimizer<br/>최적 시간 분석]
             PlatformUploader[Platform Uploader<br/>YouTube API 등]
         end
-        
+
         subgraph Review["Review"]
             ReviewManager[Review Manager<br/>검수 큐 관리]
             NotificationService[Notification<br/>텔레그램 알림]
             DashboardAPI[Dashboard API<br/>웹 대시보드]
         end
-        
+
         subgraph Analytics["Analytics"]
             PerformanceCollector[Performance Collector<br/>YouTube Analytics]
             SeriesAnalyzer[Series Analyzer<br/>시리즈 감지]
             FeedbackLoop[Feedback Loop<br/>파인튜닝 데이터]
         end
-        
+
         subgraph Community["Community"]
             CommentManager[Comment Manager<br/>댓글 모니터링]
             AutoActions[Auto Actions<br/>좋아요, 삭제]
@@ -66,34 +66,34 @@ flowchart LR
     ConfigManager --> SourceManager
     ConfigManager --> PersonaManager
     ConfigManager --> KeywordFilter
-    
+
     Collectors --> TopicProcessor
     TopicProcessor --> QueueManager
-    
+
     QueueManager --> RAGEngine
     PersonaManager --> ScriptGenerator
     RAGEngine --> ScriptGenerator
-    
+
     ScriptGenerator --> KeywordFilter
     KeywordFilter --> LLMFilter
     LLMFilter --> RiskAssessor
-    
+
     RiskAssessor -->|Safe| QueueManager
     RiskAssessor -->|Review| ReviewManager
-    
+
     QueueManager --> TTSEngine
     QueueManager --> VisualEngine
     TTSEngine --> VideoCompositor
     VisualEngine --> VideoCompositor
     SubtitleEngine --> VideoCompositor
-    
+
     VideoCompositor --> QueueManager
     ThumbnailGen --> QueueManager
-    
+
     QueueManager --> MetadataGen
     TimeOptimizer --> Scheduler
     MetadataGen --> PlatformUploader
-    
+
     PlatformUploader --> PerformanceCollector
     PerformanceCollector --> SeriesAnalyzer
     PerformanceCollector --> FeedbackLoop

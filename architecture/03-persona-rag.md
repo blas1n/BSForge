@@ -29,7 +29,7 @@
 interface Persona {
   id: string;
   channelId: string;                   // 연결된 채널
-  
+
   // === 정체성 ===
   identity: {
     name: string;                      // 채널명
@@ -37,7 +37,7 @@ interface Persona {
     description: string;               // 상세 설명
     expertise: string[];               // 전문 분야
   };
-  
+
   // === 음성 설정 ===
   voice: {
     gender: 'male' | 'female';
@@ -50,13 +50,13 @@ interface Persona {
       clarity?: number;
     };
   };
-  
+
   // === 커뮤니케이션 스타일 ===
   communication: {
     // 기본 톤
     tone: 'friendly' | 'professional' | 'casual' | 'authoritative' | 'humorous';
     formality: 'formal' | 'semi-formal' | 'informal';
-    
+
     // 말투 패턴
     speechPatterns: {
       sentenceEndings: string[];       // ["~해요", "~입니다", "~거든요"]
@@ -64,14 +64,14 @@ interface Persona {
       emphasisWords: string[];         // ["진짜", "핵심은", "중요한 건"]
       fillerWords: string[];           // 자연스러움을 위한 추임새
     };
-    
+
     // 금지 표현
     avoidPatterns: {
       words: string[];                 // ["혁신적인", "패러다임", "시너지"]
       phrases: string[];               // ["구독과 좋아요", "알람 설정"]
       styles: string[];                // ["과장", "클릭베이트"]
     };
-    
+
     // 구조 선호
     structurePreference: {
       hookStyle: 'question' | 'statement' | 'statistic' | 'story';
@@ -80,7 +80,7 @@ interface Persona {
       ctaStyle: 'soft' | 'direct' | 'none';
     };
   };
-  
+
   // === 관점/사고방식 ===
   perspective: {
     approach: 'analytical' | 'practical' | 'creative' | 'balanced';
@@ -88,21 +88,21 @@ interface Persona {
     biases: string[];                  // 인정하는 편향
     contrarian?: string[];             // 주류와 다른 의견 (있다면)
   };
-  
+
   // === 콘텐츠 철학 ===
   contentPhilosophy: {
     targetAudience: string;            // "주니어 개발자", "테크 관심있는 직장인"
     uniqueAngle: string;               // 차별화 포인트
     contentGoals: string[];            // ["정보 전달", "인사이트 제공", "재미"]
   };
-  
+
   // === 예시 (Few-shot) ===
   examples: {
     scripts: ScriptExample[];          // 좋은 스크립트 예시
     reactions: ReactionExample[];      // 상황별 반응 예시
     badExamples?: BadExample[];        // 피해야 할 예시
   };
-  
+
   // === 메타 ===
   metadata: {
     createdAt: Date;
@@ -139,14 +139,14 @@ interface BadExample {
 const techPersona: Persona = {
   id: 'persona-tech-001',
   channelId: 'channel-tech-001',
-  
+
   identity: {
     name: '테크브로',
     tagline: '뻔한 소리 없이 핵심만',
     description: '현업 개발자 시선으로 테크 트렌드를 정리합니다. 과장 없이, 실용적으로.',
     expertise: ['백엔드 개발', 'AI/ML', '스타트업', '개발자 커리어'],
   },
-  
+
   voice: {
     gender: 'male',
     ttsService: 'edge-tts',
@@ -156,24 +156,24 @@ const techPersona: Persona = {
       pitch: 0,
     },
   },
-  
+
   communication: {
     tone: 'friendly',
     formality: 'semi-formal',
-    
+
     speechPatterns: {
       sentenceEndings: ['~해요', '~거든요', '~인 거죠', '~잖아요'],
       connectors: ['근데', '사실', '솔직히', '그래서'],
       emphasisWords: ['핵심은', '중요한 건', '진짜', '결국'],
       fillerWords: ['음', '뭐'],
     },
-    
+
     avoidPatterns: {
       words: ['혁신적인', '패러다임', '시너지', '레버리지', '게임체인저'],
       phrases: ['구독과 좋아요', '알람 설정', '끝까지 시청', '놓치지 마세요'],
       styles: ['과장', '공포 마케팅', '클릭베이트'],
     },
-    
+
     structurePreference: {
       hookStyle: 'statement',
       usesAnalogies: true,
@@ -181,7 +181,7 @@ const techPersona: Persona = {
       ctaStyle: 'none',
     },
   },
-  
+
   perspective: {
     approach: 'practical',
     coreValues: ['실용성', '솔직함', '깊이있는 단순함'],
@@ -196,23 +196,23 @@ const techPersona: Persona = {
       '"빠르게 실패하라" 맹신 경계',
     ],
   },
-  
+
   contentPhilosophy: {
     targetAudience: '개발자, 테크에 관심있는 직장인',
     uniqueAngle: '현업 경험 기반, 과장 없는 팩트 중심',
     contentGoals: ['정보 전달', '인사이트 제공', '실용적 관점'],
   },
-  
+
   examples: {
     scripts: [
       {
         topic: 'AI 코딩 도구',
         category: 'tech',
         script: `요즘 AI 코딩 도구 엄청 쏟아지잖아요.
-        
+
 근데 솔직히, 대부분 비슷비슷해요.
 
-제가 2주 동안 실제로 써본 결과, 
+제가 2주 동안 실제로 써본 결과,
 진짜 쓸만한 건 딱 두 가지 상황이에요.
 
 하나는 보일러플레이트 코드 짤 때.
@@ -252,7 +252,7 @@ AI가 우리 도메인을 이해할 리가 없잖아요.
       },
     ],
   },
-  
+
   metadata: {
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -267,7 +267,7 @@ AI가 우리 도메인을 이해할 리가 없잖아요.
 
 ### 3.1 저장 콘텐츠 유형
 ```typescript
-type ContentType = 
+type ContentType =
   | 'script'          // 영상 스크립트
   | 'draft'           // 미완성 초안
   | 'outline'         // 아웃라인
@@ -277,11 +277,11 @@ interface StoredContent {
   id: string;
   channelId: string;
   type: ContentType;
-  
+
   // 원본
   content: string;
   title?: string;
-  
+
   // 분류
   classification: {
     topics: string[];              // 주제 태그
@@ -289,7 +289,7 @@ interface StoredContent {
     keywords: string[];
     entities: string[];
   };
-  
+
   // 콘텐츠 특성
   characteristics: {
     hasOpinion: boolean;           // 의견 포함
@@ -298,7 +298,7 @@ interface StoredContent {
     emotionalTone: string;         // 감정 톤
     contentType: 'informative' | 'opinion' | 'reaction' | 'tutorial';
   };
-  
+
   // 성과 (발행된 경우)
   performance?: {
     videoId: string;
@@ -308,7 +308,7 @@ interface StoredContent {
     watchTime: number;
     engagementRate: number;
   };
-  
+
   // 메타
   metadata: {
     createdAt: Date;
@@ -331,18 +331,18 @@ interface ContentChunk {
   id: string;
   contentId: string;               // 원본 콘텐츠 ID
   channelId: string;
-  
+
   // 청크 내용
   text: string;
   index: number;                   // 청크 순서
-  
+
   // 컨텍스트
   context: {
     before?: string;               // 이전 청크 요약
     after?: string;                // 다음 청크 요약
     position: 'hook' | 'body' | 'conclusion';
   };
-  
+
   // 청크 특성 (검색 필터용)
   characteristics: {
     isOpinion: boolean;            // 의견 부분
@@ -350,7 +350,7 @@ interface ContentChunk {
     isAnalogy: boolean;            // 비유 부분
     keywords: string[];
   };
-  
+
   // 임베딩
   embedding: number[];
 }
@@ -360,36 +360,36 @@ class ScriptChunker {
   chunk(script: string, config: ChunkConfig): ContentChunk[] {
     // 스크립트 구조 파악
     const sections = this.identifySections(script);
-    
+
     // Hook / Body / Conclusion 분리
     const chunks: ContentChunk[] = [];
-    
+
     // Hook은 통째로 (보통 짧음)
     if (sections.hook) {
       chunks.push(this.createChunk(sections.hook, 'hook', 0));
     }
-    
+
     // Body는 의미 단위로 분할
     const bodyChunks = this.splitBody(sections.body, config);
-    chunks.push(...bodyChunks.map((text, i) => 
+    chunks.push(...bodyChunks.map((text, i) =>
       this.createChunk(text, 'body', i + 1)
     ));
-    
+
     // Conclusion도 통째로
     if (sections.conclusion) {
       chunks.push(this.createChunk(sections.conclusion, 'conclusion', chunks.length));
     }
-    
+
     return chunks;
   }
-  
+
   private identifySections(script: string) {
     // Hook: 처음 2-3문장
     // Body: 중간 내용
     // Conclusion: 마지막 1-2문장
-    
+
     const paragraphs = script.split('\n\n').filter(p => p.trim());
-    
+
     return {
       hook: paragraphs.slice(0, 1).join('\n\n'),
       body: paragraphs.slice(1, -1).join('\n\n'),
@@ -420,15 +420,15 @@ class ContentEmbedder {
     const textToEmbed = this.prepareText(chunk);
     return await this.embeddingModel.encode(textToEmbed);
   }
-  
+
   private prepareText(chunk: ContentChunk): string {
     const parts: string[] = [];
-    
+
     // 위치 정보
     if (chunk.context.position === 'hook') {
       parts.push('[훅]');
     }
-    
+
     // 특성 정보
     if (chunk.characteristics.isOpinion) {
       parts.push('[의견]');
@@ -436,15 +436,15 @@ class ContentEmbedder {
     if (chunk.characteristics.isExample) {
       parts.push('[예시]');
     }
-    
+
     // 키워드
     if (chunk.characteristics.keywords.length > 0) {
       parts.push(`[키워드: ${chunk.characteristics.keywords.join(', ')}]`);
     }
-    
+
     // 본문
     parts.push(chunk.text);
-    
+
     return parts.join(' ');
   }
 }
@@ -463,26 +463,26 @@ interface RetrievalConfig {
     weight: number;                // 0.0 - 1.0
     topK: number;
   };
-  
+
   // 키워드 검색 (BM25)
   keyword: {
     enabled: boolean;
     weight: number;
     topK: number;
   };
-  
+
   // 리랭킹
   reranking: {
     enabled: boolean;
     model: 'bge-reranker' | 'cohere';
   };
-  
+
   // 결과 다양성 (MMR)
   diversity: {
     enabled: boolean;
     lambda: number;                // 관련성 vs 다양성 (0.5 - 1.0)
   };
-  
+
   // 필터
   filters: {
     contentTypes?: ContentType[];
@@ -493,7 +493,7 @@ interface RetrievalConfig {
       requireExample?: boolean;
     };
   };
-  
+
   // 최종 결과
   finalTopK: number;
 }
@@ -521,10 +521,10 @@ class RAGRetriever {
   ): Promise<ContentChunk[]> {
     // 1. 쿼리 확장
     const expandedQueries = await this.expandQuery(query);
-    
+
     // 2. 하이브리드 검색
     let results: ScoredChunk[] = [];
-    
+
     for (const q of expandedQueries) {
       // 시맨틱 검색
       if (config.semantic.enabled) {
@@ -534,7 +534,7 @@ class RAGRetriever {
           score: r.score * config.semantic.weight,
         })));
       }
-      
+
       // 키워드 검색
       if (config.keyword.enabled) {
         const keywordResults = await this.keywordSearch(q, channelId, config);
@@ -544,73 +544,73 @@ class RAGRetriever {
         })));
       }
     }
-    
+
     // 3. 결과 병합 및 중복 제거
     results = this.mergeResults(results);
-    
+
     // 4. 필터 적용
     results = this.applyFilters(results, config.filters);
-    
+
     // 5. 리랭킹
     if (config.reranking.enabled) {
       results = await this.rerank(query, results, config.reranking);
     }
-    
+
     // 6. 다양성 적용 (MMR)
     if (config.diversity.enabled) {
       results = this.applyMMR(results, config.diversity.lambda);
     }
-    
+
     return results.slice(0, config.finalTopK).map(r => r.chunk);
   }
-  
+
   // 쿼리 확장
   private async expandQuery(query: string): Promise<string[]> {
     const queries = [query];
-    
+
     // LLM으로 관련 검색어 생성
     const expanded = await this.llm.complete(`
       주제: "${query}"
-      
+
       이 주제를 다른 관점에서 검색할 수 있는 쿼리 2개를 생성해주세요.
       JSON 배열로 반환: ["쿼리1", "쿼리2"]
     `);
-    
+
     queries.push(...JSON.parse(expanded));
     return queries;
   }
-  
+
   // MMR (Maximal Marginal Relevance)
   private applyMMR(results: ScoredChunk[], lambda: number): ScoredChunk[] {
     const selected: ScoredChunk[] = [];
     const remaining = [...results];
-    
+
     while (selected.length < results.length && remaining.length > 0) {
       let bestScore = -Infinity;
       let bestIdx = 0;
-      
+
       for (let i = 0; i < remaining.length; i++) {
         // 관련성
         const relevance = remaining[i].score;
-        
+
         // 이미 선택된 것들과의 최대 유사도
         const maxSim = selected.length > 0
           ? Math.max(...selected.map(s => this.similarity(s, remaining[i])))
           : 0;
-        
+
         // MMR 점수
         const mmr = lambda * relevance - (1 - lambda) * maxSim;
-        
+
         if (mmr > bestScore) {
           bestScore = mmr;
           bestIdx = i;
         }
       }
-      
+
       selected.push(remaining[bestIdx]);
       remaining.splice(bestIdx, 1);
     }
-    
+
     return selected;
   }
 }
@@ -633,7 +633,7 @@ class SpecializedRetriever extends RAGRetriever {
       },
     });
   }
-  
+
   // 예시 검색 - 유사한 예시/비유
   async retrieveExamples(
     topic: string,
@@ -648,7 +648,7 @@ class SpecializedRetriever extends RAGRetriever {
       },
     });
   }
-  
+
   // 고성과 콘텐츠 검색
   async retrieveHighPerformers(
     topic: string,
@@ -661,7 +661,7 @@ class SpecializedRetriever extends RAGRetriever {
       },
     });
   }
-  
+
   // 훅 검색 - 좋은 도입부
   async retrieveHooks(
     topic: string,
@@ -673,7 +673,7 @@ class SpecializedRetriever extends RAGRetriever {
         minPerformance: 0.5,
       },
     });
-    
+
     // Hook 위치 청크만 필터
     return results.filter(r => r.context.position === 'hook');
   }
@@ -700,7 +700,7 @@ interface GenerationContext {
       previousEpisodes: number;
     };
   };
-  
+
   // 검색된 관련 콘텐츠
   retrieved: {
     similar: ContentChunk[];       // 유사 주제 콘텐츠
@@ -708,10 +708,10 @@ interface GenerationContext {
     examples: ContentChunk[];      // 관련 예시
     hooks: ContentChunk[];         // 좋은 훅 예시
   };
-  
+
   // 페르소나
   persona: Persona;
-  
+
   // 생성 설정
   config: {
     format: 'shorts' | 'long';
@@ -727,14 +727,14 @@ class ContextBuilder {
     private retriever: SpecializedRetriever,
     private personaManager: PersonaManager,
   ) {}
-  
+
   async build(
     topic: NormalizedTopic,
     channelId: string,
     config: GenerationConfig
   ): Promise<GenerationContext> {
     const persona = await this.personaManager.get(channelId);
-    
+
     // 병렬로 다양한 타입의 콘텐츠 검색
     const [similar, opinions, examples, hooks] = await Promise.all([
       this.retriever.retrieve(topic.title.normalized, channelId),
@@ -742,7 +742,7 @@ class ContextBuilder {
       this.retriever.retrieveExamples(topic.title.normalized, channelId),
       this.retriever.retrieveHooks(topic.title.normalized, channelId),
     ]);
-    
+
     return {
       topic: {
         title: topic.title.normalized,
@@ -787,7 +787,7 @@ ${context.persona.identity.description}
 
 # 관점
 ${context.persona.perspective.biases.map(b => `- ${b}`).join('\n')}
-${context.persona.perspective.contrarian ? 
+${context.persona.perspective.contrarian ?
   `\n# 주류와 다른 시각\n${context.persona.perspective.contrarian.map(c => `- ${c}`).join('\n')}` : ''}
 
 # 과거에 비슷한 주제로 작성한 콘텐츠
@@ -853,10 +853,10 @@ interface GeneratedScript {
   id: string;
   channelId: string;
   topicId: string;
-  
+
   // 스크립트
   script: string;
-  
+
   // 메타
   metadata: {
     generatedAt: Date;
@@ -865,7 +865,7 @@ interface GeneratedScript {
     estimatedDuration: number;
     version: number;
   };
-  
+
   // 품질 체크 결과
   qualityCheck: {
     styleScore: number;            // 스타일 일관성 (0-1)
@@ -873,7 +873,7 @@ interface GeneratedScript {
     hookScore: number;             // 훅 품질 (0-1)
     passed: boolean;
   };
-  
+
   // 상태
   status: 'generated' | 'reviewed' | 'approved' | 'rejected';
 }
@@ -886,10 +886,10 @@ class ScriptGenerator {
   ): Promise<GeneratedScript> {
     // 1. 컨텍스트 구성
     const context = await this.contextBuilder.build(topic, channelId, config);
-    
+
     // 2. 프롬프트 빌딩
     const prompt = this.promptBuilder.build(context);
-    
+
     // 3. LLM 생성
     const rawScript = await this.llm.complete({
       model: 'claude-3-5-sonnet',
@@ -897,15 +897,15 @@ class ScriptGenerator {
       temperature: 0.7,
       maxTokens: 2000,
     });
-    
+
     // 4. 후처리 및 품질 체크
     const { script, qualityCheck } = await this.postProcess(rawScript, context.persona);
-    
+
     // 5. 품질 미달 시 재생성 (최대 2회)
     if (!qualityCheck.passed) {
       return this.regenerate(topic, channelId, config, qualityCheck);
     }
-    
+
     return {
       id: generateUUID(),
       channelId,
@@ -922,35 +922,35 @@ class ScriptGenerator {
       status: 'generated',
     };
   }
-  
+
   private async postProcess(
     rawScript: string,
     persona: Persona
   ): Promise<{ script: string; qualityCheck: QualityCheck }> {
     let script = rawScript;
-    
+
     // 1. 금지어 체크
     const avoidWordsFound = this.findAvoidWords(script, persona);
-    
+
     // 2. 금지어 대체
     if (avoidWordsFound.length > 0) {
       script = await this.replaceAvoidWords(script, avoidWordsFound, persona);
     }
-    
+
     // 3. 스타일 점수 계산
     const styleScore = await this.calculateStyleScore(script, persona);
-    
+
     // 4. 훅 품질 평가
     const hookScore = await this.evaluateHook(script);
-    
+
     // 5. 길이 조정
     const duration = this.estimateDuration(script);
     if (duration > 65) {  // Shorts 제한
       script = await this.trimScript(script, 55);
     }
-    
+
     const passed = styleScore >= 0.7 && hookScore >= 0.5 && avoidWordsFound.length <= 2;
-    
+
     return {
       script,
       qualityCheck: {
@@ -977,7 +977,7 @@ interface FineTuningCriteria {
     minEngagementRate: number;
     minWatchTimeRatio: number;       // 평균 시청 비율
   };
-  
+
   // 품질 기준
   quality: {
     minStyleScore: number;
@@ -1010,12 +1010,12 @@ interface FineTuningExample {
     category: string;
     context?: string;                // 관련 정보 (선택)
   };
-  
+
   // 출력
   output: {
     script: string;
   };
-  
+
   // 메타
   metadata: {
     channelId: string;
@@ -1053,7 +1053,7 @@ class FineTuningDataCollector {
       'qualityCheck.styleScore': { $gte: criteria.quality.minStyleScore },
       status: 'published',
     });
-    
+
     // 2. 파인튜닝 데이터로 변환
     return highPerformers.map(script => ({
       input: {
@@ -1072,19 +1072,19 @@ class FineTuningDataCollector {
       },
     }));
   }
-  
+
   // 파인튜닝 포맷으로 변환
   toFineTuningFormat(
     examples: FineTuningExample[],
     persona: Persona
   ): ChatFineTuningFormat[] {
     const systemPrompt = this.createSystemPrompt(persona);
-    
+
     return examples.map(ex => ({
       messages: [
         { role: 'system', content: systemPrompt },
-        { 
-          role: 'user', 
+        {
+          role: 'user',
           content: `주제: ${ex.input.topic}\n키워드: ${ex.input.keywords.join(', ')}\n\n위 주제에 대한 스크립트를 작성해주세요.`
         },
         { role: 'assistant', content: ex.output.script },

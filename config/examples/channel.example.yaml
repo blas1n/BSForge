@@ -10,7 +10,7 @@ channel:
   id: "example-tech-channel"
   name: "테크 예시 채널"
   description: "기술 뉴스와 트렌드를 다루는 예시 채널"
-  
+
   # YouTube 연동 (실제 채널 ID는 비공개)
   youtube:
     channel_id: "UC_XXXXXXXXXX"  # 실제 값으로 교체
@@ -20,7 +20,7 @@ channel:
 persona:
   name: "테크브로"
   tagline: "뻔한 소리 없이 핵심만"
-  
+
   # 음성 설정
   voice:
     gender: "male"
@@ -29,12 +29,12 @@ persona:
     settings:
       speed: 1.1
       pitch: 0
-  
+
   # 말투 스타일
   communication:
     tone: "friendly"
     formality: "semi-formal"
-    
+
     # 문장 패턴
     speech_patterns:
       sentence_endings:
@@ -49,7 +49,7 @@ persona:
         - "진짜"
         - "솔직히"
         - "핵심은"
-    
+
     # 금지 패턴
     avoid_patterns:
       words:
@@ -59,7 +59,7 @@ persona:
       styles:
         - "과도한 감탄사"
         - "클릭베이트 문구"
-  
+
   # 관점 & 가치관
   perspective:
     approach: "practical"  # practical | analytical | entertaining
@@ -78,7 +78,7 @@ topic_collection:
   region_weights:
     domestic: 0.3
     foreign: 0.7
-  
+
   # 활성화된 소스
   enabled_sources:
     - "reddit"
@@ -86,7 +86,7 @@ topic_collection:
     - "techcrunch"
     - "clien"
     - "yozm"
-  
+
   # 소스별 설정
   source_overrides:
     reddit:
@@ -105,7 +105,7 @@ topic_collection:
       params:
         boards:
           - "it"  # IT수다
-  
+
   # 트렌드 설정
   trend_config:
     enabled: true
@@ -126,7 +126,7 @@ scoring:
     channel_relevance: 0.25
     novelty: 0.10
     bonus_multi_source: 0.05
-  
+
   # 채널 유형 프리셋 (기본값 오버라이드)
   preset: "tech"  # news | educational | trending | niche | tech
 
@@ -135,7 +135,7 @@ content:
   # 형식
   format: "shorts"  # shorts | long
   target_duration: 55  # 초 (Shorts 최대 60초)
-  
+
   # 비주얼
   visual:
     source_priority:
@@ -143,7 +143,7 @@ content:
       - "ai_image"
       - "solid_color"
     fallback_color: "#1a1a2e"
-  
+
   # 자막 스타일
   subtitle:
     font_name: "Pretendard"
@@ -156,13 +156,13 @@ upload:
   # 일일 업로드 수
   daily_target: 2
   max_daily: 3
-  
+
   # 업로드 시간
   schedule:
     allowed_hours: [7, 8, 9, 12, 13, 18, 19, 20, 21]
     preferred_days: null  # null = 매일
     min_interval_hours: 6
-  
+
   # 메타데이터
   default_hashtags:
     - "테크"
@@ -178,12 +178,12 @@ operation:
     script: "manual"
     video: "manual"
     upload: "auto"
-  
+
   # 자동 승인 조건
   auto_approve:
     max_risk_score: 20
     require_series_match: false
-  
+
   # 알림
   notifications:
     telegram: true

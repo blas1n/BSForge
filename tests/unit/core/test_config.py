@@ -7,9 +7,15 @@ from app.core.config import Settings
 
 
 @pytest.mark.unit
-def test_settings_default_values():
+def test_settings_default_values(monkeypatch):
     """Test that settings have correct default values."""
-    settings = Settings()
+    # Remove .env file loading for this test to check actual defaults
+    monkeypatch.delenv("DEBUG", raising=False)
+    monkeypatch.delenv("APP_NAME", raising=False)
+    monkeypatch.delenv("APP_ENV", raising=False)
+    monkeypatch.delenv("LOG_LEVEL", raising=False)
+
+    settings = Settings(_env_file=None)
 
     assert settings.app_name == "BSForge"
     assert settings.app_env == "development"
@@ -41,9 +47,7 @@ def test_settings_is_production():
 def test_settings_database_url_validation():
     """Test that database URL must use asyncpg driver."""
     # Valid asyncpg URL
-    settings = Settings(
-        database_url="postgresql+asyncpg://user:pass@localhost:5432/db"
-    )
+    settings = Settings(database_url="postgresql+asyncpg://user:pass@localhost:5432/db")
     assert "asyncpg" in str(settings.database_url)
 
     # Invalid URL should raise error

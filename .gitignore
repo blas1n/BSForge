@@ -164,9 +164,10 @@ finetuning/
 *.jsonl
 *.parquet
 
-# Model checkpoints
+# Model checkpoints and ML model files
 checkpoints/
-models/
+saved_models/
+model_cache/
 *.pt
 *.pth
 *.bin
@@ -202,7 +203,8 @@ log/
 # ============================================
 # VSCode
 .vscode/
-!.vscode/settings.json.example
+!.vscode/settings.json
+!.vscode/launch.json
 !.vscode/extensions.json
 
 # PyCharm

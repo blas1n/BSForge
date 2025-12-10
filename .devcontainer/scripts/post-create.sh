@@ -8,38 +8,56 @@ echo "======================================"
 echo "Installing uv..."
 if ! command -v uv &> /dev/null; then
     curl -LsSf https://astral.sh/uv/install.sh | sh
-    export PATH="$HOME/.cargo/bin:$PATH"
-    echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.bashrc
+    # Add uv to PATH immediately
+    export PATH="$HOME/.local/bin:$PATH"
+    echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
     echo "[OK] uv installed successfully"
 else
     echo "[OK] uv already installed"
 fi
 
 # 2. Ensure uv is in PATH for current session
-export PATH="$HOME/.cargo/bin:$PATH"
+export PATH="$HOME/.local/bin:$PATH"
 
-# 3. Install Python dependencies
+# 3. Create virtual environment if it doesn't exist
+if [ ! -d ".venv" ]; then
+    echo ""
+    echo "Creating virtual environment..."
+    uv venv .venv
+    echo "[OK] Virtual environment created"
+fi
+
+# 4. Activate virtual environment
+source .venv/bin/activate
+
+# 5. Install Python dependencies
 echo ""
 echo "Installing Python dependencies..."
 if [ -f "pyproject.toml" ]; then
     uv pip install -e ".[dev]"
     echo "[OK] Dependencies installed successfully"
+
+    # 6. Set up pre-commit hooks (after dependencies are installed)
+    echo ""
+    echo "Setting up pre-commit hooks..."
+    if [ -f ".pre-commit-config.yaml" ]; then
+        pre-commit install
+        echo "[OK] Pre-commit hooks installed"
+    else
+        echo "[SKIP] .pre-commit-config.yaml not found"
+    fi
 else
     echo "[SKIP] pyproject.toml not found - will be created in Phase 1"
 fi
 
-# 4. Set up pre-commit hooks (if available)
-echo ""
-echo "Setting up pre-commit hooks..."
-if command -v pre-commit &> /dev/null; then
-    pre-commit install
-    echo "[OK] Pre-commit hooks installed"
-else
-    echo "[SKIP] pre-commit not found - will be installed with dev dependencies"
-fi
-
-# 5. Make sure scripts are executable
+# 7. Make sure scripts are executable
 chmod +x .devcontainer/scripts/*.sh 2>/dev/null || true
+
+# 8. Add venv activation to bashrc
+if ! grep -q "source /workspace/.venv/bin/activate" ~/.bashrc; then
+    echo 'source /workspace/.venv/bin/activate' >> ~/.bashrc
+    echo "[OK] Auto-activation added to bashrc"
+fi
 
 echo ""
 echo "======================================"

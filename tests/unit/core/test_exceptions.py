@@ -70,9 +70,7 @@ def test_config_errors():
 @pytest.mark.unit
 def test_external_api_error():
     """Test ExternalAPIError with service and status code."""
-    error = ExternalAPIError(
-        service="YouTube", message="API request failed", status_code=429
-    )
+    error = ExternalAPIError(service="YouTube", message="API request failed", status_code=429)
 
     assert error.service == "YouTube"
     assert error.message == "API request failed"

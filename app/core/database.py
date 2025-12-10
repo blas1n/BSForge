@@ -5,9 +5,9 @@ It includes the Base class for all ORM models and utility functions.
 """
 
 from collections.abc import AsyncGenerator
-from typing import Any
+from typing import ClassVar
 
-from sqlalchemy import MetaData
+from sqlalchemy import MetaData, text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -56,9 +56,10 @@ class Base(DeclarativeBase):
         ...     name: Mapped[str]
     """
 
-    metadata = metadata
+    metadata: ClassVar[MetaData] = metadata
 
     @declared_attr.directive
+    @classmethod
     def __tablename__(cls) -> str:
         """Generate table name from class name.
 
@@ -180,7 +181,7 @@ async def check_db_connection() -> bool:
     """
     try:
         async with engine.begin() as conn:
-            await conn.execute("SELECT 1")
+            await conn.execute(text("SELECT 1"))
         return True
     except Exception as e:
         logger.error("Database health check failed", error=str(e))

@@ -21,7 +21,7 @@
 
 ### 2.1 소스 타입
 ```typescript
-type SourceType = 
+type SourceType =
   | 'rss'           // RSS 피드 구독
   | 'api'           // 공식 API (Twitter, Reddit 등)
   | 'scraper'       // 웹 스크래핑
@@ -29,7 +29,7 @@ type SourceType =
 
 type SourceRegion = 'domestic' | 'foreign' | 'global';
 
-type SourceCategory = 
+type SourceCategory =
   | 'community'     // 커뮤니티
   | 'news'          // 뉴스
   | 'blog'          // 블로그/미디어
@@ -46,7 +46,7 @@ interface Source {
   type: SourceType;
   region: SourceRegion;
   category: SourceCategory;
-  
+
   // 연결 정보
   connection: {
     url: string;
@@ -57,7 +57,7 @@ interface Source {
       credentials?: string;  // 암호화된 자격증명 참조
     };
   };
-  
+
   // 파싱 설정
   parser: {
     type: 'json' | 'html' | 'xml' | 'rss';
@@ -78,7 +78,7 @@ interface Source {
       score?: string;
     };
   };
-  
+
   // 필터링
   filters: {
     minScore?: number;        // 최소 추천수/점수
@@ -87,14 +87,14 @@ interface Source {
     keywords?: string[];      // 포함해야 할 키워드
     excludeKeywords?: string[]; // 제외 키워드
   };
-  
+
   // 스케줄
   schedule: {
     cron: string;             // cron 표현식
     rateLimit: number;        // 분당 최대 요청
     enabled: boolean;
   };
-  
+
   // 메타
   credibility: number;        // 신뢰도 (1-10)
   categories: string[];       // 이 소스가 커버하는 주제 카테고리
@@ -172,7 +172,7 @@ const domesticCommunities: Source[] = [
     category: 'community',
     categories: ['auto', 'lifestyle'],
   },
-  
+
   // 마이너/특화
   {
     id: 'dcinside',
@@ -180,9 +180,9 @@ const domesticCommunities: Source[] = [
     type: 'scraper',
     region: 'domestic',
     category: 'community',
-    connection: { 
-      url: 'https://gall.dcinside.com/board/lists/?id={gallery}', 
-      method: 'GET' 
+    connection: {
+      url: 'https://gall.dcinside.com/board/lists/?id={gallery}',
+      method: 'GET'
     },
     // 갤러리별로 다른 설정 필요
     categories: ['all'],  // 갤러리에 따라 동적
@@ -240,7 +240,7 @@ const foreignSources: Source[] = [
     type: 'api',
     region: 'foreign',
     category: 'community',
-    connection: { 
+    connection: {
       url: 'https://www.reddit.com/r/{subreddit}/hot.json',
       method: 'GET',
     },
@@ -278,7 +278,7 @@ const foreignSources: Source[] = [
     categories: ['all'],  // 검색어/계정 기반
     language: 'mixed',
   },
-  
+
   // 뉴스/블로그
   {
     id: 'techcrunch',
@@ -380,10 +380,10 @@ interface ChannelSourceConfig {
     domestic: number;   // 0.0 - 1.0
     foreign: number;    // 0.0 - 1.0
   };
-  
+
   // 활성화할 소스 ID 목록
   enabledSources: string[];
-  
+
   // 소스별 상세 설정
   sourceOverrides: {
     [sourceId: string]: {
@@ -398,7 +398,7 @@ interface ChannelSourceConfig {
       params?: Record<string, string | string[]>;
     };
   };
-  
+
   // 트렌드 설정
   trendConfig: {
     enabled: boolean;
@@ -517,16 +517,16 @@ interface RawTopic {
 interface NormalizedTopic {
   id: string;
   hash: string;                  // 중복 체크용
-  
+
   // 기본 정보
   title: {
     original: string;
     translated?: string;         // 번역 (해외 소스)
     normalized: string;          // 정제된 제목
   };
-  
+
   summary: string;               // 200자 이내 요약
-  
+
   // 소스
   source: {
     id: string;
@@ -535,7 +535,7 @@ interface NormalizedTopic {
     region: SourceRegion;
     credibility: number;
   };
-  
+
   // 분류
   classification: {
     categories: string[];        // 자동 분류된 카테고리
@@ -544,7 +544,7 @@ interface NormalizedTopic {
     language: 'ko' | 'en';
     sentiment: 'positive' | 'neutral' | 'negative';
   };
-  
+
   // 점수
   scores: {
     source: number;              // 원본 점수 (정규화)
@@ -553,17 +553,17 @@ interface NormalizedTopic {
     relevance: number;           // 채널 관련성 (0-1)
     total: number;               // 종합 (0-100)
   };
-  
+
   // 시간
   timestamps: {
     published: Date;
     collected: Date;
     expires: Date;
   };
-  
+
   // 상태
   status: 'pending' | 'approved' | 'rejected' | 'used' | 'expired';
-  
+
   // 시리즈 연결 (있는 경우)
   series?: {
     id: string;
@@ -589,41 +589,41 @@ class TopicNormalizer {
     private classifier: ClassificationService,
     private entityExtractor: EntityExtractionService,
   ) {}
-  
+
   async normalize(raw: RawTopic, source: Source): Promise<NormalizedTopic> {
     // 1. 언어 감지 및 번역
     const language = this.detectLanguage(raw.title);
-    const translatedTitle = language === 'en' 
+    const translatedTitle = language === 'en'
       ? await this.translator.translate(raw.title, 'ko')
       : undefined;
-    
+
     // 2. 제목 정제 (특수문자, 광고성 문구 제거)
     const normalizedTitle = this.cleanTitle(raw.title);
-    
+
     // 3. 요약 생성
     const summary = await this.summarizer.summarize(
       raw.content || raw.summary || raw.title,
       { maxLength: 200 }
     );
-    
+
     // 4. 분류 (카테고리, 키워드)
     const classification = await this.classifier.classify(
       normalizedTitle,
       raw.content || summary
     );
-    
+
     // 5. 엔티티 추출
     const entities = await this.entityExtractor.extract(
       raw.title,
       raw.content
     );
-    
+
     // 6. 해시 생성 (중복 체크용)
     const hash = this.generateHash(normalizedTitle, classification.keywords);
-    
+
     // 7. 만료 시간 계산 (카테고리에 따라)
     const expiresAt = this.calculateExpiry(classification.categories);
-    
+
     return {
       id: generateUUID(),
       hash,
@@ -660,7 +660,7 @@ class TopicNormalizer {
       status: 'pending',
     };
   }
-  
+
   private calculateExpiry(categories: string[]): Date {
     // 카테고리별 만료 시간
     const expiryHours: Record<string, number> = {
@@ -671,11 +671,11 @@ class TopicNormalizer {
       'educational': 720, // 교육 (1달)
       'evergreen': 2160,  // 에버그린 (3달)
     };
-    
+
     const minExpiry = Math.min(
       ...categories.map(c => expiryHours[c] || 72)
     );
-    
+
     return new Date(Date.now() + minExpiry * 60 * 60 * 1000);
   }
 }
@@ -699,7 +699,7 @@ class TopicDeduplicator {
     private vectorDB: VectorDB,
     private recentTopics: RecentTopicCache,
   ) {}
-  
+
   async checkDuplicate(
     topic: NormalizedTopic,
     config: DedupConfig
@@ -714,7 +714,7 @@ class TopicDeduplicator {
         reason: 'exact_hash',
       };
     }
-    
+
     // 2. 제목 유사도 체크
     const titleEmbedding = await this.embed(topic.title.normalized);
     const similarByTitle = await this.vectorDB.query({
@@ -724,7 +724,7 @@ class TopicDeduplicator {
         collectedAfter: new Date(Date.now() - config.timeWindowHours * 60 * 60 * 1000),
       },
     });
-    
+
     for (const match of similarByTitle) {
       if (match.similarity >= config.titleSimilarityThreshold) {
         return {
@@ -735,7 +735,7 @@ class TopicDeduplicator {
         };
       }
     }
-    
+
     // 3. 같은 이벤트 감지 (엔티티 + 시간 기반)
     if (topic.classification.entities.length > 0) {
       const sameEvent = await this.findSameEvent(topic, config);
@@ -748,40 +748,40 @@ class TopicDeduplicator {
         };
       }
     }
-    
+
     return { isDuplicate: false, similarity: 0 };
   }
-  
+
   // 같은 이벤트/사건 감지
   private async findSameEvent(
     topic: NormalizedTopic,
     config: DedupConfig
   ): Promise<{ id: string; similarity: number } | null> {
     const entityNames = topic.classification.entities.map(e => e.name);
-    
+
     const candidates = await this.recentTopics.findByEntities(
       entityNames,
       config.timeWindowHours
     );
-    
+
     for (const candidate of candidates) {
       // 엔티티 오버랩 체크
       const candidateEntities = candidate.classification.entities.map(e => e.name);
       const overlap = this.calculateOverlap(entityNames, candidateEntities);
-      
+
       // 키워드 오버랩 체크
       const keywordOverlap = this.calculateOverlap(
         topic.classification.keywords,
         candidate.classification.keywords
       );
-      
+
       const combinedSimilarity = (overlap + keywordOverlap) / 2;
-      
+
       if (combinedSimilarity >= config.eventSimilarityThreshold) {
         return { id: candidate.id, similarity: combinedSimilarity };
       }
     }
-    
+
     return null;
   }
 }
@@ -795,11 +795,11 @@ interface TopicCluster {
   event: string;                    // 이벤트 요약
   mainTopic: NormalizedTopic;       // 대표 토픽 (가장 높은 점수)
   relatedTopics: NormalizedTopic[]; // 관련 토픽들
-  
+
   // 클러스터 메타
   sourceCount: number;              // 몇 개 소스에서 나왔는지
   totalScore: number;               // 종합 관심도
-  
+
   // 종합 정보
   mergedEntities: Entity[];
   mergedKeywords: string[];
@@ -819,19 +819,19 @@ interface ScoreComponents {
   // 소스 기반
   sourceCredibility: number;     // 소스 신뢰도 (0-1)
   sourceScore: number;           // 원본 점수 정규화 (0-1)
-  
+
   // 시간 기반
   freshness: number;             // 신선도 (0-1)
-  
+
   // 트렌드 기반
   trendMomentum: number;         // 트렌드 상승세 (0-1)
   multiSourceBonus: number;      // 여러 소스 언급 보너스 (0-0.3)
-  
+
   // 채널 기반
   categoryRelevance: number;     // 카테고리 매칭 (0-1)
   keywordRelevance: number;      // 키워드 매칭 (0-1)
   entityRelevance: number;       // 엔티티 매칭 (0-1)
-  
+
   // 히스토리 기반
   novelty: number;               // 새로움 (과거에 안 다룬 주제) (0-1)
   seriesBonus: number;           // 시리즈 연속성 보너스 (0-0.3)
@@ -860,34 +860,34 @@ class TopicScorer {
     private historyService: ContentHistoryService,
     private seriesService: SeriesService,
   ) {}
-  
+
   async score(topic: NormalizedTopic): Promise<NormalizedTopic> {
     const weights = this.channelConfig.scoringWeights;
-    
+
     const components: ScoreComponents = {
       // 소스 기반
       sourceCredibility: topic.source.credibility / 10,
       sourceScore: topic.scores.source,
-      
+
       // 시간 기반
       freshness: this.calculateFreshness(topic.timestamps.published),
-      
+
       // 트렌드 기반
       trendMomentum: await this.trendService.getMomentum(topic.classification.keywords),
       multiSourceBonus: await this.calculateMultiSourceBonus(topic),
-      
+
       // 채널 기반
       categoryRelevance: this.calculateCategoryRelevance(topic),
       keywordRelevance: this.calculateKeywordRelevance(topic),
       entityRelevance: this.calculateEntityRelevance(topic),
-      
+
       // 히스토리 기반
       novelty: await this.calculateNovelty(topic),
       seriesBonus: await this.calculateSeriesBonus(topic),
     };
-    
+
     // 가중 합계
-    const totalScore = 
+    const totalScore =
       components.sourceCredibility * weights.sourceCredibility +
       components.sourceScore * weights.sourceScore +
       components.freshness * weights.freshness +
@@ -898,7 +898,7 @@ class TopicScorer {
       components.entityRelevance * weights.entityRelevance +
       components.novelty * weights.novelty +
       components.seriesBonus;  // 보너스는 가중치 없이 추가
-    
+
     return {
       ...topic,
       scores: {
@@ -910,13 +910,13 @@ class TopicScorer {
       },
     };
   }
-  
+
   // 시리즈 보너스: 이전에 잘 됐던 주제의 후속
   private async calculateSeriesBonus(topic: NormalizedTopic): Promise<number> {
     const series = await this.seriesService.findMatchingSeries(topic);
-    
+
     if (!series) return 0;
-    
+
     // 시리즈 성과에 따른 보너스
     const avgPerformance = series.averagePerformance;
     if (avgPerformance >= 0.8) return 0.3;  // 고성과 시리즈
@@ -935,14 +935,14 @@ class TopicScorer {
 interface Series {
   id: string;
   name: string;                      // "AI 뉴스", "주간 밈 정리"
-  
+
   // 시리즈 조건
   criteria: {
     keywords: string[];              // 공통 키워드
     categories: string[];            // 공통 카테고리
     minSimilarity: number;           // 최소 유사도
   };
-  
+
   // 성과
   performance: {
     episodeCount: number;
@@ -950,10 +950,10 @@ interface Series {
     averageEngagement: number;
     trend: 'rising' | 'stable' | 'declining';
   };
-  
+
   // 히스토리
   episodes: SeriesEpisode[];
-  
+
   // 자동 감지 여부
   autoDetected: boolean;
   confirmedByUser: boolean;
@@ -979,7 +979,7 @@ class SeriesDetector {
     private historyService: ContentHistoryService,
     private performanceService: PerformanceService,
   ) {}
-  
+
   // 성과 데이터 기반으로 시리즈 패턴 감지
   async detectSeries(): Promise<Series[]> {
     // 1. 최근 고성과 콘텐츠 가져오기
@@ -988,17 +988,17 @@ class SeriesDetector {
       minViews: 1000,
       limit: 50,
     });
-    
+
     // 2. 키워드/카테고리 클러스터링
     const clusters = this.clusterByTopics(recentHighPerformers);
-    
+
     // 3. 연속 성공 패턴 찾기
     const potentialSeries: Series[] = [];
-    
+
     for (const cluster of clusters) {
       if (cluster.items.length >= 3) {  // 최소 3개 이상
         const avgPerformance = this.calculateAveragePerformance(cluster.items);
-        
+
         if (avgPerformance.engagementRate >= 0.05) {  // 5% 이상 engagement
           potentialSeries.push({
             id: generateUUID(),
@@ -1027,32 +1027,32 @@ class SeriesDetector {
         }
       }
     }
-    
+
     return potentialSeries;
   }
-  
+
   // 새 토픽이 기존 시리즈에 맞는지 체크
   async matchToSeries(topic: NormalizedTopic): Promise<Series | null> {
     const activeSeries = await this.getActiveSeries();
-    
+
     for (const series of activeSeries) {
       const keywordMatch = this.calculateOverlap(
         topic.classification.keywords,
         series.criteria.keywords
       );
-      
+
       const categoryMatch = this.calculateOverlap(
         topic.classification.categories,
         series.criteria.categories
       );
-      
+
       const similarity = (keywordMatch + categoryMatch) / 2;
-      
+
       if (similarity >= series.criteria.minSimilarity) {
         return series;
       }
     }
-    
+
     return null;
   }
 }
@@ -1066,15 +1066,15 @@ class SeriesDetector {
 ```typescript
 interface TopicQueue {
   channelId: string;
-  
+
   // 우선순위 큐 (점수 기반)
   pending: PriorityQueue<NormalizedTopic>;
-  
+
   // 상태별 저장소
   approved: NormalizedTopic[];
   rejected: NormalizedTopic[];
   used: NormalizedTopic[];
-  
+
   // 설정
   config: {
     maxPendingSize: number;       // 최대 대기 크기
@@ -1089,12 +1089,12 @@ interface TopicQueue {
 class TopicQueueManager {
   async addTopic(channelId: string, topic: NormalizedTopic): Promise<boolean> {
     const queue = await this.getQueue(channelId);
-    
+
     // 최소 점수 체크
     if (topic.scores.total < queue.config.minScoreThreshold) {
       return false;
     }
-    
+
     // 큐 크기 체크
     if (queue.pending.size >= queue.config.maxPendingSize) {
       const lowest = queue.pending.peekLowest();
@@ -1104,21 +1104,21 @@ class TopicQueueManager {
         return false;
       }
     }
-    
+
     queue.pending.push(topic);
     return true;
   }
-  
+
   async getNextTopic(channelId: string): Promise<NormalizedTopic | null> {
     const queue = await this.getQueue(channelId);
     return queue.pending.pop();
   }
-  
+
   // 만료된 토픽 정리
   async cleanup(channelId: string): Promise<number> {
     const queue = await this.getQueue(channelId);
     const now = new Date();
-    
+
     let removed = 0;
     queue.pending = queue.pending.filter(topic => {
       if (topic.timestamps.expires < now) {
@@ -1127,7 +1127,7 @@ class TopicQueueManager {
       }
       return true;
     });
-    
+
     return removed;
   }
 }
@@ -1140,26 +1140,26 @@ class TopicQueueManager {
 ```typescript
 class CollectionScheduler {
   private jobs: Map<string, CronJob> = new Map();
-  
+
   async initialize(channels: ChannelConfig[]) {
     for (const channel of channels) {
       await this.scheduleForChannel(channel);
     }
   }
-  
+
   private async scheduleForChannel(channel: ChannelConfig) {
     const sources = await this.getEnabledSources(channel);
-    
+
     for (const source of sources) {
       const jobId = `${channel.id}-${source.id}`;
-      
+
       const job = new CronJob(source.schedule.cron, async () => {
         console.log(`[Scheduler] Running collection: ${jobId}`);
-        
+
         try {
           const collector = this.getCollector(source.type);
           const rawTopics = await collector.collect(source, channel.sourceConfig);
-          
+
           for (const raw of rawTopics) {
             await this.processTopic(raw, source, channel);
           }
@@ -1167,12 +1167,12 @@ class CollectionScheduler {
           console.error(`[Scheduler] Error in ${jobId}:`, error);
         }
       });
-      
+
       this.jobs.set(jobId, job);
       job.start();
     }
   }
-  
+
   private async processTopic(
     raw: RawTopic,
     source: Source,
@@ -1180,22 +1180,22 @@ class CollectionScheduler {
   ) {
     // 1. 정규화
     const normalized = await this.normalizer.normalize(raw, source);
-    
+
     // 2. 주제 필터링 (include/exclude)
     const filterResult = await this.topicFilter.check(normalized, channel.topicConfig);
     if (!filterResult.passed) {
       return;
     }
-    
+
     // 3. 중복 체크
     const dedupResult = await this.deduplicator.check(normalized);
     if (dedupResult.isDuplicate) {
       return;
     }
-    
+
     // 4. 스코어링
     const scored = await this.scorer.score(normalized);
-    
+
     // 5. 큐에 추가
     await this.queueManager.addTopic(channel.id, scored);
   }

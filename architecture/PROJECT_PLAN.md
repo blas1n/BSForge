@@ -121,21 +121,21 @@
   identity:
     name: "채널명"
     tagline: "한 줄 소개"
-    
+
   voice:
     gender: "male" | "female"
     voiceId: "TTS 음성 ID"
     tone: "친근함" | "전문적" | "유머러스"
-    
+
   communication:
     style: "반말" | "존댓말" | "혼합"
     speechPatterns: ["~거든요", "~인 거죠"]
     avoidWords: ["혁신적인", "패러다임"]
-    
+
   perspective:
     coreValues: ["실용성", "솔직함"]
     biases: ["과장 싫어함", "검증된 것 선호"]
-    
+
   examples:
     - topic: "새 AI 도구"
       goodResponse: "..."
@@ -162,17 +162,17 @@ topicConfig:
         subcategories: ["llm", "image-gen", "robotics"]
       - name: "startup"
         weight: 0.8
-        
+
     keywords:
       - keyword: "ChatGPT"
         weight: 1.5
         synonyms: ["챗지피티", "GPT"]
-        
-  # 피할 것  
+
+  # 피할 것
   exclude:
     categories: ["politics", "religion"]
     keywords: ["대통령", "국회", "교회"]
-    
+
   # 조건부
   conditional:
     - name: "테크 규제는 허용"

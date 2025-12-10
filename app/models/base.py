@@ -6,7 +6,7 @@ This module provides reusable mixins for common model patterns:
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import DateTime, func
 from sqlalchemy.orm import Mapped, declared_attr, mapped_column
@@ -26,6 +26,7 @@ class UUIDMixin:
     """
 
     @declared_attr
+    @classmethod
     def id(cls) -> Mapped[uuid.UUID]:
         """UUID primary key.
 
@@ -51,6 +52,7 @@ class TimestampMixin:
     """
 
     @declared_attr
+    @classmethod
     def created_at(cls) -> Mapped[datetime]:
         """Timestamp when record was created.
 
@@ -64,6 +66,7 @@ class TimestampMixin:
         )
 
     @declared_attr
+    @classmethod
     def updated_at(cls) -> Mapped[datetime]:
         """Timestamp when record was last updated.
 
