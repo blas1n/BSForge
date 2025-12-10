@@ -1,12 +1,12 @@
 # ============================================
 # BSForge - AI-Powered YouTube Shorts Factory
 # ============================================
-# 소스 코드: 공개 (포트폴리오)
-# 데이터/설정: 비공개 (수익화 자산)
+# Source code: Public (Portfolio)
+# Data/Config: Private (Monetization Assets)
 # ============================================
 
 # ============================================
-# 🐍 Python
+# Python
 # ============================================
 __pycache__/
 *.py[cod]
@@ -45,7 +45,7 @@ env/
 cython_debug/
 
 # ============================================
-# 🔐 크리덴셜 & 시크릿 (절대 공개 금지)
+# Credentials & Secrets
 # ============================================
 .env
 .env.*
@@ -73,14 +73,14 @@ anthropic_key.txt
 elevenlabs_key.txt
 
 # ============================================
-# 📊 데이터 & 데이터베이스 (수익화 핵심 자산)
+# Data & Database
 # ============================================
 # PostgreSQL dump
 *.sql
 *.dump
 *.backup
 
-# SQLite (개발용)
+# SQLite (development)
 *.db
 *.sqlite
 *.sqlite3
@@ -88,35 +88,35 @@ elevenlabs_key.txt
 # Redis dump
 dump.rdb
 
-# 데이터 디렉토리
+# Data directories
 data/
 database/
 db_backups/
 
 # ============================================
-# ⚙️ 채널 & 페르소나 설정 (수익화 핵심 자산)
+# Channel & Persona Configuration
 # ============================================
-# 채널별 설정 (실제 운영 설정)
+# Channel-specific config (production)
 channels/
 config/channels/
 config/personas/
 
-# 운영 설정
+# Production config
 config/production/
 config/secrets/
 
-# 소스 설정 (크롤링 타겟)
+# Source config (crawling targets)
 config/sources/
 
-# 예시 설정은 공개
+# Example configs are public
 !config/examples/
 !config/*.example.yaml
 !config/*.example.json
 
 # ============================================
-# 🎬 생성된 콘텐츠 (저작권 & 용량)
+# Generated Content
 # ============================================
-# 영상/오디오/이미지
+# Video/Audio/Images
 outputs/
 generated/
 videos/
@@ -125,7 +125,7 @@ thumbnails/
 temp/
 tmp/
 
-# 미디어 파일
+# Media files
 *.mp4
 *.mp3
 *.wav
@@ -135,36 +135,36 @@ tmp/
 *.m4a
 *.ogg
 
-# 이미지 (생성된 것)
-# *.png  # 아키텍처 다이어그램은 허용할 수도 있음
+# Generated images
+# *.png  # Architecture diagrams may be allowed
 # *.jpg
 # *.jpeg
 *.webp
 *.gif
 
-# 자막
+# Subtitles
 *.srt
 *.ass
 *.vtt
 
 # ============================================
-# 🧠 AI/ML 데이터 (수익화 핵심 자산)
+# AI/ML Data
 # ============================================
-# 벡터 DB
+# Vector DB
 chroma_db/
 vector_db/
 embeddings/
 *.faiss
 *.index
 
-# 파인튜닝 데이터셋
+# Fine-tuning datasets
 datasets/
 training_data/
 finetuning/
 *.jsonl
 *.parquet
 
-# 모델 체크포인트
+# Model checkpoints
 checkpoints/
 models/
 *.pt
@@ -173,24 +173,24 @@ models/
 *.safetensors
 *.gguf
 
-# HuggingFace 캐시
+# HuggingFace cache
 .cache/
 huggingface/
 
 # ============================================
-# 📈 분석 & 성과 데이터 (수익화 핵심 자산)
+# Analytics & Performance Data
 # ============================================
 analytics/
 reports/
 performance/
 metrics/
 
-# Jupyter Notebooks (분석용)
+# Jupyter Notebooks (analytics)
 *.ipynb
 .ipynb_checkpoints/
 
 # ============================================
-# 📝 로그
+# Logs
 # ============================================
 logs/
 *.log
@@ -198,7 +198,7 @@ logs/
 log/
 
 # ============================================
-# 🛠️ IDE & 에디터
+# IDE & Editors
 # ============================================
 # VSCode
 .vscode/
@@ -229,7 +229,7 @@ Desktop.ini
 *~
 
 # ============================================
-# 🧪 테스트
+# Testing
 # ============================================
 .coverage
 .pytest_cache/
@@ -242,7 +242,7 @@ coverage.xml
 .hypothesis/
 
 # ============================================
-# 📦 패키지 & 의존성
+# Packages & Dependencies
 # ============================================
 # Poetry
 poetry.lock
@@ -251,21 +251,21 @@ poetry.lock
 pip-log.txt
 pip-delete-this-directory.txt
 
-# Node (대시보드용)
+# Node (for dashboard)
 node_modules/
 npm-debug.log
 yarn-error.log
 .pnpm-store/
 
 # ============================================
-# 🐳 Docker
+# Docker
 # ============================================
 docker-compose.override.yml
 docker-compose.local.yml
 .docker/
 
 # ============================================
-# ☁️ 배포 & 인프라
+# Deployment & Infrastructure
 # ============================================
 # Terraform
 *.tfstate
@@ -280,21 +280,21 @@ kubeconfig
 *.kubeconfig
 
 # ============================================
-# 📋 기타
+# Miscellaneous
 # ============================================
-# 임시 파일
+# Temporary files
 *.tmp
 *.temp
 *.bak
 *.old
 
-# 압축 파일
+# Archives
 *.zip
 *.tar.gz
 *.rar
 *.7z
 
-# 문서 (자동 생성)
+# Documentation (auto-generated)
 docs/_build/
 site/
 
@@ -303,9 +303,9 @@ celerybeat-schedule
 celerybeat.pid
 
 # ============================================
-# ✅ 명시적 허용 (예시/템플릿)
+# Explicitly Allowed (Examples/Templates)
 # ============================================
-# 예시 설정 파일
+# Example config files
 !*.example
 !*.example.*
 !*.template
@@ -313,12 +313,12 @@ celerybeat.pid
 !*.sample
 !*.sample.*
 
-# 문서
+# Documentation
 !docs/
 !*.md
 !*.rst
 
-# 아키텍처 다이어그램
+# Architecture diagrams
 !architecture/
 !diagrams/
 !*.mermaid
