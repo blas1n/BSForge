@@ -6,6 +6,7 @@
   // Wait for services to be ready
   "waitFor": "onCreateCommand",
   // Lifecycle scripts
+  "postCreateCommand": "bash .devcontainer/scripts/post-create.sh",
   "postStartCommand": "bash .devcontainer/scripts/post-start.sh",
   // VS Code customization
   "customizations": {

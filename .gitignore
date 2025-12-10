@@ -1,0 +1,326 @@
+# ============================================
+# BSForge - AI-Powered YouTube Shorts Factory
+# ============================================
+# Source code: Public (Portfolio)
+# Data/Config: Private (Monetization Assets)
+# ============================================
+
+# ============================================
+# Python
+# ============================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+venv/
+.venv/
+ENV/
+env/
+.env.local
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Cython
+cython_debug/
+
+# ============================================
+# Credentials & Secrets
+# ============================================
+.env
+.env.*
+!.env.example
+
+# API Keys & Tokens
+secrets/
+credentials/
+*.pem
+*.key
+*.crt
+
+# YouTube OAuth
+token.pickle
+client_secrets.json
+youtube_credentials.json
+*_oauth.json
+
+# Telegram Bot
+telegram_token.txt
+
+# LLM API Keys
+openai_key.txt
+anthropic_key.txt
+elevenlabs_key.txt
+
+# ============================================
+# Data & Database
+# ============================================
+# PostgreSQL dump
+*.sql
+*.dump
+*.backup
+
+# SQLite (development)
+*.db
+*.sqlite
+*.sqlite3
+
+# Redis dump
+dump.rdb
+
+# Data directories
+data/
+database/
+db_backups/
+
+# ============================================
+# Channel & Persona Configuration
+# ============================================
+# Channel-specific config (production)
+channels/
+config/channels/
+config/personas/
+
+# Production config
+config/production/
+config/secrets/
+
+# Source config (crawling targets)
+config/sources/
+
+# Example configs are public
+!config/examples/
+!config/*.example.yaml
+!config/*.example.json
+
+# ============================================
+# Generated Content
+# ============================================
+# Video/Audio/Images
+outputs/
+generated/
+videos/
+audio/
+thumbnails/
+temp/
+tmp/
+
+# Media files
+*.mp4
+*.mp3
+*.wav
+*.webm
+*.avi
+*.mov
+*.m4a
+*.ogg
+
+# Generated images
+# *.png  # Architecture diagrams may be allowed
+# *.jpg
+# *.jpeg
+*.webp
+*.gif
+
+# Subtitles
+*.srt
+*.ass
+*.vtt
+
+# ============================================
+# AI/ML Data
+# ============================================
+# Vector DB
+chroma_db/
+vector_db/
+embeddings/
+*.faiss
+*.index
+
+# Fine-tuning datasets
+datasets/
+training_data/
+finetuning/
+*.jsonl
+*.parquet
+
+# Model checkpoints and ML model files
+checkpoints/
+saved_models/
+model_cache/
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.gguf
+
+# HuggingFace cache
+.cache/
+huggingface/
+
+# ============================================
+# Analytics & Performance Data
+# ============================================
+analytics/
+reports/
+performance/
+metrics/
+
+# Jupyter Notebooks (analytics)
+*.ipynb
+.ipynb_checkpoints/
+
+# ============================================
+# Logs
+# ============================================
+logs/
+*.log
+*.log.*
+log/
+
+# ============================================
+# IDE & Editors
+# ============================================
+# VSCode
+.vscode/
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# PyCharm
+.idea/
+*.iml
+
+# Vim
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+
+# ============================================
+# Testing
+# ============================================
+.coverage
+.pytest_cache/
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# ============================================
+# Packages & Dependencies
+# ============================================
+# Poetry
+poetry.lock
+
+# pip
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Node (for dashboard)
+node_modules/
+npm-debug.log
+yarn-error.log
+.pnpm-store/
+
+# ============================================
+# Docker
+# ============================================
+docker-compose.override.yml
+docker-compose.local.yml
+.docker/
+
+# ============================================
+# Deployment & Infrastructure
+# ============================================
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# Ansible
+*.retry
+
+# Kubernetes
+kubeconfig
+*.kubeconfig
+
+# ============================================
+# Miscellaneous
+# ============================================
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.old
+
+# Archives
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# Documentation (auto-generated)
+docs/_build/
+site/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# ============================================
+# Explicitly Allowed (Examples/Templates)
+# ============================================
+# Example config files
+!*.example
+!*.example.*
+!*.template
+!*.template.*
+!*.sample
+!*.sample.*
+
+# Documentation
+!docs/
+!*.md
+!*.rst
+
+# Architecture diagrams
+!architecture/
+!diagrams/
+!*.mermaid

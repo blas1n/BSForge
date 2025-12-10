@@ -169,7 +169,7 @@ class ReviewItemSummary(BaseModel):
     status: ReviewStatus
     created_at: datetime
     expires_at: datetime | None
-    
+
     class Config:
         from_attributes = True
 
@@ -259,12 +259,12 @@ async def get_review_queue(
 ):
     """검수 큐 조회"""
     query = db.query(ReviewQueue).filter(ReviewQueue.status == status)
-    
+
     if channel_id:
         query = query.filter(ReviewQueue.channel_id == channel_id)
     if type:
         query = query.filter(ReviewQueue.review_type == type)
-    
+
     # 정렬
     if sort_by == "priority":
         query = query.order_by(ReviewQueue.priority.desc(), ReviewQueue.created_at.asc())
@@ -272,10 +272,10 @@ async def get_review_queue(
         query = query.order_by(ReviewQueue.risk_score.desc())
     else:
         query = query.order_by(ReviewQueue.created_at.asc())
-    
+
     total = query.count()
     items = query.offset((page - 1) * page_size).limit(page_size).all()
-    
+
     return ReviewQueueResponse(
         items=[_to_summary(item, db) for item in items],
         total=total,
@@ -295,21 +295,21 @@ async def get_review_detail(
     review = db.query(ReviewQueue).filter(ReviewQueue.id == review_id).first()
     if not review:
         raise HTTPException(status_code=404, detail="Review item not found")
-    
+
     # 상태 업데이트 (진행 중으로)
     if review.status == ReviewStatus.PENDING:
         review.status = ReviewStatus.IN_PROGRESS
         db.commit()
-    
+
     # 상세 정보 로드
     detail = await _load_detail(review, db)
-    
+
     # AI 분석 결과
     ai_analysis = review.ai_analysis or {}
-    
+
     # 유사 과거 콘텐츠
     similar = await _find_similar_content(review, db)
-    
+
     return ReviewDetailResponse(
         item=detail,
         ai_analysis=ai_analysis,
@@ -328,7 +328,7 @@ async def perform_review_action(
     review = db.query(ReviewQueue).filter(ReviewQueue.id == review_id).first()
     if not review:
         raise HTTPException(status_code=404, detail="Review item not found")
-    
+
     # 액션 처리
     if request.action == ReviewAction.APPROVE:
         await _handle_approve(review, db)
@@ -341,7 +341,7 @@ async def perform_review_action(
         message = "수정되었습니다"
     else:
         message = "스킵되었습니다"
-    
+
     # 검수 기록 업데이트
     review.reviewed_at = datetime.utcnow()
     review.reviewed_by = user.user_id
@@ -353,13 +353,13 @@ async def perform_review_action(
         else review.status
     )
     db.commit()
-    
+
     # 다음 아이템
     next_item = db.query(ReviewQueue).filter(
         ReviewQueue.status == ReviewStatus.PENDING,
         ReviewQueue.channel_id == review.channel_id,
     ).order_by(ReviewQueue.priority.desc()).first()
-    
+
     return ReviewActionResponse(
         success=True,
         message=message,
@@ -376,16 +376,16 @@ async def get_review_stats(
 ):
     """검수 통계"""
     since = datetime.utcnow() - timedelta(days=days)
-    
+
     query = db.query(ReviewQueue).filter(ReviewQueue.created_at >= since)
     if channel_id:
         query = query.filter(ReviewQueue.channel_id == channel_id)
-    
+
     total = query.count()
     pending = query.filter(ReviewQueue.status == ReviewStatus.PENDING).count()
     approved = query.filter(ReviewQueue.status == ReviewStatus.APPROVED).count()
     rejected = query.filter(ReviewQueue.status == ReviewStatus.REJECTED).count()
-    
+
     return {
         "total": total,
         "pending": pending,
@@ -417,7 +417,7 @@ async def _handle_approve(review: ReviewQueue, db: Session):
     elif review.review_type == ReviewType.UPLOAD:
         upload = db.query(Upload).filter(Upload.id == review.target_id).first()
         upload.upload_status = "scheduled"
-    
+
     db.commit()
 ```
 
@@ -430,20 +430,20 @@ import json
 
 class ConnectionManager:
     """WebSocket 연결 관리"""
-    
+
     def __init__(self):
         # channel_id -> set of websockets
         self.active_connections: Dict[str, Set[WebSocket]] = {}
-    
+
     async def connect(self, websocket: WebSocket, channel_id: str):
         await websocket.accept()
         if channel_id not in self.active_connections:
             self.active_connections[channel_id] = set()
         self.active_connections[channel_id].add(websocket)
-    
+
     def disconnect(self, websocket: WebSocket, channel_id: str):
         self.active_connections[channel_id].discard(websocket)
-    
+
     async def broadcast(self, channel_id: str, message: dict):
         """채널에 메시지 브로드캐스트"""
         if channel_id in self.active_connections:
@@ -452,7 +452,7 @@ class ConnectionManager:
                     await connection.send_json(message)
                 except:
                     pass
-    
+
     async def broadcast_all(self, message: dict):
         """모든 연결에 브로드캐스트"""
         for connections in self.active_connections.values():
@@ -500,35 +500,35 @@ from pydantic import BaseModel
 
 class TelegramNotifier:
     """텔레그램 알림 서비스"""
-    
+
     def __init__(self, bot_token: str, chat_ids: list[str]):
         self.bot_token = bot_token
         self.chat_ids = chat_ids
         self.app = Application.builder().token(bot_token).build()
-        
+
         # 핸들러 등록
         self.app.add_handler(CommandHandler("start", self.cmd_start))
         self.app.add_handler(CommandHandler("status", self.cmd_status))
         self.app.add_handler(CallbackQueryHandler(self.handle_callback))
-    
+
     async def cmd_start(self, update: Update, context):
         await update.message.reply_text(
             "YouTube 자동화 검수 봇입니다.\n"
             "/status - 대기 중인 검수 확인"
         )
-    
+
     async def cmd_status(self, update: Update, context):
         # DB에서 대기 중인 검수 수 조회
         pending_count = await get_pending_review_count()
         await update.message.reply_text(f"대기 중인 검수: {pending_count}건")
-    
+
     async def handle_callback(self, update: Update, context):
         query = update.callback_query
         await query.answer()
-        
+
         # callback_data 파싱: "approve:{review_id}" or "reject:{review_id}"
         action, review_id = query.data.split(":")
-        
+
         if action == "approve":
             await perform_quick_approve(review_id)
             await query.edit_message_text(f"✅ 승인됨: {review_id[:8]}...")
@@ -537,17 +537,17 @@ class TelegramNotifier:
                 f"거절 사유를 입력해주세요.\n"
                 f"또는 대시보드에서 처리: {DASHBOARD_URL}/review/{review_id}"
             )
-    
+
     async def send_review_notification(
         self,
         review: ReviewQueue,
         detail: dict,
     ):
         """검수 알림 전송"""
-        
+
         # 메시지 구성
         risk_emoji = "🔴" if review.risk_score > 70 else "🟡" if review.risk_score > 30 else "🟢"
-        
+
         message = f"""
 {risk_emoji} **새 검수 요청**
 
@@ -560,7 +560,7 @@ class TelegramNotifier:
 
 🔗 [대시보드에서 보기]({DASHBOARD_URL}/review/{review.id})
 """
-        
+
         # 빠른 액션 버튼 (리스크 낮을 때만)
         keyboard = None
         if review.risk_score < 30:
@@ -573,7 +573,7 @@ class TelegramNotifier:
                     InlineKeyboardButton("🔍 상세 보기", url=f"{DASHBOARD_URL}/review/{review.id}"),
                 ],
             ])
-        
+
         # 전송
         for chat_id in self.chat_ids:
             await self.app.bot.send_message(
@@ -582,11 +582,11 @@ class TelegramNotifier:
                 parse_mode="Markdown",
                 reply_markup=keyboard,
             )
-    
+
     async def send_daily_summary(self):
         """일일 요약 전송"""
         stats = await get_daily_stats()
-        
+
         message = f"""
 📊 **일일 검수 요약**
 
@@ -597,7 +597,7 @@ class TelegramNotifier:
 📈 승인율: {stats['approval_rate']:.1%}
 ⏱ 평균 처리 시간: {stats['avg_review_time']}분
 """
-        
+
         for chat_id in self.chat_ids:
             await self.app.bot.send_message(
                 chat_id=chat_id,
@@ -775,13 +775,13 @@ export const ReviewQueue: React.FC = () => {
           value={filters.channelId}
           onChange={(v) => setFilters({ ...filters, channelId: v })}
         />
-        
+
         <TypeTabs
           value={filters.type}
           counts={typeCounts}
           onChange={(v) => setFilters({ ...filters, type: v })}
         />
-        
+
         <SortSelect
           value={filters.sortBy}
           onChange={(v) => setFilters({ ...filters, sortBy: v })}
@@ -858,12 +858,12 @@ const TYPE_COLORS: Record<ReviewType, string> = {
 export const ReviewCard: React.FC<Props> = ({ item, onAction }) => {
   const navigate = useNavigate();
 
-  const riskLevel = 
+  const riskLevel =
     item.riskScore > 70 ? 'high' :
     item.riskScore > 30 ? 'medium' : 'low';
 
   return (
-    <Card 
+    <Card
       className={`review-card risk-${riskLevel}`}
       onClick={() => navigate(`/review/${item.id}`)}
     >
@@ -873,9 +873,9 @@ export const ReviewCard: React.FC<Props> = ({ item, onAction }) => {
         </Badge>
         <span className="channel-name">{item.channelName}</span>
         <span className="time">
-          {formatDistanceToNow(new Date(item.createdAt), { 
-            addSuffix: true, 
-            locale: ko 
+          {formatDistanceToNow(new Date(item.createdAt), {
+            addSuffix: true,
+            locale: ko
           })}
         </span>
       </div>
@@ -904,8 +904,8 @@ export const ReviewCard: React.FC<Props> = ({ item, onAction }) => {
         {/* 빠른 액션 (리스크 낮을 때) */}
         {riskLevel === 'low' && (
           <div className="quick-actions" onClick={(e) => e.stopPropagation()}>
-            <Button 
-              size="sm" 
+            <Button
+              size="sm"
               variant="success"
               onClick={() => handleQuickApprove(item.id, onAction)}
             >
@@ -920,14 +920,14 @@ export const ReviewCard: React.FC<Props> = ({ item, onAction }) => {
 
 // 리스크 미터 컴포넌트
 const RiskMeter: React.FC<{ value: number }> = ({ value }) => {
-  const color = 
+  const color =
     value > 70 ? '#ef4444' :
     value > 30 ? '#f59e0b' : '#22c55e';
 
   return (
     <div className="risk-meter">
-      <div 
-        className="risk-fill" 
+      <div
+        className="risk-fill"
         style={{ width: `${value}%`, backgroundColor: color }}
       />
     </div>
@@ -943,11 +943,11 @@ import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { reviewApi } from '../api/review';
-import { 
-  TopicReview, 
-  ScriptReview, 
-  VideoReview, 
-  ActionButtons 
+import {
+  TopicReview,
+  ScriptReview,
+  VideoReview,
+  ActionButtons
 } from '../components/review';
 import { ReviewAction } from '../types';
 
@@ -1015,7 +1015,7 @@ export const ReviewPage: React.FC = () => {
         <aside className="review-sidebar">
           {/* AI 분석 */}
           <Card title="AI 분석">
-            <RiskSummary 
+            <RiskSummary
               score={aiAnalysis.riskScore}
               reasons={aiAnalysis.riskReasons}
             />
@@ -1048,9 +1048,9 @@ export const ReviewPage: React.FC = () => {
         onReject={(notes) => actionMutation.mutate({ action: 'reject', notes })}
         onEdit={() => setEditMode(!editMode)}
         onSaveEdit={() => {
-          actionMutation.mutate({ 
-            action: 'edit', 
-            editedContent 
+          actionMutation.mutate({
+            action: 'edit',
+            editedContent
           });
         }}
         editMode={editMode}
@@ -1128,7 +1128,7 @@ export const ScriptReview: React.FC<Props> = ({ item, editMode, onEdit }) => {
         <Card>
           <h3>{item.topic.titleNormalized}</h3>
           <p className="summary">{item.topic.summary}</p>
-          
+
           <div className="topic-meta">
             <a href={item.topic.sourceUrl} target="_blank" rel="noopener">
               출처: {item.topic.sourceName}
@@ -1146,13 +1146,13 @@ export const ScriptReview: React.FC<Props> = ({ item, editMode, onEdit }) => {
       {activeTab === 'quality' && (
         <Card>
           <div className="quality-scores">
-            <ScoreItem 
-              label="스타일 일관성" 
-              value={item.qualityScores.style} 
+            <ScoreItem
+              label="스타일 일관성"
+              value={item.qualityScores.style}
             />
-            <ScoreItem 
-              label="훅 품질" 
-              value={item.qualityScores.hook} 
+            <ScoreItem
+              label="훅 품질"
+              value={item.qualityScores.hook}
             />
           </div>
         </Card>
@@ -1164,12 +1164,12 @@ export const ScriptReview: React.FC<Props> = ({ item, editMode, onEdit }) => {
 // 스크립트 하이라이터 (훅 강조 등)
 const ScriptHighlighter: React.FC<{ text: string }> = ({ text }) => {
   const paragraphs = text.split('\n\n');
-  
+
   return (
     <div className="highlighted-script">
       {paragraphs.map((para, i) => (
-        <p 
-          key={i} 
+        <p
+          key={i}
           className={i === 0 ? 'hook' : i === paragraphs.length - 1 ? 'conclusion' : ''}
         >
           {para}
@@ -1203,11 +1203,11 @@ export const useReviewWebSocket = (channelId: string | null) => {
 
     ws.current.onmessage = (event) => {
       const message = JSON.parse(event.data);
-      
+
       if (message.type === 'new_review') {
         // 검수 큐 갱신
         queryClient.invalidateQueries({ queryKey: ['reviewQueue'] });
-        
+
         // 알림 표시
         showNotification('새 검수 요청', message.data.title);
       }
@@ -1310,16 +1310,16 @@ export const KeyboardShortcuts: React.FC = () => (
   .review-page {
     flex-direction: column;
   }
-  
+
   .review-sidebar {
     order: -1;  /* 사이드바를 위로 */
     width: 100%;
   }
-  
+
   .review-main {
     width: 100%;
   }
-  
+
   .action-buttons {
     position: fixed;
     bottom: 0;
@@ -1329,12 +1329,12 @@ export const KeyboardShortcuts: React.FC = () => (
     background: white;
     box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
   }
-  
+
   .quick-actions {
     display: flex;
     gap: 0.5rem;
   }
-  
+
   .quick-actions button {
     flex: 1;
     padding: 1rem;

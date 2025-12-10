@@ -36,7 +36,7 @@ class VoiceConfig(BaseModel):
     voice_id: str
     speed: float = 1.0          # 0.5 - 2.0
     pitch: float = 0.0          # -20 - 20 (일부 서비스)
-    
+
     # ElevenLabs 전용
     stability: float | None = None
     similarity_boost: float | None = None
@@ -57,13 +57,13 @@ class WordTimestamp(BaseModel):
 class BaseTTSEngine(ABC):
     @abstractmethod
     async def synthesize(
-        self, 
-        text: str, 
+        self,
+        text: str,
         config: VoiceConfig,
         output_path: Path
     ) -> TTSResult:
         pass
-    
+
     @abstractmethod
     def get_available_voices(self) -> list[dict]:
         pass
@@ -78,7 +78,7 @@ from pathlib import Path
 
 class EdgeTTSEngine(BaseTTSEngine):
     """무료 Microsoft Edge TTS"""
-    
+
     # 추천 한국어 음성
     KOREAN_VOICES = {
         "male": [
@@ -93,27 +93,27 @@ class EdgeTTSEngine(BaseTTSEngine):
             "ko-KR-YuJinNeural",       # 여성, 또렷함
         ],
     }
-    
+
     async def synthesize(
-        self, 
-        text: str, 
+        self,
+        text: str,
         config: VoiceConfig,
         output_path: Path
     ) -> TTSResult:
         # 속도 변환 (1.0 → "+0%", 1.2 → "+20%")
         rate = f"{int((config.speed - 1) * 100):+d}%"
-        
+
         communicate = edge_tts.Communicate(
             text=text,
             voice=config.voice_id,
             rate=rate,
         )
-        
+
         # 오디오 + 자막 데이터 생성
         audio_path = output_path.with_suffix(".mp3")
-        
+
         word_timestamps = []
-        
+
         async for chunk in communicate.stream():
             if chunk["type"] == "audio":
                 with open(audio_path, "ab") as f:
@@ -124,26 +124,26 @@ class EdgeTTSEngine(BaseTTSEngine):
                     start=chunk["offset"] / 10_000_000,  # 100ns → 초
                     end=(chunk["offset"] + chunk["duration"]) / 10_000_000,
                 ))
-        
+
         # 오디오 길이 계산
         duration = await self._get_audio_duration(audio_path)
-        
+
         return TTSResult(
             audio_path=audio_path,
             duration_seconds=duration,
             word_timestamps=word_timestamps,
         )
-    
+
     async def _get_audio_duration(self, path: Path) -> float:
         """ffprobe로 오디오 길이 확인"""
         import subprocess
         result = subprocess.run(
-            ["ffprobe", "-v", "quiet", "-show_entries", 
+            ["ffprobe", "-v", "quiet", "-show_entries",
              "format=duration", "-of", "csv=p=0", str(path)],
             capture_output=True, text=True
         )
         return float(result.stdout.strip())
-    
+
     def get_available_voices(self) -> list[dict]:
         return [
             {"id": v, "gender": g, "language": "ko-KR"}
@@ -159,13 +159,13 @@ from elevenlabs import generate, set_api_key, Voice, VoiceSettings
 
 class ElevenLabsEngine(BaseTTSEngine):
     """고품질 AI 음성 (유료)"""
-    
+
     def __init__(self, api_key: str):
         set_api_key(api_key)
-    
+
     async def synthesize(
-        self, 
-        text: str, 
+        self,
+        text: str,
         config: VoiceConfig,
         output_path: Path
     ) -> TTSResult:
@@ -173,7 +173,7 @@ class ElevenLabsEngine(BaseTTSEngine):
             stability=config.stability or 0.5,
             similarity_boost=config.similarity_boost or 0.75,
         )
-        
+
         audio = generate(
             text=text,
             voice=Voice(
@@ -182,36 +182,36 @@ class ElevenLabsEngine(BaseTTSEngine):
             ),
             model="eleven_multilingual_v2",  # 다국어 지원
         )
-        
+
         audio_path = output_path.with_suffix(".mp3")
         with open(audio_path, "wb") as f:
             f.write(audio)
-        
+
         duration = await self._get_audio_duration(audio_path)
-        
+
         # ElevenLabs는 word timestamp 미지원 → Whisper로 생성
         word_timestamps = await self._generate_timestamps_with_whisper(audio_path)
-        
+
         return TTSResult(
             audio_path=audio_path,
             duration_seconds=duration,
             word_timestamps=word_timestamps,
         )
-    
+
     async def _generate_timestamps_with_whisper(
-        self, 
+        self,
         audio_path: Path
     ) -> list[WordTimestamp]:
         """Whisper로 단어별 타임스탬프 생성"""
         import whisper
-        
+
         model = whisper.load_model("base")  # 또는 "small"
         result = model.transcribe(
             str(audio_path),
             language="ko",
             word_timestamps=True,
         )
-        
+
         timestamps = []
         for segment in result["segments"]:
             for word_info in segment.get("words", []):
@@ -220,7 +220,7 @@ class ElevenLabsEngine(BaseTTSEngine):
                     start=word_info["start"],
                     end=word_info["end"],
                 ))
-        
+
         return timestamps
 ```
 
@@ -228,7 +228,7 @@ class ElevenLabsEngine(BaseTTSEngine):
 ```python
 class TTSEngineFactory:
     _engines: dict[TTSService, BaseTTSEngine] = {}
-    
+
     @classmethod
     def get_engine(cls, service: TTSService) -> BaseTTSEngine:
         if service not in cls._engines:
@@ -239,7 +239,7 @@ class TTSEngineFactory:
                 cls._engines[service] = ElevenLabsEngine(settings.elevenlabs_api_key)
             else:
                 raise ValueError(f"Unknown TTS service: {service}")
-        
+
         return cls._engines[service]
 ```
 
@@ -258,31 +258,31 @@ class SubtitleStyle(BaseModel):
     font_name: str = "Pretendard"
     font_size: int = 48
     font_color: str = "#FFFFFF"
-    
+
     # 외곽선
     outline_color: str = "#000000"
     outline_width: int = 2
-    
+
     # 그림자
     shadow_color: str = "#000000"
     shadow_offset: int = 2
-    
+
     # 배경 박스
     background_enabled: bool = True
     background_color: str = "#000000"
     background_opacity: float = 0.7
     background_padding: int = 10
-    
+
     # 위치
     position: str = "bottom"  # bottom, center, top
     margin_bottom: int = 50
     margin_horizontal: int = 30
-    
+
     # 애니메이션
     highlight_current_word: bool = True
     highlight_color: str = "#FFFF00"
     fade_in: bool = False
-    
+
     # 줄바꿈
     max_chars_per_line: int = 20
     max_lines: int = 2
@@ -313,7 +313,7 @@ from pathlib import Path
 class SubtitleGenerator:
     def __init__(self, style: SubtitleStyle | None = None):
         self.style = style or SubtitleStyle()
-    
+
     def generate_from_timestamps(
         self,
         word_timestamps: list[WordTimestamp],
@@ -322,14 +322,14 @@ class SubtitleGenerator:
         """단어 타임스탬프 → 자막 세그먼트"""
         style = style or self.style
         segments = []
-        
+
         current_segment_words = []
         current_text = ""
         segment_start = None
-        
+
         for word in word_timestamps:
             test_text = current_text + word.word
-            
+
             # 줄바꿈 필요 체크
             if len(test_text) > style.max_chars_per_line * style.max_lines:
                 # 현재 세그먼트 저장
@@ -341,7 +341,7 @@ class SubtitleGenerator:
                         text=current_text.strip(),
                         words=current_segment_words.copy(),
                     ))
-                
+
                 # 새 세그먼트 시작
                 current_segment_words = [word]
                 current_text = word.word
@@ -351,7 +351,7 @@ class SubtitleGenerator:
                     segment_start = word.start
                 current_segment_words.append(word)
                 current_text = test_text
-        
+
         # 마지막 세그먼트
         if current_segment_words:
             segments.append(SubtitleSegment(
@@ -361,9 +361,9 @@ class SubtitleGenerator:
                 text=current_text.strip(),
                 words=current_segment_words,
             ))
-        
+
         return SubtitleFile(segments=segments, style=style)
-    
+
     def generate_from_script(
         self,
         script: str,
@@ -372,14 +372,14 @@ class SubtitleGenerator:
     ) -> SubtitleFile:
         """스크립트 + 오디오 길이 → 균등 분할 자막 (타임스탬프 없을 때)"""
         style = style or self.style
-        
+
         # 문장 단위로 분할
         sentences = re.split(r'[.!?]\s*', script)
         sentences = [s.strip() for s in sentences if s.strip()]
-        
+
         # 균등 시간 배분
         time_per_sentence = audio_duration / len(sentences)
-        
+
         segments = []
         for i, sentence in enumerate(sentences):
             segments.append(SubtitleSegment(
@@ -388,15 +388,15 @@ class SubtitleGenerator:
                 end=(i + 1) * time_per_sentence,
                 text=self._wrap_text(sentence, style.max_chars_per_line),
             ))
-        
+
         return SubtitleFile(segments=segments, style=style)
-    
+
     def _wrap_text(self, text: str, max_chars: int) -> str:
         """긴 텍스트 줄바꿈"""
         words = text.split()
         lines = []
         current_line = ""
-        
+
         for word in words:
             if len(current_line) + len(word) + 1 <= max_chars:
                 current_line += (" " if current_line else "") + word
@@ -404,16 +404,16 @@ class SubtitleGenerator:
                 if current_line:
                     lines.append(current_line)
                 current_line = word
-        
+
         if current_line:
             lines.append(current_line)
-        
+
         return "\n".join(lines)
-    
+
     def to_ass(self, subtitle: SubtitleFile, output_path: Path) -> Path:
         """ASS 포맷으로 저장 (스타일링 지원)"""
         style = subtitle.style
-        
+
         # ASS 헤더
         ass_content = f"""[Script Info]
 Title: Generated Subtitle
@@ -427,39 +427,39 @@ Style: Default,{style.font_name},{style.font_size},{self._color_to_ass(style.fon
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
-        
+
         # 자막 이벤트
         for seg in subtitle.segments:
             start = self._seconds_to_ass_time(seg.start)
             end = self._seconds_to_ass_time(seg.end)
             text = seg.text.replace("\n", "\\N")
-            
+
             ass_content += f"Dialogue: 0,{start},{end},Default,,0,0,0,,{text}\n"
-        
+
         output_path = output_path.with_suffix(".ass")
         output_path.write_text(ass_content, encoding="utf-8")
         return output_path
-    
+
     def to_srt(self, subtitle: SubtitleFile, output_path: Path) -> Path:
         """SRT 포맷으로 저장 (단순)"""
         srt_content = ""
-        
+
         for seg in subtitle.segments:
             start = self._seconds_to_srt_time(seg.start)
             end = self._seconds_to_srt_time(seg.end)
             srt_content += f"{seg.index}\n{start} --> {end}\n{seg.text}\n\n"
-        
+
         output_path = output_path.with_suffix(".srt")
         output_path.write_text(srt_content, encoding="utf-8")
         return output_path
-    
+
     def _color_to_ass(self, hex_color: str, alpha: float = 1.0) -> str:
         """HEX → ASS 컬러 (&HAABBGGRR)"""
         hex_color = hex_color.lstrip("#")
         r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
         a = int((1 - alpha) * 255)
         return f"&H{a:02X}{b:02X}{g:02X}{r:02X}"
-    
+
     def _seconds_to_ass_time(self, seconds: float) -> str:
         """초 → ASS 시간 (H:MM:SS.CC)"""
         h = int(seconds // 3600)
@@ -467,7 +467,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         s = int(seconds % 60)
         cs = int((seconds % 1) * 100)
         return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
-    
+
     def _seconds_to_srt_time(self, seconds: float) -> str:
         """초 → SRT 시간 (HH:MM:SS,mmm)"""
         h = int(seconds // 3600)
@@ -501,11 +501,11 @@ class VisualAsset(BaseModel):
     path: Path | None = None
     url: str | None = None
     duration: float | None = None    # 비디오인 경우
-    
+
     # 이미지/단색 옵션
     color: str | None = None
     gradient_colors: list[str] | None = None
-    
+
     # 메타
     source: str | None = None        # "pexels", "dalle", etc
     license: str | None = None
@@ -514,28 +514,28 @@ class VisualAsset(BaseModel):
 
 class VisualConfig(BaseModel):
     """채널별 비주얼 설정"""
-    
+
     # 기본 소스 우선순위
     source_priority: list[VisualSourceType] = [
         VisualSourceType.STOCK_VIDEO,
         VisualSourceType.AI_IMAGE,
         VisualSourceType.SOLID_COLOR,
     ]
-    
+
     # 스톡 설정
     stock_config: dict = {
         "orientation": "portrait",    # Shorts용 세로
         "min_duration": 5,
         "max_results": 10,
     }
-    
+
     # AI 이미지 설정
     ai_image_config: dict = {
         "model": "dall-e-3",
         "size": "1024x1792",          # 세로
         "quality": "standard",
     }
-    
+
     # 폴백 설정
     fallback_color: str = "#1a1a2e"
     fallback_gradient: list[str] = ["#1a1a2e", "#16213e"]
@@ -549,15 +549,15 @@ from typing import AsyncIterator
 
 class PexelsClient:
     """Pexels API 클라이언트 (무료)"""
-    
+
     BASE_URL = "https://api.pexels.com"
-    
+
     def __init__(self, api_key: str):
         self.api_key = api_key
         self.client = httpx.AsyncClient(
             headers={"Authorization": api_key}
         )
-    
+
     async def search_videos(
         self,
         query: str,
@@ -576,16 +576,16 @@ class PexelsClient:
         )
         response.raise_for_status()
         data = response.json()
-        
+
         assets = []
         for video in data.get("videos", []):
             # HD 버전 선택
             video_file = next(
-                (f for f in video["video_files"] 
+                (f for f in video["video_files"]
                  if f["quality"] == "hd" and f["width"] < f["height"]),
                 video["video_files"][0] if video["video_files"] else None
             )
-            
+
             if video_file and video["duration"] >= min_duration:
                 assets.append(VisualAsset(
                     type=VisualSourceType.STOCK_VIDEO,
@@ -595,9 +595,9 @@ class PexelsClient:
                     license="Pexels License",
                     keywords=query.split(),
                 ))
-        
+
         return assets
-    
+
     async def search_images(
         self,
         query: str,
@@ -615,7 +615,7 @@ class PexelsClient:
         )
         response.raise_for_status()
         data = response.json()
-        
+
         assets = []
         for photo in data.get("photos", []):
             assets.append(VisualAsset(
@@ -625,25 +625,25 @@ class PexelsClient:
                 license="Pexels License",
                 keywords=query.split(),
             ))
-        
+
         return assets
-    
+
     async def download(self, url: str, output_path: Path) -> Path:
         """에셋 다운로드"""
         response = await self.client.get(url)
         response.raise_for_status()
-        
+
         output_path.write_bytes(response.content)
         return output_path
 
 
 class AIImageGenerator:
     """DALL-E 이미지 생성"""
-    
+
     def __init__(self, api_key: str):
         from openai import AsyncOpenAI
         self.client = AsyncOpenAI(api_key=api_key)
-    
+
     async def generate(
         self,
         prompt: str,
@@ -653,7 +653,7 @@ class AIImageGenerator:
         """AI 이미지 생성"""
         # 프롬프트 강화
         enhanced_prompt = f"{prompt}, {style} style, high quality, vertical format"
-        
+
         response = await self.client.images.generate(
             model="dall-e-3",
             prompt=enhanced_prompt,
@@ -661,7 +661,7 @@ class AIImageGenerator:
             quality="standard",
             n=1,
         )
-        
+
         return VisualAsset(
             type=VisualSourceType.AI_IMAGE,
             url=response.data[0].url,
@@ -674,7 +674,7 @@ class AIImageGenerator:
 ```python
 class VisualSourcingManager:
     """주제/키워드 기반 비주얼 자동 소싱"""
-    
+
     def __init__(
         self,
         pexels_client: PexelsClient,
@@ -682,7 +682,7 @@ class VisualSourcingManager:
     ):
         self.pexels = pexels_client
         self.ai_generator = ai_generator
-    
+
     async def source_visuals(
         self,
         keywords: list[str],
@@ -692,11 +692,11 @@ class VisualSourcingManager:
         """필요한 길이만큼 비주얼 소싱"""
         assets = []
         total_duration = 0
-        
+
         for source_type in config.source_priority:
             if total_duration >= duration_needed:
                 break
-            
+
             if source_type == VisualSourceType.STOCK_VIDEO:
                 for keyword in keywords:
                     videos = await self.pexels.search_videos(
@@ -708,7 +708,7 @@ class VisualSourcingManager:
                             break
                         assets.append(video)
                         total_duration += video.duration or 10
-            
+
             elif source_type == VisualSourceType.STOCK_IMAGE:
                 for keyword in keywords:
                     images = await self.pexels.search_images(
@@ -722,14 +722,14 @@ class VisualSourcingManager:
                         image.duration = 5
                         assets.append(image)
                         total_duration += 5
-            
+
             elif source_type == VisualSourceType.AI_IMAGE and self.ai_generator:
                 prompt = " ".join(keywords[:3])
                 image = await self.ai_generator.generate(prompt)
                 image.duration = duration_needed - total_duration
                 assets.append(image)
                 total_duration = duration_needed
-        
+
         # 폴백: 단색 배경
         if total_duration < duration_needed:
             assets.append(VisualAsset(
@@ -737,7 +737,7 @@ class VisualSourcingManager:
                 color=config.fallback_color,
                 duration=duration_needed - total_duration,
             ))
-        
+
         return assets
 ```
 
@@ -749,23 +749,23 @@ class VisualSourcingManager:
 ```python
 class VideoConfig(BaseModel):
     """영상 출력 설정"""
-    
+
     # 해상도 (Shorts = 9:16)
     width: int = 1080
     height: int = 1920
-    
+
     # 코덱
     video_codec: str = "libx264"
     audio_codec: str = "aac"
-    
+
     # 품질
     crf: int = 23                    # 품질 (낮을수록 좋음, 18-28)
     preset: str = "medium"           # 인코딩 속도
     audio_bitrate: str = "192k"
-    
+
     # 프레임
     fps: int = 30
-    
+
     # 출력
     format: str = "mp4"
 
@@ -774,14 +774,14 @@ class CompositionConfig(BaseModel):
     """합성 설정"""
     video: VideoConfig = VideoConfig()
     subtitle_style: SubtitleStyle = SubtitleStyle()
-    
+
     # 트랜지션
     transition_type: str = "fade"    # fade, none
     transition_duration: float = 0.5
-    
+
     # 배경 처리
     blur_background: bool = True     # 가로 영상 → 세로 변환 시 블러 배경
-    
+
     # 오디오
     background_music: Path | None = None
     music_volume: float = 0.1        # 배경 음악 볼륨 (0-1)
@@ -796,10 +796,10 @@ from pathlib import Path
 
 class FFmpegCompositor:
     """FFmpeg 기반 영상 합성"""
-    
+
     def __init__(self, config: CompositionConfig | None = None):
         self.config = config or CompositionConfig()
-    
+
     async def compose(
         self,
         audio: TTSResult,
@@ -810,21 +810,21 @@ class FFmpegCompositor:
         """전체 합성 파이프라인"""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
-            
+
             # 1. 비주얼 에셋 다운로드/준비
             visual_paths = await self._prepare_visuals(visuals, tmpdir)
-            
+
             # 2. 비주얼 시퀀스 생성
             video_sequence = await self._create_video_sequence(
-                visual_paths, 
+                visual_paths,
                 audio.duration_seconds,
                 tmpdir,
             )
-            
+
             # 3. 자막 파일 생성
             subtitle_generator = SubtitleGenerator()
             subtitle_path = subtitle_generator.to_ass(subtitle, tmpdir / "subtitle")
-            
+
             # 4. 최종 합성
             return await self._final_compose(
                 video_path=video_sequence,
@@ -832,15 +832,15 @@ class FFmpegCompositor:
                 subtitle_path=subtitle_path,
                 output_path=output_path,
             )
-    
+
     async def _prepare_visuals(
-        self, 
+        self,
         visuals: list[VisualAsset],
         tmpdir: Path,
     ) -> list[Path]:
         """비주얼 에셋 준비"""
         paths = []
-        
+
         for i, visual in enumerate(visuals):
             if visual.type == VisualSourceType.SOLID_COLOR:
                 # 단색 이미지 생성
@@ -858,27 +858,27 @@ class FFmpegCompositor:
                 path = visual.path
             else:
                 continue
-            
+
             paths.append((path, visual.duration or 5))
-        
+
         return paths
-    
+
     async def _create_solid_color_image(
-        self, 
-        color: str, 
+        self,
+        color: str,
         output_path: Path
     ) -> Path:
         """단색 이미지 생성"""
         from PIL import Image
-        
+
         img = Image.new(
-            "RGB", 
+            "RGB",
             (self.config.video.width, self.config.video.height),
             color,
         )
         img.save(output_path)
         return output_path
-    
+
     async def _create_video_sequence(
         self,
         visual_paths: list[tuple[Path, float]],
@@ -887,12 +887,12 @@ class FFmpegCompositor:
     ) -> Path:
         """비주얼 시퀀스 → 단일 비디오"""
         cfg = self.config.video
-        
+
         # 각 비주얼을 필요한 길이로 변환
         segments = []
         for i, (path, duration) in enumerate(visual_paths):
             segment_path = tmpdir / f"segment_{i}.mp4"
-            
+
             if path.suffix in [".jpg", ".jpeg", ".png", ".webp"]:
                 # 이미지 → 비디오 변환
                 cmd = [
@@ -919,15 +919,15 @@ class FFmpegCompositor:
                     "-pix_fmt", "yuv420p",
                     str(segment_path),
                 ]
-            
+
             subprocess.run(cmd, check=True, capture_output=True)
             segments.append(segment_path)
-        
+
         # concat 파일 생성
         concat_file = tmpdir / "concat.txt"
         concat_content = "\n".join(f"file '{p}'" for p in segments)
         concat_file.write_text(concat_content)
-        
+
         # 병합
         output_path = tmpdir / "video_sequence.mp4"
         cmd = [
@@ -939,9 +939,9 @@ class FFmpegCompositor:
             str(output_path),
         ]
         subprocess.run(cmd, check=True, capture_output=True)
-        
+
         return output_path
-    
+
     async def _final_compose(
         self,
         video_path: Path,
@@ -951,7 +951,7 @@ class FFmpegCompositor:
     ) -> Path:
         """비디오 + 오디오 + 자막 최종 합성"""
         cfg = self.config.video
-        
+
         cmd = [
             "ffmpeg", "-y",
             "-i", str(video_path),
@@ -966,14 +966,14 @@ class FFmpegCompositor:
             "-pix_fmt", "yuv420p",
             str(output_path),
         ]
-        
+
         # 배경 음악 추가
         if self.config.background_music:
             cmd = self._add_background_music(cmd)
-        
+
         subprocess.run(cmd, check=True, capture_output=True)
         return output_path
-    
+
     def _add_background_music(self, cmd: list) -> list:
         """배경 음악 믹싱"""
         # TODO: 배경 음악 볼륨 조절 + 믹싱
@@ -990,18 +990,18 @@ class ThumbnailStyle(BaseModel):
     """썸네일 스타일"""
     width: int = 1280
     height: int = 720
-    
+
     # 텍스트
     title_font: str = "Pretendard-Bold"
     title_size: int = 72
     title_color: str = "#FFFFFF"
     title_stroke_color: str = "#000000"
     title_stroke_width: int = 3
-    
+
     # 배경
     overlay_color: str = "#000000"
     overlay_opacity: float = 0.4
-    
+
     # 레이아웃
     text_position: str = "center"    # center, bottom
     padding: int = 40
@@ -1016,7 +1016,7 @@ from PIL import Image, ImageDraw, ImageFont
 class ThumbnailGenerator:
     def __init__(self, style: ThumbnailStyle | None = None):
         self.style = style or ThumbnailStyle()
-    
+
     async def generate(
         self,
         title: str,
@@ -1025,7 +1025,7 @@ class ThumbnailGenerator:
     ) -> Path:
         """썸네일 생성"""
         style = self.style
-        
+
         # 1. 배경 이미지 준비
         if background and background.path:
             bg = Image.open(background.path)
@@ -1037,62 +1037,62 @@ class ThumbnailGenerator:
                 bg = Image.open(BytesIO(response.content))
         else:
             bg = Image.new("RGB", (style.width, style.height), "#1a1a2e")
-        
+
         # 리사이즈
         bg = bg.resize((style.width, style.height), Image.Resampling.LANCZOS)
-        
+
         # 2. 오버레이 추가
         overlay = Image.new("RGBA", bg.size, (*self._hex_to_rgb(style.overlay_color), int(style.overlay_opacity * 255)))
         bg = bg.convert("RGBA")
         bg = Image.alpha_composite(bg, overlay)
-        
+
         # 3. 텍스트 추가
         draw = ImageDraw.Draw(bg)
-        
+
         try:
             font = ImageFont.truetype(style.title_font, style.title_size)
         except:
             font = ImageFont.load_default()
-        
+
         # 텍스트 줄바꿈
         wrapped_title = self._wrap_text(title, font, style.width - style.padding * 2)
-        
+
         # 텍스트 위치 계산
         bbox = draw.textbbox((0, 0), wrapped_title, font=font)
         text_width = bbox[2] - bbox[0]
         text_height = bbox[3] - bbox[1]
-        
+
         if style.text_position == "center":
             x = (style.width - text_width) // 2
             y = (style.height - text_height) // 2
         else:  # bottom
             x = (style.width - text_width) // 2
             y = style.height - text_height - style.padding * 2
-        
+
         # 텍스트 그리기 (외곽선 + 본문)
         for dx in range(-style.title_stroke_width, style.title_stroke_width + 1):
             for dy in range(-style.title_stroke_width, style.title_stroke_width + 1):
                 draw.text(
-                    (x + dx, y + dy), 
-                    wrapped_title, 
-                    font=font, 
+                    (x + dx, y + dy),
+                    wrapped_title,
+                    font=font,
                     fill=style.title_stroke_color
                 )
-        
+
         draw.text((x, y), wrapped_title, font=font, fill=style.title_color)
-        
+
         # 4. 저장
         output_path = output_path.with_suffix(".jpg")
         bg.convert("RGB").save(output_path, "JPEG", quality=90)
-        
+
         return output_path
-    
+
     def _wrap_text(self, text: str, font, max_width: int) -> str:
         """텍스트 줄바꿈"""
         words = text.split()
         lines = []
         current_line = ""
-        
+
         for word in words:
             test_line = f"{current_line} {word}".strip()
             bbox = font.getbbox(test_line)
@@ -1102,15 +1102,15 @@ class ThumbnailGenerator:
                 if current_line:
                     lines.append(current_line)
                 current_line = word
-        
+
         if current_line:
             lines.append(current_line)
-        
+
         # 최대 줄 수 제한
         lines = lines[:self.style.max_title_lines]
-        
+
         return "\n".join(lines)
-    
+
     def _hex_to_rgb(self, hex_color: str) -> tuple:
         hex_color = hex_color.lstrip("#")
         return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
@@ -1131,12 +1131,12 @@ class VideoGenerationResult(BaseModel):
     video_path: Path
     thumbnail_path: Path
     duration_seconds: float
-    
+
     # 메타
     script_id: str
     channel_id: str
     generated_at: datetime
-    
+
     # 사용된 에셋 정보
     tts_service: str
     visual_sources: list[str]
@@ -1144,7 +1144,7 @@ class VideoGenerationResult(BaseModel):
 
 class VideoGenerationPipeline:
     """영상 생성 전체 파이프라인"""
-    
+
     def __init__(
         self,
         tts_factory: TTSEngineFactory,
@@ -1156,7 +1156,7 @@ class VideoGenerationPipeline:
         self.visual_manager = visual_manager
         self.compositor = compositor
         self.thumbnail_generator = thumbnail_generator
-    
+
     async def generate(
         self,
         script: "GeneratedScript",
@@ -1164,11 +1164,11 @@ class VideoGenerationPipeline:
         output_dir: Path,
     ) -> VideoGenerationResult:
         """스크립트 → 완성 영상"""
-        
+
         # 작업 디렉토리 생성
         work_dir = output_dir / script.id
         work_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # 1. TTS 생성
         tts_engine = self.tts_factory.get_engine(persona.voice.service)
         tts_result = await tts_engine.synthesize(
@@ -1180,7 +1180,7 @@ class VideoGenerationPipeline:
             ),
             output_path=work_dir / "audio",
         )
-        
+
         # 2. 자막 생성
         subtitle_generator = SubtitleGenerator()
         if tts_result.word_timestamps:
@@ -1192,14 +1192,14 @@ class VideoGenerationPipeline:
                 script.script,
                 tts_result.duration_seconds,
             )
-        
+
         # 3. 비주얼 소싱
         visuals = await self.visual_manager.source_visuals(
             keywords=script.topic.keywords[:5],
             duration_needed=tts_result.duration_seconds,
             config=VisualConfig(),
         )
-        
+
         # 4. 영상 합성
         video_path = await self.compositor.compose(
             audio=tts_result,
@@ -1207,14 +1207,14 @@ class VideoGenerationPipeline:
             visuals=visuals,
             output_path=work_dir / f"{script.id}.mp4",
         )
-        
+
         # 5. 썸네일 생성
         thumbnail_path = await self.thumbnail_generator.generate(
             title=script.topic.title,
             background=visuals[0] if visuals else None,
             output_path=work_dir / "thumbnail",
         )
-        
+
         return VideoGenerationResult(
             video_path=video_path,
             thumbnail_path=thumbnail_path,

@@ -15,14 +15,14 @@ flowchart TB
             DC_Special[특화<br/>블라인드, 보배드림]
             DC_News[뉴스/블로그<br/>요즘IT, 44bits]
         end
-        
+
         subgraph Foreign["해외"]
             FG_Community[커뮤니티<br/>Reddit, HN]
             FG_News[뉴스<br/>TechCrunch, Verge]
             FG_Blog[블로그<br/>Medium, dev.to]
             FG_Social[소셜<br/>Twitter/X]
         end
-        
+
         subgraph Trend["트렌드"]
             TR_Google[Google Trends]
             TR_YouTube[YouTube Trending]
@@ -32,15 +32,15 @@ flowchart TB
 
     subgraph Collection["🔄 수집 파이프라인"]
         Scheduler[스케줄러<br/>소스별 주기]
-        
+
         subgraph Collectors["수집기"]
             RSS[RSS 수집기]
             API[API 수집기]
             Scraper[스크래퍼]
         end
-        
+
         RawQueue[(Raw 큐)]
-        
+
         Scheduler --> Collectors --> RawQueue
     end
 
@@ -53,19 +53,19 @@ flowchart TB
             ExtractKW[키워드 추출]
             ExtractEntity[엔티티 추출]
         end
-        
+
         subgraph Dedup["중복 제거"]
             HashCheck[해시 체크<br/>완전 일치]
             SimilarCheck[유사도 체크<br/>임베딩 비교]
             EventCluster[이벤트 클러스터<br/>같은 사건 묶기]
         end
-        
+
         subgraph Filter["필터링"]
             IncludeCheck[Include 체크<br/>카테고리, 키워드]
             ExcludeCheck[Exclude 체크<br/>금지어, 민감주제]
             ConditionalCheck[조건부 규칙<br/>복합 조건]
         end
-        
+
         subgraph Score["스코어링"]
             SourceScore[소스 점수<br/>신뢰도, 원본점수]
             FreshnessScore[신선도<br/>발행 시간]
@@ -75,7 +75,7 @@ flowchart TB
             SeriesBonus[시리즈 보너스<br/>연속 성공]
             TotalScore[종합 점수<br/>가중 합계]
         end
-        
+
         RawQueue --> Normalize --> Dedup --> Filter --> Score
     end
 
@@ -83,7 +83,7 @@ flowchart TB
         TopicQueue[(주제 큐<br/>우선순위)]
         SeriesMatch{시리즈<br/>매칭?}
         SeriesLink[시리즈 연결]
-        
+
         TotalScore --> SeriesMatch
         SeriesMatch -->|Yes| SeriesLink --> TopicQueue
         SeriesMatch -->|No| TopicQueue
@@ -92,7 +92,7 @@ flowchart TB
     subgraph Feedback["📊 피드백 (Analytics)"]
         Performance[성과 데이터<br/>조회수, engagement]
         SeriesDetect[시리즈 감지<br/>연속 성공 분석]
-        
+
         Performance --> SeriesDetect
         SeriesDetect -->|시리즈 제안| SeriesBonus
         Performance -->|트렌드 분석| TrendScore
@@ -109,7 +109,7 @@ flowchart TB
     classDef foreign fill:#b3e5fc,stroke:#0288d1
     classDef process fill:#f3e5f5,stroke:#7b1fa2
     classDef score fill:#c8e6c9,stroke:#388e3c
-    
+
     class ChannelConfig,SourceConfig,TopicConfig config
     class DC_Major,DC_Minor,DC_Special,DC_News domestic
     class FG_Community,FG_News,FG_Blog,FG_Social foreign

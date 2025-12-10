@@ -16,13 +16,13 @@ flowchart TB
             News[뉴스/블로그<br/>RSS, API]
             Trends[트렌드<br/>Google, YouTube]
         end
-        
+
         Collector[수집기<br/>스케줄 기반]
         Normalizer[정규화<br/>번역, 요약, 키워드]
         Dedup[중복 제거]
         TopicFilter[주제 필터<br/>include/exclude]
         Scorer[스코어링<br/>관련성, 트렌드]
-        
+
         Sources --> Collector --> Normalizer --> Dedup --> TopicFilter --> Scorer
         Scorer --> TopicQueue[(주제 큐)]
     end
@@ -33,25 +33,25 @@ flowchart TB
             Chunker[청킹]
             Embedder[임베딩<br/>BGE-M3]
             VectorDB[(벡터 DB)]
-            
+
             PastContent --> Chunker --> Embedder --> VectorDB
         end
-        
+
         subgraph Retrieval["검색"]
             QueryExpand[쿼리 확장]
             HybridSearch[하이브리드 검색<br/>시맨틱 + BM25]
             Reranker[리랭커]
-            
+
             QueryExpand --> HybridSearch --> Reranker
         end
-        
+
         subgraph Generation["생성"]
             ContextBuilder[컨텍스트 빌더]
             PromptBuilder[프롬프트 빌더]
             LLM[LLM<br/>Claude API]
             PostProcess[후처리<br/>스타일 검증]
         end
-        
+
         VectorDB --> HybridSearch
         Reranker --> ContextBuilder
         ContextBuilder --> PromptBuilder --> LLM --> PostProcess
@@ -61,7 +61,7 @@ flowchart TB
         Filter1[1차: 키워드 필터<br/>빠른 차단]
         Filter2[2차: LLM 검토<br/>맥락 파악]
         RiskScore[리스크 스코어]
-        
+
         Filter1 --> Filter2 --> RiskScore
     end
 
@@ -71,7 +71,7 @@ flowchart TB
         SubtitleGen[자막 생성]
         Compositor[영상 합성<br/>FFmpeg]
         ThumbGen[썸네일 생성<br/>AI]
-        
+
         TTS --> Compositor
         VisualGen --> Compositor
         SubtitleGen --> Compositor
@@ -81,13 +81,13 @@ flowchart TB
         MetaGen[메타데이터 생성<br/>제목, 설명, 태그]
         TimeOptimizer[최적 시간 분석<br/>Analytics 기반]
         Scheduler[스케줄러]
-        
+
         subgraph Platforms["플랫폼"]
             YouTube[YouTube API]
             TikTok[TikTok<br/>추후]
             Reels[Instagram<br/>추후]
         end
-        
+
         MetaGen --> Scheduler
         TimeOptimizer --> Scheduler
         Scheduler --> Platforms
@@ -97,7 +97,7 @@ flowchart TB
         ReviewQueue[(검수 큐)]
         Dashboard[검수 대시보드]
         TelegramBot[텔레그램 알림]
-        
+
         ReviewQueue --> Dashboard
         ReviewQueue --> TelegramBot
     end
@@ -107,7 +107,7 @@ flowchart TB
         SeriesDetector[시리즈 감지<br/>연속 성공 분석]
         TimeAnalyzer[시간대 분석]
         FTDataset[(파인튜닝 데이터)]
-        
+
         PerfCollector --> SeriesDetector
         PerfCollector --> TimeAnalyzer
         PerfCollector -->|고성과 스크립트| FTDataset
@@ -122,29 +122,29 @@ flowchart TB
     %% 메인 플로우
     TopicQueue --> QueryExpand
     TopicQueue --> ContextBuilder
-    
+
     PersonaConfig --> PromptBuilder
     PersonaConfig --> TTS
-    
+
     PostProcess --> Filter1
     RiskScore -->|Safe| ScriptQueue[(스크립트 큐)]
     RiskScore -->|Review| ReviewQueue
     RiskScore -->|Block| BlockLog[(차단 로그)]
-    
+
     ScriptQueue --> TTS
     ScriptQueue --> VisualGen
     ScriptQueue --> SubtitleGen
-    
+
     Compositor --> VideoQueue[(영상 큐)]
     ThumbGen --> VideoQueue
-    
+
     VideoQueue --> MetaGen
-    
+
     YouTube --> PerfCollector
     PerfCollector --> TopicQueue
     TimeAnalyzer --> TimeOptimizer
     SeriesDetector -->|시리즈 제안| TopicQueue
-    
+
     %% Config 연결
     ChannelConfig --> Collector
     ChannelConfig --> TopicFilter
@@ -164,7 +164,7 @@ flowchart TB
     classDef process fill:#f3e5f5,stroke:#7b1fa2
     classDef ai fill:#fff3e0,stroke:#ef6c00
     classDef platform fill:#e8f5e9,stroke:#2e7d32
-    
+
     class ChannelConfig,PersonaConfig,FilterConfig,OperationConfig config
     class TopicQueue,VectorDB,PastContent,ScriptQueue,VideoQueue,ReviewQueue,FTDataset,BlockLog storage
     class Collector,Normalizer,Dedup,Scorer,Chunker,ContextBuilder process
