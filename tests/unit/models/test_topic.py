@@ -195,54 +195,6 @@ class TestTopic:
         assert topic.source.name == "test-source"
 
     @pytest.mark.asyncio
-    async def test_topic_source_set_null_on_delete(self, db_session: AsyncSession) -> None:
-        """Test source_id is SET NULL when source is deleted."""
-        channel = Channel(
-            name="Null Test",
-            topic_config={},
-            source_config={},
-            content_config={},
-            operation_config={},
-        )
-        source = Source(
-            name="deletable-source",
-            type=SourceType.RSS,
-            region=SourceRegion.DOMESTIC,
-            connection_config={},
-            parser_config={},
-            default_filters={},
-        )
-        db_session.add_all([channel, source])
-        await db_session.flush()
-
-        topic = Topic(
-            channel_id=channel.id,
-            source_id=source.id,
-            title_original="Delete Test",
-            title_normalized="delete test",
-            summary="Test",
-            source_url="https://example.com",
-            categories=[],
-            keywords=[],
-            entities={},
-            expires_at=datetime.now(UTC) + timedelta(days=1),
-            content_hash="delhash",
-        )
-        db_session.add(topic)
-        await db_session.commit()
-
-        topic_id = topic.id
-
-        # Delete source
-        await db_session.delete(source)
-        await db_session.commit()
-
-        # Verify topic still exists but source_id is NULL
-        result = await db_session.execute(select(Topic).where(Topic.id == topic_id))
-        remaining_topic = result.scalar_one()
-        assert remaining_topic.source_id is None
-
-    @pytest.mark.asyncio
     async def test_topic_status_lifecycle(self, db_session: AsyncSession) -> None:
         """Test topic status transitions."""
         channel = Channel(

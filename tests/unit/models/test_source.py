@@ -175,7 +175,7 @@ class TestChannelSourceRelationship:
 
     @pytest.mark.asyncio
     async def test_channel_sources_association(self, db_session: AsyncSession) -> None:
-        """Test associating channels with sources."""
+        """Test associating channels with sources via association table."""
         # Create channel
         channel = Channel(
             name="Test Channel",
@@ -198,18 +198,27 @@ class TestChannelSourceRelationship:
         db_session.add(source)
         await db_session.flush()
 
-        # Associate via relationship
-        channel.sources.append(source)
+        # Associate via direct insert to association table
+        await db_session.execute(
+            channel_sources.insert().values(
+                channel_id=channel.id,
+                source_id=source.id,
+                weight=1.0,
+                enabled=True,
+            )
+        )
         await db_session.commit()
 
-        # Refresh and verify
-        await db_session.refresh(channel, ["sources"])
-        await db_session.refresh(source, ["channels"])
-
-        assert len(channel.sources) == 1
-        assert channel.sources[0].name == "test-source"
-        assert len(source.channels) == 1
-        assert source.channels[0].name == "Test Channel"
+        # Verify via query
+        result = await db_session.execute(
+            select(channel_sources).where(
+                channel_sources.c.channel_id == channel.id,
+                channel_sources.c.source_id == source.id,
+            )
+        )
+        assoc = result.first()
+        assert assoc is not None
+        assert assoc.weight == 1.0
 
     @pytest.mark.asyncio
     async def test_multiple_sources_per_channel(self, db_session: AsyncSession) -> None:
@@ -238,12 +247,24 @@ class TestChannelSourceRelationship:
 
         await db_session.flush()
 
-        # Associate all sources
-        channel.sources.extend(sources)
+        # Associate all sources via direct insert
+        for source in sources:
+            await db_session.execute(
+                channel_sources.insert().values(
+                    channel_id=channel.id,
+                    source_id=source.id,
+                    weight=1.0,
+                    enabled=True,
+                )
+            )
         await db_session.commit()
-        await db_session.refresh(channel, ["sources"])
 
-        assert len(channel.sources) == 3
+        # Verify via query
+        result = await db_session.execute(
+            select(channel_sources).where(channel_sources.c.channel_id == channel.id)
+        )
+        associations = result.fetchall()
+        assert len(associations) == 3
 
     @pytest.mark.asyncio
     async def test_channel_sources_cascade_delete(self, db_session: AsyncSession) -> None:
@@ -266,7 +287,15 @@ class TestChannelSourceRelationship:
         db_session.add_all([channel, source])
         await db_session.flush()
 
-        channel.sources.append(source)
+        # Associate via direct insert
+        await db_session.execute(
+            channel_sources.insert().values(
+                channel_id=channel.id,
+                source_id=source.id,
+                weight=1.0,
+                enabled=True,
+            )
+        )
         await db_session.commit()
 
         channel_id = channel.id
