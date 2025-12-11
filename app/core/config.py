@@ -90,6 +90,24 @@ class Settings(BaseSettings):
     anthropic_api_key: str = Field(default="", description="Anthropic API key")
     openai_api_key: str = Field(default="", description="OpenAI API key")
 
+    # Translation settings
+    translation_model: str = Field(
+        default="claude-3-5-haiku-20241022",
+        description="LLM model for translation (Haiku for cost efficiency)",
+    )
+    translation_max_tokens: int = Field(
+        default=500, description="Max tokens for translation", ge=100, le=2000
+    )
+
+    # Classification settings
+    classification_model: str = Field(
+        default="claude-3-5-haiku-20241022",
+        description="LLM model for topic classification",
+    )
+    classification_max_tokens: int = Field(
+        default=500, description="Max tokens for classification", ge=100, le=2000
+    )
+
     # ============================================
     # Vector Database
     # ============================================
