@@ -84,29 +84,26 @@ class NormalizedTopic(BaseModel):
         json_encoders = {datetime: lambda v: v.isoformat(), uuid.UUID: str}
 
 
-class ScoredTopic(BaseModel):
+class ScoredTopic(NormalizedTopic):
     """Topic with calculated scores.
 
+    Extends NormalizedTopic with scoring information.
     This DTO represents a fully processed topic with all scoring
     components calculated and ready for storage.
 
     Attributes:
-        normalized: The normalized topic data
-        score_source: Source credibility score (0-1)
+        score_source: Source engagement score (0-1)
         score_freshness: Time-based freshness score (0-1)
         score_trend: Trend momentum score (0-1)
         score_relevance: Channel relevance score (0-1)
         score_total: Total weighted score (0-100)
-        expires_at: When topic expires
     """
 
-    normalized: NormalizedTopic
     score_source: float = Field(ge=0.0, le=1.0)
     score_freshness: float = Field(ge=0.0, le=1.0)
     score_trend: float = Field(ge=0.0, le=1.0)
     score_relevance: float = Field(ge=0.0, le=1.0)
     score_total: int = Field(ge=0, le=100)
-    expires_at: datetime
 
 
 class BaseSource(ABC):

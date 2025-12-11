@@ -247,6 +247,58 @@ logger.error(
 )
 ```
 
+### Dependency Injection
+Uses `dependency-injector` with ASP.NET Core-style lifecycles:
+- **Singleton**: One instance for entire app (Redis, DB engine)
+- **Scoped**: One instance per request/task (DB session)
+- **Transient/Factory**: New instance each time (Services)
+
+```python
+# In FastAPI endpoints - use Depends
+from app.core.container import get_redis, get_db_session
+
+@router.get("/items")
+async def get_items(
+    redis: AsyncRedis = Depends(get_redis),
+    db: AsyncSession = Depends(get_db_session),
+):
+    ...
+
+# In services - inject via constructor
+class TopicDeduplicator:
+    def __init__(self, redis: AsyncRedis):
+        self.redis = redis
+
+# Instantiate services via container
+from app.core.container import container
+
+deduplicator = container.deduplicator()  # Redis auto-injected
+scorer = container.scorer()
+
+# In Celery tasks - use TaskScope
+from app.core.container import TaskScope
+
+@celery_app.task
+def process_topic():
+    with TaskScope() as scope:
+        deduplicator = scope.deduplicator()
+        ...
+
+# In tests - use override
+from app.core.container import override_redis
+
+def test_something():
+    mock_redis = AsyncMock()
+    with override_redis(mock_redis):
+        # All Redis access uses mock
+        ...
+```
+
+Container structure:
+- `InfrastructureContainer`: Redis, Database (Singletons)
+- `ServiceContainer`: Business services (Factories)
+- `ApplicationContainer`: Root container with convenience accessors
+
 ---
 
 ## Database Schema Overview

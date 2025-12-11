@@ -10,8 +10,9 @@ Uses Redis for fast hash lookups with 7-day rolling window.
 
 from datetime import timedelta
 
+from redis.asyncio import Redis as AsyncRedis
+
 from app.core.logging import get_logger
-from app.core.redis import async_redis_client
 from app.services.collector.base import NormalizedTopic
 
 logger = get_logger(__name__)
@@ -24,15 +25,21 @@ class TopicDeduplicator:
     - Level 1: Exact hash match (fastest)
     - Level 2: Semantic similarity (future: vector search)
     - Level 3: Event clustering (entity overlap)
+
+    Attributes:
+        redis: Async Redis client (injected)
+        redis_ttl: TTL for hash keys
+        hash_key_prefix: Redis key prefix for hash lookups
     """
 
-    def __init__(self, redis_ttl_days: int = 7):
+    def __init__(self, redis: AsyncRedis, redis_ttl_days: int = 7):
         """Initialize deduplicator.
 
         Args:
+            redis: Async Redis client
             redis_ttl_days: Days to keep hashes in Redis cache
         """
-        self.redis = async_redis_client
+        self.redis = redis
         self.redis_ttl = timedelta(days=redis_ttl_days)
         self.hash_key_prefix = "topic:hash:"
 

@@ -59,6 +59,9 @@ dependencies = [
     "google-auth-oauthlib>=1.2.0",
     "google-auth-httplib2>=0.2.0",
 
+    # Dependency Injection
+    "dependency-injector>=4.41.0",
+
     # Utilities
     "python-dotenv>=1.0.0",
     "pyyaml>=6.0.1",
