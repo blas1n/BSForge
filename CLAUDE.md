@@ -517,26 +517,54 @@ Detailed designs are in `architecture/`:
 
 ---
 
-## Current Status
+## Current Status & TODO
 
-**Phase**: Design Complete, Implementation Starting
+**Current Phase**: Phase 3 (Topic Collection) - In Progress
 
-### Completed
-- [x] Project planning
-- [x] System architecture
-- [x] All component designs
-- [x] DB schema design
-- [x] API design
+### Phase 1-2: Foundation (Completed)
+- [x] Project scaffolding (FastAPI + SQLAlchemy)
+- [x] DevContainer setup
+- [x] Config system (Pydantic models, YAML loader)
+- [x] DI Container (dependency-injector)
+- [x] DB models (Channel, Source, Topic)
+- [x] Core utilities (logging, exceptions, redis)
 
-### Next Steps
-1. [ ] Project scaffolding (FastAPI + SQLAlchemy)
-2. [ ] DB models & migrations
-3. [ ] Config loader
-4. [ ] Topic collection service
-5. [ ] RAG system
-6. [ ] Video generation
-7. [ ] YouTube upload
-8. [ ] Dashboard
+### Phase 3: Topic Collection (In Progress)
+- [x] 3.1 Base DTOs & Source interface (`RawTopic`, `NormalizedTopic`, `ScoredTopic`, `BaseSource`)
+- [x] 3.2 Normalization (`TopicNormalizer` - translation, classification)
+- [x] 3.3 Deduplication (`TopicDeduplicator` - hash-only for exact duplicate filtering)
+- [ ] 3.4 Filtering (category/keyword include/exclude filters)
+- [x] 3.5 Scoring (`TopicScorer` - multi-factor scoring)
+- [x] 3.6 Queue Management (`TopicQueueManager` - Redis priority queue)
+- [ ] 3.7 Series Auto-Detection (pattern recognition for series)
+- [ ] 3.8 Source Implementations (Reddit, HN, RSS collectors)
+- [ ] 3.9 Collection Scheduler (Celery-based scheduling)
+
+### Phase 4: RAG System
+- [ ] 4.1 Vector DB setup (Chroma dev / Pinecone prod)
+- [ ] 4.2 Embedder service (BGE-M3)
+- [ ] 4.3 Retriever with hybrid search
+- [ ] 4.4 Reranker (BGE-Reranker)
+- [ ] 4.5 Script generator with persona
+
+### Phase 5: Video Generation
+- [ ] 5.1 TTS engine (Edge TTS / ElevenLabs)
+- [ ] 5.2 Subtitle generator
+- [ ] 5.3 Visual selector (stock video/image)
+- [ ] 5.4 Video compositor (FFmpeg)
+
+### Phase 6: Upload & Analytics
+- [ ] 6.1 YouTube API integration
+- [ ] 6.2 Metadata generator
+- [ ] 6.3 Upload scheduler
+- [ ] 6.4 Analytics sync
+
+### Phase 7-11: Later Phases
+- [ ] Phase 7: A/B Testing system
+- [ ] Phase 8: Review system
+- [ ] Phase 9: API Layer (FastAPI endpoints)
+- [ ] Phase 10: Workers (Celery tasks)
+- [ ] Phase 11: Dashboard (React UI)
 
 ---
 

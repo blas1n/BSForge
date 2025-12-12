@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from app.config.channel import ChannelInfo, YouTubeConfig
 from app.config.content import (
     ContentConfig,
+    DedupConfig,
     QueueConfig,
     RegionWeights,
     ScheduleConfig,
@@ -76,6 +77,7 @@ __all__ = [
     "ScoringConfig",
     "ScoringWeights",
     "QueueConfig",
+    "DedupConfig",
     "ContentConfig",
     "VisualConfig",
     "SubtitleConfig",

@@ -1,164 +1,130 @@
 """Topic deduplication service.
 
-This module implements 3-level deduplication:
-1. Hash exact match (Redis, <1ms)
-2. Title similarity (Vector search, ~100ms) - placeholder for now
-3. Event detection (Entity overlap, ~50ms)
+This module implements hash-based deduplication to prevent
+processing the exact same content twice within a channel.
 
-Uses Redis for fast hash lookups with 7-day rolling window.
+Uses Redis for fast hash lookups with configurable TTL.
+
+Design Decision (Hash Only):
+- Event overlap and semantic similarity were intentionally removed
+- Same event from different sources provides diverse perspectives
+- Persona should aggregate multiple sources for richer content
+- Only exact duplicates (same content hash) are filtered
 """
 
 from datetime import timedelta
+from enum import Enum
 
+from pydantic import BaseModel
 from redis.asyncio import Redis as AsyncRedis
 
+from app.config import DedupConfig
 from app.core.logging import get_logger
 from app.services.collector.base import NormalizedTopic
 
 logger = get_logger(__name__)
 
 
-class TopicDeduplicator:
-    """Detects and removes duplicate topics.
+class DedupReason(str, Enum):
+    """Reason for duplicate detection."""
 
-    Uses multi-level approach:
-    - Level 1: Exact hash match (fastest)
-    - Level 2: Semantic similarity (future: vector search)
-    - Level 3: Event clustering (entity overlap)
+    EXACT_HASH = "exact_hash"
+
+
+class DedupResult(BaseModel):
+    """Result of duplicate detection.
+
+    Attributes:
+        is_duplicate: Whether the topic is a duplicate
+        duplicate_of: Original topic hash if duplicate
+        reason: Reason for duplicate detection
+    """
+
+    is_duplicate: bool
+    duplicate_of: str | None = None
+    reason: DedupReason | None = None
+
+
+class TopicDeduplicator:
+    """Detects and removes duplicate topics using hash matching.
+
+    Only exact content matches are considered duplicates.
+    Different articles about the same event are NOT duplicates
+    - they provide diverse perspectives for the persona.
 
     Attributes:
         redis: Async Redis client (injected)
-        redis_ttl: TTL for hash keys
-        hash_key_prefix: Redis key prefix for hash lookups
+        config: Deduplication configuration
     """
 
-    def __init__(self, redis: AsyncRedis, redis_ttl_days: int = 7):
+    # Redis key prefix for hash storage
+    HASH_KEY_PREFIX = "dedup:hash:"
+
+    def __init__(
+        self,
+        redis: AsyncRedis,
+        config: DedupConfig | None = None,
+    ):
         """Initialize deduplicator.
 
         Args:
             redis: Async Redis client
-            redis_ttl_days: Days to keep hashes in Redis cache
+            config: Deduplication configuration (uses defaults if not provided)
         """
         self.redis = redis
-        self.redis_ttl = timedelta(days=redis_ttl_days)
-        self.hash_key_prefix = "topic:hash:"
+        self.config = config or DedupConfig()
 
-    async def is_duplicate(
-        self, topic: NormalizedTopic, channel_id: str
-    ) -> tuple[bool, str | None]:
-        """Check if topic is a duplicate.
+    async def is_duplicate(self, topic: NormalizedTopic, channel_id: str) -> DedupResult:
+        """Check if topic is a duplicate via hash match.
 
         Args:
             topic: Normalized topic to check
             channel_id: Channel ID for scoping
 
         Returns:
-            Tuple of (is_duplicate, reason)
-            reason is None if not duplicate
+            DedupResult with duplicate status and details
         """
-        # Level 1: Hash exact match
-        is_dup, reason = await self._check_hash_match(topic, channel_id)
-        if is_dup:
-            return True, reason
-
-        # Level 2: Semantic similarity (placeholder for future implementation)
-        # TODO: Implement vector similarity search when Chroma/Pinecone is set up
-
-        # Level 3: Event clustering
-        is_dup, reason = await self._check_event_overlap(topic, channel_id)
-        if is_dup:
-            return True, reason
-
-        return False, None
-
-    async def mark_as_seen(self, topic: NormalizedTopic, channel_id: str) -> None:
-        """Mark topic as seen to prevent future duplicates.
-
-        Args:
-            topic: Topic to mark
-            channel_id: Channel ID
-        """
-        # Store hash in Redis with TTL
-        hash_key = f"{self.hash_key_prefix}{channel_id}:{topic.content_hash}"
-        ttl_seconds = int(self.redis_ttl.total_seconds())
-
-        await self.redis.setex(
-            hash_key,
-            ttl_seconds,
-            topic.title_normalized,  # Store title for debugging
-        )
-
-        logger.debug(
-            "Topic marked as seen",
-            hash=topic.content_hash[:16],
-            channel_id=channel_id,
-            ttl_days=self.redis_ttl.days,
-        )
-
-    async def _check_hash_match(
-        self, topic: NormalizedTopic, channel_id: str
-    ) -> tuple[bool, str | None]:
-        """Check for exact hash match in Redis.
-
-        Args:
-            topic: Topic to check
-            channel_id: Channel ID
-
-        Returns:
-            Tuple of (is_duplicate, reason)
-        """
-        hash_key = f"{self.hash_key_prefix}{channel_id}:{topic.content_hash}"
+        hash_key = f"{self.HASH_KEY_PREFIX}{channel_id}:{topic.content_hash}"
 
         existing = await self.redis.get(hash_key)
         if existing:
             logger.info(
                 "Duplicate detected (hash match)",
                 title=topic.title_normalized[:50],
-                existing_title=existing[:50] if existing else None,
                 hash=topic.content_hash[:16],
             )
-            return True, f"Exact duplicate (hash: {topic.content_hash[:16]})"
+            return DedupResult(
+                is_duplicate=True,
+                duplicate_of=topic.content_hash,
+                reason=DedupReason.EXACT_HASH,
+            )
 
-        return False, None
+        return DedupResult(is_duplicate=False)
 
-    async def _check_event_overlap(
-        self, topic: NormalizedTopic, channel_id: str
-    ) -> tuple[bool, str | None]:
-        """Check for same event via entity overlap.
+    async def mark_as_seen(self, topic: NormalizedTopic, channel_id: str) -> None:
+        """Mark topic as seen to prevent future duplicates.
 
-        Detects when different sources report the same event
-        with different titles but overlapping entities.
+        Stores hash in Redis with configurable TTL.
 
         Args:
-            topic: Topic to check
+            topic: Topic to mark
             channel_id: Channel ID
-
-        Returns:
-            Tuple of (is_duplicate, reason)
         """
-        # Skip if no entities
-        if not topic.entities or not any(topic.entities.values()):
-            return False, None
+        ttl_seconds = int(timedelta(days=self.config.hash_ttl_days).total_seconds())
 
-        # Get all entity names
-        all_entities = set()
-        for entity_list in topic.entities.values():
-            all_entities.update(entity_list)
+        hash_key = f"{self.HASH_KEY_PREFIX}{channel_id}:{topic.content_hash}"
+        await self.redis.setex(hash_key, ttl_seconds, topic.title_normalized)
 
-        if len(all_entities) < 2:
-            # Not enough entities to reliably detect events
-            return False, None
-
-        # TODO: Implement entity overlap detection
-        # This requires storing recent topics' entities in Redis
-        # For now, just log that we would check
         logger.debug(
-            "Event overlap check skipped (not implemented)",
-            entities=list(all_entities)[:5],
-            entity_count=len(all_entities),
+            "Topic marked as seen",
+            hash=topic.content_hash[:16],
+            channel_id=channel_id,
+            ttl_days=self.config.hash_ttl_days,
         )
 
-        return False, None
 
-
-__all__ = ["TopicDeduplicator"]
+__all__ = [
+    "TopicDeduplicator",
+    "DedupResult",
+    "DedupReason",
+]

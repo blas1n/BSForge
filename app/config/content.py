@@ -165,6 +165,22 @@ class QueueConfig(BaseModel):
     )
 
 
+class DedupConfig(BaseModel):
+    """Configuration for topic deduplication.
+
+    Hash-only deduplication - only exact content matches are filtered.
+    Different articles about the same event are intentionally allowed
+    to provide diverse perspectives for richer content generation.
+
+    All fields have defaults - can be used without any configuration.
+    """
+
+    # Redis TTL for hash cache
+    hash_ttl_days: int = Field(
+        default=7, ge=1, le=30, description="Days to keep hashes in Redis cache"
+    )
+
+
 class VisualConfig(BaseModel):
     """Visual content configuration.
 

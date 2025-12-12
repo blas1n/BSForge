@@ -685,116 +685,113 @@ class TopicNormalizer {
 
 ## 5. 중복 제거
 
-### 5.1 중복 감지 전략
-```typescript
-interface DedupResult {
-  isDuplicate: boolean;
-  duplicateOf?: string;        // 원본 토픽 ID
-  similarity: number;          // 유사도 (0-1)
-  reason?: 'exact_hash' | 'similar_title' | 'same_event' | 'keyword_overlap';
-}
+### 5.1 설계 결정
 
-class TopicDeduplicator {
-  constructor(
-    private vectorDB: VectorDB,
-    private recentTopics: RecentTopicCache,
-  ) {}
+**Hash-Only 중복 제거 채택**
 
-  async checkDuplicate(
-    topic: NormalizedTopic,
-    config: DedupConfig
-  ): Promise<DedupResult> {
-    // 1. 해시 완전 일치 (가장 빠름)
-    const hashMatch = await this.recentTopics.findByHash(topic.hash);
-    if (hashMatch) {
-      return {
-        isDuplicate: true,
-        duplicateOf: hashMatch.id,
-        similarity: 1.0,
-        reason: 'exact_hash',
-      };
-    }
+원래 3-level (해시, 시맨틱, 이벤트)로 설계했으나, 다음 이유로 **Hash-Only**로 단순화:
 
-    // 2. 제목 유사도 체크
-    const titleEmbedding = await this.embed(topic.title.normalized);
-    const similarByTitle = await this.vectorDB.query({
-      vector: titleEmbedding,
-      topK: 5,
-      filter: {
-        collectedAfter: new Date(Date.now() - config.timeWindowHours * 60 * 60 * 1000),
-      },
-    });
+#### 왜 Semantic Similarity를 제거했나?
 
-    for (const match of similarByTitle) {
-      if (match.similarity >= config.titleSimilarityThreshold) {
-        return {
-          isDuplicate: true,
-          duplicateOf: match.id,
-          similarity: match.similarity,
-          reason: 'similar_title',
-        };
-      }
-    }
+1. **같은 제목이라도 소스마다 콘텐츠가 다름**
+   - Reddit의 "Tesla 주가 급등" → 커뮤니티 반응, 밈
+   - TechCrunch의 "Tesla 주가 급등" → 분석 기사, 전문가 의견
+   - HN의 "Tesla 주가 급등" → 기술적 논의
 
-    // 3. 같은 이벤트 감지 (엔티티 + 시간 기반)
-    if (topic.classification.entities.length > 0) {
-      const sameEvent = await this.findSameEvent(topic, config);
-      if (sameEvent) {
-        return {
-          isDuplicate: true,
-          duplicateOf: sameEvent.id,
-          similarity: sameEvent.similarity,
-          reason: 'same_event',
-        };
-      }
-    }
+2. **페르소나가 여러 소스를 통합해야 함**
+   - 각 채널의 페르소나는 같은 이벤트에 대한 다양한 관점을 수집
+   - 이를 종합하여 자신만의 의견 생성
+   - 유사한 제목이라고 중복 처리하면 다양한 관점 손실
 
-    return { isDuplicate: false, similarity: 0 };
-  }
+#### 왜 Event Overlap도 제거했나?
 
-  // 같은 이벤트/사건 감지
-  private async findSameEvent(
-    topic: NormalizedTopic,
-    config: DedupConfig
-  ): Promise<{ id: string; similarity: number } | null> {
-    const entityNames = topic.classification.entities.map(e => e.name);
+1. **같은 이벤트, 다른 소스 = 더 풍부한 콘텐츠**
+   - 하나의 토픽을 다루더라도 여러 소스가 있어야 양질의 콘텐츠
+   - Reddit + HN + TechCrunch를 모두 수집해야 다각적 관점 제공
 
-    const candidates = await this.recentTopics.findByEntities(
-      entityNames,
-      config.timeWindowHours
-    );
+2. **페르소나의 역할**
+   - 중복 필터링은 Deduplicator가 아닌 Persona가 담당
+   - 같은 이벤트에 대한 여러 토픽을 수집 → RAG에서 통합하여 콘텐츠 생성
 
-    for (const candidate of candidates) {
-      // 엔티티 오버랩 체크
-      const candidateEntities = candidate.classification.entities.map(e => e.name);
-      const overlap = this.calculateOverlap(entityNames, candidateEntities);
+3. **채널 간 독립성 보장**
+   - 채널 A가 "Tesla" 토픽 선택 → 채널 A 스타일로 영상
+   - 채널 B도 같은 토픽 선택 가능 → 채널 B 스타일로 다른 영상
 
-      // 키워드 오버랩 체크
-      const keywordOverlap = this.calculateOverlap(
-        topic.classification.keywords,
-        candidate.classification.keywords
-      );
+**최종 구조:**
+| Level | 비교 대상 | Scope | 목적 |
+|-------|----------|-------|------|
+| Hash | content_hash | Per-channel | 정확히 같은 콘텐츠 중복 방지 |
 
-      const combinedSimilarity = (overlap + keywordOverlap) / 2;
+### 5.2 중복 감지 전략
+```python
+"""Topic deduplication service.
 
-      if (combinedSimilarity >= config.eventSimilarityThreshold) {
-        return { id: candidate.id, similarity: combinedSimilarity };
-      }
-    }
+Hash-only deduplication - only exact content matches are filtered.
+Different articles about the same event are intentionally allowed
+to provide diverse perspectives for richer content generation.
+"""
 
-    return null;
-  }
-}
+class DedupReason(str, Enum):
+    """Reason for duplicate detection."""
+    EXACT_HASH = "exact_hash"
+
+
+class DedupResult(BaseModel):
+    """Result of duplicate detection."""
+    is_duplicate: bool
+    duplicate_of: str | None = None
+    reason: DedupReason | None = None
+
+
+class TopicDeduplicator:
+    """Detects and removes duplicate topics using hash matching.
+
+    Only exact content matches are considered duplicates.
+    Different articles about the same event are NOT duplicates
+    - they provide diverse perspectives for the persona.
+    """
+
+    HASH_KEY_PREFIX = "dedup:hash:"
+
+    def __init__(self, redis: AsyncRedis, config: DedupConfig | None = None):
+        self.redis = redis
+        self.config = config or DedupConfig()
+
+    async def is_duplicate(
+        self, topic: NormalizedTopic, channel_id: str
+    ) -> DedupResult:
+        """Check if topic is a duplicate via hash match."""
+        hash_key = f"{self.HASH_KEY_PREFIX}{channel_id}:{topic.content_hash}"
+
+        existing = await self.redis.get(hash_key)
+        if existing:
+            return DedupResult(
+                is_duplicate=True,
+                duplicate_of=topic.content_hash,
+                reason=DedupReason.EXACT_HASH,
+            )
+
+        return DedupResult(is_duplicate=False)
+
+    async def mark_as_seen(self, topic: NormalizedTopic, channel_id: str) -> None:
+        """Mark topic as seen to prevent future duplicates."""
+        ttl_seconds = int(timedelta(days=self.config.hash_ttl_days).total_seconds())
+
+        hash_key = f"{self.HASH_KEY_PREFIX}{channel_id}:{topic.content_hash}"
+        await self.redis.setex(hash_key, ttl_seconds, topic.title_normalized)
 ```
 
-### 5.2 이벤트 클러스터링
+### 5.3 토픽 클러스터링 (향후 확장 - RAG 단계)
+
+중복 제거는 Hash-Only이지만, 같은 이벤트에 대한 여러 토픽을 **클러스터링**하여 RAG에서 활용할 수 있음:
+
 ```typescript
-// 같은 이벤트에 대한 여러 소스 → 클러스터로 묶기
+// 같은 이벤트에 대한 여러 소스 → 클러스터로 묶기 (RAG 단계)
 interface TopicCluster {
   id: string;
   event: string;                    // 이벤트 요약
   mainTopic: NormalizedTopic;       // 대표 토픽 (가장 높은 점수)
-  relatedTopics: NormalizedTopic[]; // 관련 토픽들
+  relatedTopics: NormalizedTopic[]; // 관련 토픽들 (다른 소스)
 
   // 클러스터 메타
   sourceCount: number;              // 몇 개 소스에서 나왔는지
@@ -806,8 +803,10 @@ interface TopicCluster {
 }
 
 // 클러스터링 → 더 신뢰성 있는 토픽으로 승격
-// 여러 소스에서 같은 이벤트 → 중요한 이슈일 가능성 높음
+// 여러 소스에서 같은 이벤트 → 더 풍부한 콘텐츠 생성 가능
 ```
+
+**주의**: 이 클러스터링은 중복 제거가 아닌, 콘텐츠 생성 품질 향상을 위한 것
 
 ---
 

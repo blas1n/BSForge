@@ -8,7 +8,7 @@ This package implements the topic collection pipeline:
 5. Queue manager adds topics to priority queue
 """
 
-from app.config import QueueConfig, ScoringConfig, ScoringWeights
+from app.config import DedupConfig, QueueConfig, ScoringConfig, ScoringWeights
 from app.services.collector.base import (
     BaseSource,
     CollectionResult,
@@ -16,7 +16,11 @@ from app.services.collector.base import (
     RawTopic,
     ScoredTopic,
 )
-from app.services.collector.deduplicator import TopicDeduplicator
+from app.services.collector.deduplicator import (
+    DedupReason,
+    DedupResult,
+    TopicDeduplicator,
+)
 from app.services.collector.normalizer import ClassificationResult, TopicNormalizer
 from app.services.collector.queue_manager import QueueStats, TopicQueueManager
 from app.services.collector.scorer import ScoreComponents, TopicScorer
@@ -33,6 +37,9 @@ __all__ = [
     "ClassificationResult",
     # Deduplicator
     "TopicDeduplicator",
+    "DedupConfig",
+    "DedupResult",
+    "DedupReason",
     # Scorer
     "TopicScorer",
     "ScoringConfig",
