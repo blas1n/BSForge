@@ -528,7 +528,7 @@ Detailed designs are in `architecture/`:
 
 ## Current Status & TODO
 
-**Current Phase**: Phase 3 (Topic Collection) - In Progress
+**Current Phase**: Phase 3 (Topic Collection) - Hybrid Collection Implementation
 
 ### Phase 1-2: Foundation (Completed)
 - [x] Project scaffolding (FastAPI + SQLAlchemy)
@@ -546,8 +546,13 @@ Detailed designs are in `architecture/`:
 - [x] 3.5 Scoring (`TopicScorer` - multi-factor scoring)
 - [x] 3.6 Queue Management (`TopicQueueManager` - Redis priority queue)
 - [x] 3.7 Series Matcher (`SeriesMatcher` - topic-to-series matching)
-- [ ] 3.8 Source Implementations (Reddit, HN, RSS collectors)
-- [ ] 3.9 Collection Scheduler (Celery-based scheduling)
+- [x] 3.8 Source Implementations (Reddit, HN, RSS, YouTube, Google Trends, DCInside, Clien)
+- [x] 3.9 Collection Scheduler (Celery-based scheduling - basic)
+- [ ] 3.10 Hybrid Collection System (Global Pool + Scoped Sources)
+  - [ ] GlobalTopicPool (Redis-based shared pool for HN, Trends, YouTube)
+  - [ ] GlobalCollector task (collect once, share across channels)
+  - [ ] ScopedSourceCache (cache Reddit/DCInside results for short TTL)
+  - [ ] Updated ChannelCollector (pull from pool + collect scoped)
 
 ### Phase 4: RAG System
 - [ ] 4.1 Vector DB setup (Chroma dev / Pinecone prod)
