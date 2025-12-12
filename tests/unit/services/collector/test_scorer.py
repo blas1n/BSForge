@@ -402,10 +402,16 @@ class TestScoringConfig:
         assert weights.novelty == 0.10
 
     def test_custom_weights(self):
-        """Test custom weight configuration."""
+        """Test custom weight configuration that sums to 1.0."""
         weights = ScoringWeights(
-            freshness=0.30,
-            trend_momentum=0.20,
+            source_credibility=0.10,  # -0.05
+            source_score=0.10,  # -0.05
+            freshness=0.30,  # +0.10
+            trend_momentum=0.20,  # +0.10
+            category_relevance=0.10,  # -0.05
+            keyword_relevance=0.05,  # -0.05
+            entity_relevance=0.05,
+            novelty=0.10,
         )
         config = ScoringConfig(weights=weights)
 

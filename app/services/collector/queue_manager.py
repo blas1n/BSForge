@@ -7,27 +7,14 @@ having higher priority (retrieved first).
 
 import uuid
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from redis.asyncio import Redis as AsyncRedis
 
+from app.config import QueueConfig
 from app.core.logging import get_logger
 from app.services.collector.base import ScoredTopic
 
 logger = get_logger(__name__)
-
-
-class QueueConfig(BaseModel):
-    """Configuration for topic queue."""
-
-    max_pending_size: int = Field(
-        default=100, description="Maximum number of pending topics per channel"
-    )
-    min_score_threshold: int = Field(
-        default=30, description="Minimum total score to accept into queue"
-    )
-    auto_expire_hours: int = Field(
-        default=72, description="Auto-expire topics after this many hours"
-    )
 
 
 class QueueStats(BaseModel):
@@ -181,7 +168,7 @@ class TopicQueueManager:
         if not result:
             return None
 
-        content_hash, _score = result[0]
+        content_hash, _ = result[0]
         if isinstance(content_hash, bytes):
             content_hash = content_hash.decode()
 
@@ -232,7 +219,7 @@ class TopicQueueManager:
         if not result:
             return None
 
-        content_hash, _score = result[0]
+        content_hash, _ = result[0]
         if isinstance(content_hash, bytes):
             content_hash = content_hash.decode()
 
@@ -274,7 +261,7 @@ class TopicQueueManager:
             results = await self.redis.zrange(queue_key, -count, -1, withscores=True, desc=True)
 
         topics = []
-        for content_hash, _score in results:
+        for content_hash, _ in results:
             if isinstance(content_hash, bytes):
                 content_hash = content_hash.decode()
 
@@ -449,7 +436,7 @@ class TopicQueueManager:
         results = await self.redis.zrangebyscore(queue_key, min_score, max_score, withscores=True)
 
         topics = []
-        for content_hash, _score in results:
+        for content_hash, _ in results:
             if isinstance(content_hash, bytes):
                 content_hash = content_hash.decode()
 

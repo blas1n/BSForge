@@ -61,12 +61,13 @@ def valid_config_data():
         "scoring": {
             "weights": {
                 "source_credibility": 0.15,
-                "source_score": 0.10,
+                "source_score": 0.15,
                 "freshness": 0.20,
-                "trend": 0.15,
-                "channel_relevance": 0.25,
+                "trend_momentum": 0.10,
+                "category_relevance": 0.15,
+                "keyword_relevance": 0.10,
+                "entity_relevance": 0.05,
                 "novelty": 0.10,
-                "bonus_multi_source": 0.05,
             },
         },
         "content": {

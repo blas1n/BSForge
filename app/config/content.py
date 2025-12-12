@@ -2,7 +2,7 @@
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class RegionWeights(BaseModel):
@@ -86,69 +86,82 @@ class TopicCollectionConfig(BaseModel):
 
 
 class ScoringWeights(BaseModel):
-    """Topic scoring weights.
+    """Weights for each score component.
 
-    Attributes:
-        source_credibility: Source credibility weight
-        source_score: Source-specific score weight
-        freshness: Freshness weight
-        trend: Trend weight
-        channel_relevance: Channel relevance weight
-        novelty: Novelty weight
-        bonus_multi_source: Multi-source bonus weight
+    All weights must sum to 1.0. Defaults are provided.
     """
 
-    source_credibility: float = Field(..., ge=0, le=1)
-    source_score: float = Field(..., ge=0, le=1)
-    freshness: float = Field(..., ge=0, le=1)
-    trend: float = Field(..., ge=0, le=1)
-    channel_relevance: float = Field(..., ge=0, le=1)
-    novelty: float = Field(..., ge=0, le=1)
-    bonus_multi_source: float = Field(..., ge=0, le=1)
+    source_credibility: float = Field(default=0.15, ge=0, le=1)
+    source_score: float = Field(default=0.15, ge=0, le=1)
+    freshness: float = Field(default=0.20, ge=0, le=1)
+    trend_momentum: float = Field(default=0.10, ge=0, le=1)
+    category_relevance: float = Field(default=0.15, ge=0, le=1)
+    keyword_relevance: float = Field(default=0.10, ge=0, le=1)
+    entity_relevance: float = Field(default=0.05, ge=0, le=1)
+    novelty: float = Field(default=0.10, ge=0, le=1)
 
-    @field_validator("bonus_multi_source")
-    @classmethod
-    def validate_weights_sum_to_one(cls, v: float, info: Any) -> float:
-        """Validate that all weights sum to 1.0.
-
-        Args:
-            v: Bonus multi-source weight
-            info: Validation info
-
-        Returns:
-            The validated weight
-
-        Raises:
-            ValueError: If weights don't sum to 1.0
-        """
-        if info.data:
-            total = sum(
-                [
-                    info.data.get("source_credibility", 0),
-                    info.data.get("source_score", 0),
-                    info.data.get("freshness", 0),
-                    info.data.get("trend", 0),
-                    info.data.get("channel_relevance", 0),
-                    info.data.get("novelty", 0),
-                    v,
-                ]
-            )
-            if abs(total - 1.0) > 0.01:
-                raise ValueError(f"Scoring weights must sum to 1.0 (got {total})")
-        return v
+    @model_validator(mode="after")
+    def validate_weights_sum(self) -> "ScoringWeights":
+        """Validate that all weights sum to 1.0."""
+        total = (
+            self.source_credibility
+            + self.source_score
+            + self.freshness
+            + self.trend_momentum
+            + self.category_relevance
+            + self.keyword_relevance
+            + self.entity_relevance
+            + self.novelty
+        )
+        if abs(total - 1.0) > 0.01:
+            raise ValueError(f"Scoring weights must sum to 1.0 (got {total:.2f})")
+        return self
 
 
 class ScoringConfig(BaseModel):
-    """Scoring configuration.
+    """Configuration for topic scoring.
 
-    Attributes:
-        weights: Scoring weights
-        preset: Scoring preset name
+    All fields have defaults - can be used without any configuration.
     """
 
-    weights: ScoringWeights
-    preset: Literal["news", "educational", "trending", "niche", "tech"] = Field(
-        default="tech", description="Scoring preset"
+    weights: ScoringWeights = Field(default_factory=ScoringWeights)
+
+    # Freshness decay settings
+    freshness_half_life_hours: int = Field(
+        default=24, ge=1, description="Hours for freshness to decay to 0.5"
+    )
+    freshness_min: float = Field(default=0.1, ge=0, le=1, description="Minimum freshness score")
+
+    # Channel relevance settings (populated from channel config)
+    target_categories: list[str] = Field(default_factory=list)
+    target_keywords: list[str] = Field(default_factory=list)
+    target_entities: list[str] = Field(default_factory=list)
+
+    # Novelty settings
+    novelty_lookback_days: int = Field(
+        default=30, ge=1, description="Days to look back for novelty check"
+    )
+
+    # Minimum score threshold
+    min_score_threshold: int = Field(
+        default=30, ge=0, le=100, description="Minimum total score to accept topic"
+    )
+
+
+class QueueConfig(BaseModel):
+    """Configuration for topic queue.
+
+    All fields have defaults - can be used without any configuration.
+    """
+
+    max_pending_size: int = Field(
+        default=100, ge=1, description="Maximum number of pending topics per channel"
+    )
+    min_score_threshold: int = Field(
+        default=30, ge=0, le=100, description="Minimum total score to accept into queue"
+    )
+    auto_expire_hours: int = Field(
+        default=72, ge=1, description="Auto-expire topics after this many hours"
     )
 
 

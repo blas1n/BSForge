@@ -14,6 +14,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.config import ScoringConfig, ScoringWeights
 from app.core.logging import get_logger
 from app.services.collector.base import NormalizedTopic, ScoredTopic
 
@@ -33,44 +34,6 @@ class ScoreComponents(BaseModel):
     entity_relevance: float = Field(ge=0.0, le=1.0, description="Entity match score")
     novelty: float = Field(ge=0.0, le=1.0, description="Topic newness score")
     series_bonus: float = Field(ge=0.0, le=0.3, description="Series continuation bonus")
-
-
-class ScoringWeights(BaseModel):
-    """Weights for each score component."""
-
-    source_credibility: float = Field(default=0.15)
-    source_score: float = Field(default=0.15)
-    freshness: float = Field(default=0.20)
-    trend_momentum: float = Field(default=0.10)
-    category_relevance: float = Field(default=0.15)
-    keyword_relevance: float = Field(default=0.10)
-    entity_relevance: float = Field(default=0.05)
-    novelty: float = Field(default=0.10)
-
-
-class ScoringConfig(BaseModel):
-    """Configuration for topic scoring."""
-
-    weights: ScoringWeights = Field(default_factory=ScoringWeights)
-
-    # Freshness decay settings
-    freshness_half_life_hours: int = Field(
-        default=24, description="Hours for freshness to decay to 0.5"
-    )
-    freshness_min: float = Field(default=0.1, description="Minimum freshness score")
-
-    # Channel relevance settings
-    target_categories: list[str] = Field(default_factory=list)
-    target_keywords: list[str] = Field(default_factory=list)
-    target_entities: list[str] = Field(default_factory=list)
-
-    # Novelty settings
-    novelty_lookback_days: int = Field(
-        default=30, description="Days to look back for novelty check"
-    )
-
-    # Minimum score threshold
-    min_score_threshold: int = Field(default=30, description="Minimum total score to accept topic")
 
 
 class TopicScorer:
@@ -443,4 +406,5 @@ class TopicScorer:
         return 0.05  # Low-performing but has series continuity
 
 
+# Re-export config classes for backward compatibility
 __all__ = ["TopicScorer", "ScoringConfig", "ScoringWeights", "ScoreComponents"]

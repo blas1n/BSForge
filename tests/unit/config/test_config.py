@@ -64,33 +64,45 @@ def test_region_weights_invalid_sum():
 
 @pytest.mark.unit
 def test_scoring_weights_valid():
-    """Test valid scoring weights."""
-    weights = ScoringWeights(
-        source_credibility=0.15,
-        source_score=0.10,
-        freshness=0.20,
-        trend=0.15,
-        channel_relevance=0.25,
-        novelty=0.10,
-        bonus_multi_source=0.05,
-    )
+    """Test valid scoring weights with defaults."""
+    weights = ScoringWeights()
     assert weights.source_credibility == 0.15
-    assert weights.bonus_multi_source == 0.05
+    assert weights.source_score == 0.15
+    assert weights.freshness == 0.20
+    assert weights.trend_momentum == 0.10
+    assert weights.category_relevance == 0.15
+    assert weights.keyword_relevance == 0.10
+    assert weights.entity_relevance == 0.05
+    assert weights.novelty == 0.10
+
+
+@pytest.mark.unit
+def test_scoring_weights_custom():
+    """Test scoring weights with custom values that sum to 1.0."""
+    weights = ScoringWeights(
+        source_credibility=0.20,  # +0.05 from default
+        source_score=0.10,  # -0.05 from default (to balance)
+        freshness=0.30,  # +0.10 from default
+        trend_momentum=0.05,  # -0.05 from default
+        category_relevance=0.10,  # -0.05 from default (to balance)
+        keyword_relevance=0.10,
+        entity_relevance=0.05,
+        novelty=0.10,
+    )
+    assert weights.source_credibility == 0.20
+    assert weights.freshness == 0.30
+    assert weights.source_score == 0.10
 
 
 @pytest.mark.unit
 def test_scoring_weights_invalid_sum():
-    """Test scoring weights with invalid sum."""
-    with pytest.raises(ValidationError, match="must sum to 1.0"):
+    """Test that scoring weights must sum to 1.0."""
+    with pytest.raises(ValidationError) as exc_info:
         ScoringWeights(
-            source_credibility=0.2,
-            source_score=0.2,
-            freshness=0.2,
-            trend=0.2,
-            channel_relevance=0.2,
-            novelty=0.2,
-            bonus_multi_source=0.2,
+            source_credibility=0.50,
+            freshness=0.50,
         )
+    assert "must sum to 1.0" in str(exc_info.value)
 
 
 @pytest.mark.unit
@@ -321,21 +333,34 @@ def test_topic_collection_config_valid():
 
 @pytest.mark.unit
 def test_scoring_config_valid():
-    """Test valid scoring configuration."""
+    """Test valid scoring configuration with defaults."""
+    scoring = ScoringConfig()
+    assert scoring.weights.source_credibility == 0.15
+    assert scoring.freshness_half_life_hours == 24
+    assert scoring.freshness_min == 0.1
+    assert scoring.min_score_threshold == 30
+
+
+@pytest.mark.unit
+def test_scoring_config_custom():
+    """Test scoring configuration with custom values."""
     scoring = ScoringConfig(
         weights=ScoringWeights(
             source_credibility=0.15,
-            source_score=0.10,
-            freshness=0.20,
-            trend=0.15,
-            channel_relevance=0.25,
+            source_score=0.05,  # -0.10 from default
+            freshness=0.30,  # +0.10 from default (to balance)
+            trend_momentum=0.10,
+            category_relevance=0.15,
+            keyword_relevance=0.10,
+            entity_relevance=0.05,
             novelty=0.10,
-            bonus_multi_source=0.05,
         ),
-        preset="tech",
+        freshness_half_life_hours=12,
+        target_categories=["tech", "ai"],
     )
-    assert scoring.preset == "tech"
-    assert scoring.weights.source_credibility == 0.15
+    assert scoring.weights.freshness == 0.30
+    assert scoring.freshness_half_life_hours == 12
+    assert scoring.target_categories == ["tech", "ai"]
 
 
 @pytest.mark.unit
@@ -431,14 +456,16 @@ def test_full_channel_config(tmp_path):
         "scoring": {
             "weights": {
                 "source_credibility": 0.15,
-                "source_score": 0.10,
+                "source_score": 0.15,
                 "freshness": 0.20,
-                "trend": 0.15,
-                "channel_relevance": 0.25,
+                "trend_momentum": 0.10,
+                "category_relevance": 0.15,
+                "keyword_relevance": 0.10,
+                "entity_relevance": 0.05,
                 "novelty": 0.10,
-                "bonus_multi_source": 0.05,
             },
-            "preset": "tech",
+            "freshness_half_life_hours": 24,
+            "min_score_threshold": 30,
         },
         "content": {
             "format": "shorts",
@@ -461,7 +488,8 @@ def test_full_channel_config(tmp_path):
     assert config.channel.id == "test-channel"
     assert config.persona.name == "TestBot"
     assert config.topic_collection.region_weights.domestic == 0.3
-    assert config.scoring.preset == "tech"
+    assert config.scoring.freshness_half_life_hours == 24
+    assert config.scoring.min_score_threshold == 30
     assert config.content.target_duration == 55
     assert config.upload.daily_target == 2
     assert config.operation.review_gates.topic == "auto"
