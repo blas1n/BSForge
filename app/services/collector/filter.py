@@ -68,26 +68,25 @@ class TopicFilter:
     def _build_lookup_tables(self) -> None:
         """Build lookup tables for efficient filtering.
 
-        Config values are lowercased here since NormalizedTopic
-        already has lowercase categories/keywords/title_normalized.
+        Config values are already lowercased by Pydantic validators,
+        so no conversion needed here.
         """
-        # Exclude lookups (lowercase to match normalized topic data)
-        self._excluded_categories = {c.lower() for c in self.config.exclude.categories}
-        self._excluded_keywords = {k.lower() for k in self.config.exclude.keywords}
+        # Exclude lookups (already lowercase from config)
+        self._excluded_categories = set(self.config.exclude.categories)
+        self._excluded_keywords = set(self.config.exclude.keywords)
 
         # Include category lookup: name -> (weight, subcategories)
         self._include_categories: dict[str, tuple[float, set[str]]] = {}
         for cat in self.config.include.categories:
-            name_lower = cat.name.lower()
-            subcats = {s.lower() for s in cat.subcategories}
-            self._include_categories[name_lower] = (cat.weight, subcats)
+            subcats = set(cat.subcategories)
+            self._include_categories[cat.name] = (cat.weight, subcats)
 
         # Include keyword lookup: keyword -> weight (including synonyms)
         self._include_keywords: dict[str, float] = {}
         for kw in self.config.include.keywords:
-            self._include_keywords[kw.keyword.lower()] = kw.weight
+            self._include_keywords[kw.keyword] = kw.weight
             for syn in kw.synonyms:
-                self._include_keywords[syn.lower()] = kw.weight
+                self._include_keywords[syn] = kw.weight
 
     def filter(self, topic: NormalizedTopic) -> FilterResult:
         """Filter a topic based on configured rules.

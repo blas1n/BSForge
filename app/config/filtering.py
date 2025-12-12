@@ -1,34 +1,58 @@
-"""Topic filtering configuration models."""
+"""Topic filtering configuration models.
 
-from pydantic import BaseModel, Field
+All string values (categories, keywords, synonyms) are automatically
+lowercased on load for consistent matching with normalized topic data.
+"""
+
+from pydantic import BaseModel, Field, field_validator
 
 
 class CategoryFilter(BaseModel):
     """Category filter with optional weight.
 
     Attributes:
-        name: Category name (e.g., "tech", "ai", "gaming")
+        name: Category name (e.g., "tech", "ai", "gaming") - lowercased on load
         weight: Weight multiplier for scoring (default 1.0)
-        subcategories: Optional subcategories to include
+        subcategories: Optional subcategories to include - lowercased on load
     """
 
     name: str
     weight: float = Field(default=1.0, ge=0.0, le=3.0)
     subcategories: list[str] = Field(default_factory=list)
 
+    @field_validator("name", mode="before")
+    @classmethod
+    def lowercase_name(cls, v: str) -> str:
+        return v.lower() if isinstance(v, str) else v
+
+    @field_validator("subcategories", mode="before")
+    @classmethod
+    def lowercase_subcategories(cls, v: list[str]) -> list[str]:
+        return [s.lower() for s in v] if v else []
+
 
 class KeywordFilter(BaseModel):
     """Keyword filter with synonyms and weight.
 
     Attributes:
-        keyword: Main keyword to match
+        keyword: Main keyword to match - lowercased on load
         weight: Weight multiplier for scoring (default 1.0)
-        synonyms: Alternative forms of the keyword
+        synonyms: Alternative forms of the keyword - lowercased on load
     """
 
     keyword: str
     weight: float = Field(default=1.0, ge=0.0, le=3.0)
     synonyms: list[str] = Field(default_factory=list)
+
+    @field_validator("keyword", mode="before")
+    @classmethod
+    def lowercase_keyword(cls, v: str) -> str:
+        return v.lower() if isinstance(v, str) else v
+
+    @field_validator("synonyms", mode="before")
+    @classmethod
+    def lowercase_synonyms(cls, v: list[str]) -> list[str]:
+        return [s.lower() for s in v] if v else []
 
 
 class IncludeFilters(BaseModel):
@@ -51,12 +75,22 @@ class ExcludeFilters(BaseModel):
     Topics matching these filters are rejected.
 
     Attributes:
-        categories: Categories to reject
-        keywords: Keywords to reject
+        categories: Categories to reject - lowercased on load
+        keywords: Keywords to reject - lowercased on load
     """
 
     categories: list[str] = Field(default_factory=list)
     keywords: list[str] = Field(default_factory=list)
+
+    @field_validator("categories", mode="before")
+    @classmethod
+    def lowercase_categories(cls, v: list[str]) -> list[str]:
+        return [c.lower() for c in v] if v else []
+
+    @field_validator("keywords", mode="before")
+    @classmethod
+    def lowercase_keywords(cls, v: list[str]) -> list[str]:
+        return [k.lower() for k in v] if v else []
 
 
 class TopicFilterConfig(BaseModel):

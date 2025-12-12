@@ -40,6 +40,7 @@ from app.config.persona import (
     VoiceConfig,
     VoiceSettings,
 )
+from app.config.series import SeriesConfig, SeriesCriteria, SeriesMatcherConfig
 
 
 class ChannelConfig(BaseModel):
@@ -101,6 +102,10 @@ __all__ = [
     "ReviewGates",
     "AutoApproveConfig",
     "NotificationConfig",
+    # Series
+    "SeriesCriteria",
+    "SeriesConfig",
+    "SeriesMatcherConfig",
     # Main
     "ChannelConfig",
 ]

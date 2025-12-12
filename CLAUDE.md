@@ -164,10 +164,19 @@ Four review gates: Topic → Script → Video → Upload
 Each can be: `auto`, `manual`, or `hybrid`
 
 ### 4. Series Auto-Detection
-System automatically detects high-performing content patterns and suggests series based on:
-- Keyword clustering
-- Category overlap
-- Consecutive success (3+ videos, >5% engagement)
+Two-part system for series management:
+
+**SeriesMatcher** (Phase 3 - Implemented):
+- Matches new topics to existing configured series
+- Uses keyword/category overlap with configurable similarity threshold
+- Provides score boost for matched series topics
+
+**SeriesDetector** (Phase 6 - Deferred):
+- Auto-detects high-performing content patterns from analytics data
+- Requires Performance data from YouTube Analytics
+- Clusters videos by keywords/categories
+- Suggests new series when: 3+ videos, >5% engagement rate
+- Creates `SeriesConfig` suggestions for user confirmation
 
 ### 5. A/B Testing System
 When channel performance is low, run experiments to optimize:
@@ -533,10 +542,10 @@ Detailed designs are in `architecture/`:
 - [x] 3.1 Base DTOs & Source interface (`RawTopic`, `NormalizedTopic`, `ScoredTopic`, `BaseSource`)
 - [x] 3.2 Normalization (`TopicNormalizer` - translation, classification)
 - [x] 3.3 Deduplication (`TopicDeduplicator` - hash-only for exact duplicate filtering)
-- [ ] 3.4 Filtering (category/keyword include/exclude filters)
+- [x] 3.4 Filtering (`TopicFilter` - category/keyword include/exclude filters)
 - [x] 3.5 Scoring (`TopicScorer` - multi-factor scoring)
 - [x] 3.6 Queue Management (`TopicQueueManager` - Redis priority queue)
-- [ ] 3.7 Series Auto-Detection (pattern recognition for series)
+- [x] 3.7 Series Matcher (`SeriesMatcher` - topic-to-series matching)
 - [ ] 3.8 Source Implementations (Reddit, HN, RSS collectors)
 - [ ] 3.9 Collection Scheduler (Celery-based scheduling)
 
@@ -558,6 +567,11 @@ Detailed designs are in `architecture/`:
 - [ ] 6.2 Metadata generator
 - [ ] 6.3 Upload scheduler
 - [ ] 6.4 Analytics sync
+- [ ] 6.5 Series Detector (`SeriesDetector` - auto-detect series from performance data)
+  - Clusters high-performing videos by keywords/categories
+  - Requires 3+ videos with >5% engagement rate
+  - Creates `SeriesConfig` suggestions for user confirmation
+  - Location: `app/services/analyzer/series_detector.py`
 
 ### Phase 7-11: Later Phases
 - [ ] Phase 7: A/B Testing system

@@ -32,6 +32,7 @@ from app.services.collector.filter import FilterReason, FilterResult, TopicFilte
 from app.services.collector.normalizer import ClassificationResult, TopicNormalizer
 from app.services.collector.queue_manager import QueueStats, TopicQueueManager
 from app.services.collector.scorer import ScoreComponents, TopicScorer
+from app.services.collector.series_matcher import SeriesMatcher, SeriesMatchResult
 
 __all__ = [
     # Base DTOs
@@ -62,4 +63,7 @@ __all__ = [
     "TopicQueueManager",
     "QueueConfig",
     "QueueStats",
+    # Series Matcher
+    "SeriesMatcher",
+    "SeriesMatchResult",
 ]
