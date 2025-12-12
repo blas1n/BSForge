@@ -201,12 +201,13 @@ class TopicNormalizer:
         """Clean and normalize title text.
 
         Removes extra whitespace, special characters, emojis, etc.
+        Returns lowercase for consistent matching.
 
         Args:
             title: Raw title
 
         Returns:
-            Cleaned title
+            Cleaned lowercase title
         """
         # Remove URLs
         title = re.sub(r"https?://\S+", "", title)
@@ -220,7 +221,8 @@ class TopicNormalizer:
         # Remove common prefixes (Show HN:, Ask HN:, etc.)
         title = re.sub(r"^(Show HN|Ask HN|Tell HN):\s*", "", title, flags=re.IGNORECASE)
 
-        return title
+        # Lowercase for consistent matching
+        return title.lower()
 
     async def _classify(self, title: str, content: str | None) -> ClassificationResult:
         """Classify topic using LLM.
@@ -269,9 +271,13 @@ class TopicNormalizer:
 
             result_dict = json.loads(response_text)
 
+            # Lowercase categories and keywords for consistent matching
+            categories = [c.lower() for c in result_dict.get("categories", [])]
+            keywords = [k.lower() for k in result_dict.get("keywords", [])]
+
             result = ClassificationResult(
-                categories=result_dict.get("categories", []),
-                keywords=result_dict.get("keywords", []),
+                categories=categories,
+                keywords=keywords,
                 entities=result_dict.get("entities", {}),
                 summary=result_dict.get("summary", title[:200]),
             )
@@ -300,18 +306,17 @@ class TopicNormalizer:
         near-duplicates with slight title variations.
 
         Args:
-            title: Normalized title
-            keywords: Extracted keywords
+            title: Normalized title (already lowercase)
+            keywords: Extracted keywords (already lowercase)
 
         Returns:
             SHA-256 hash (64 hex characters)
         """
-        # Lowercase and sort for consistency
-        title_lower = title.lower()
-        keywords_sorted = sorted([k.lower() for k in keywords])
+        # Sort keywords for consistency (already lowercase)
+        keywords_sorted = sorted(keywords)
 
         # Combine for hashing
-        hash_input = f"{title_lower}|{'|'.join(keywords_sorted)}"
+        hash_input = f"{title}|{'|'.join(keywords_sorted)}"
 
         # Generate SHA-256 hash
         hash_bytes = hashlib.sha256(hash_input.encode("utf-8")).digest()
