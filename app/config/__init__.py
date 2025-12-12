@@ -41,6 +41,14 @@ from app.config.persona import (
     VoiceSettings,
 )
 from app.config.series import SeriesConfig, SeriesCriteria, SeriesMatcherConfig
+from app.config.sources import (
+    GoogleTrendsConfig,
+    HackerNewsConfig,
+    RedditConfig,
+    RSSConfig,
+    WebScraperConfig,
+    YouTubeTrendingConfig,
+)
 
 
 class ChannelConfig(BaseModel):
@@ -106,6 +114,13 @@ __all__ = [
     "SeriesCriteria",
     "SeriesConfig",
     "SeriesMatcherConfig",
+    # Sources
+    "HackerNewsConfig",
+    "RedditConfig",
+    "RSSConfig",
+    "GoogleTrendsConfig",
+    "YouTubeTrendingConfig",
+    "WebScraperConfig",
     # Main
     "ChannelConfig",
 ]

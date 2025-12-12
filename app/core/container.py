@@ -95,6 +95,60 @@ class InfrastructureContainer(containers.DeclarativeContainer):
     )
 
 
+class ConfigContainer(containers.DeclarativeContainer):
+    """Configuration models container.
+
+    Provides typed Pydantic config models for services.
+    Configs are Singleton by default - loaded once and reused.
+    """
+
+    # Collector configs - can be overridden per channel
+    topic_filter_config = providers.Singleton(
+        "app.config.filtering.TopicFilterConfig",
+    )
+
+    series_matcher_config = providers.Singleton(
+        "app.config.series.SeriesMatcherConfig",
+    )
+
+    scoring_config = providers.Singleton(
+        "app.config.content.ScoringConfig",
+    )
+
+    queue_config = providers.Singleton(
+        "app.config.content.QueueConfig",
+    )
+
+    dedup_config = providers.Singleton(
+        "app.config.content.DedupConfig",
+    )
+
+    # Source configs - typed defaults for each source type
+    hackernews_config = providers.Singleton(
+        "app.config.sources.HackerNewsConfig",
+    )
+
+    reddit_config = providers.Singleton(
+        "app.config.sources.RedditConfig",
+    )
+
+    rss_config = providers.Singleton(
+        "app.config.sources.RSSConfig",
+    )
+
+    google_trends_config = providers.Singleton(
+        "app.config.sources.GoogleTrendsConfig",
+    )
+
+    youtube_trending_config = providers.Singleton(
+        "app.config.sources.YouTubeTrendingConfig",
+    )
+
+    web_scraper_config = providers.Singleton(
+        "app.config.sources.WebScraperConfig",
+    )
+
+
 class ServiceContainer(containers.DeclarativeContainer):
     """Service layer dependencies.
 
@@ -104,28 +158,41 @@ class ServiceContainer(containers.DeclarativeContainer):
 
     config = providers.Configuration()
     infrastructure = providers.DependenciesContainer()
+    configs = providers.DependenciesContainer()
 
     # ============================================
     # Collector Services
     # ============================================
 
-    # Import here to avoid circular imports
     topic_deduplicator = providers.Factory(
         "app.services.collector.deduplicator.TopicDeduplicator",
         redis=infrastructure.redis_async_client,
+        config=configs.dedup_config,
     )
 
     topic_scorer = providers.Factory(
         "app.services.collector.scorer.TopicScorer",
+        config=configs.scoring_config,
     )
 
     topic_queue_manager = providers.Factory(
         "app.services.collector.queue_manager.TopicQueueManager",
         redis=infrastructure.redis_async_client,
+        config=configs.queue_config,
     )
 
     topic_normalizer = providers.Factory(
         "app.services.collector.normalizer.TopicNormalizer",
+    )
+
+    topic_filter = providers.Factory(
+        "app.services.collector.filter.TopicFilter",
+        config=configs.topic_filter_config,
+    )
+
+    series_matcher = providers.Factory(
+        "app.services.collector.series_matcher.SeriesMatcher",
+        config=configs.series_matcher_config,
     )
 
 
@@ -143,10 +210,15 @@ class ApplicationContainer(containers.DeclarativeContainer):
         config=config,
     )
 
+    configs = providers.Container(
+        ConfigContainer,
+    )
+
     services = providers.Container(
         ServiceContainer,
         config=config,
         infrastructure=infrastructure,
+        configs=configs,
     )
 
     # ============================================
@@ -188,6 +260,16 @@ class ApplicationContainer(containers.DeclarativeContainer):
     normalizer = providers.Factory(
         lambda svc: svc,
         svc=services.topic_normalizer,
+    )
+
+    topic_filter = providers.Factory(
+        lambda svc: svc,
+        svc=services.topic_filter,
+    )
+
+    series_matcher = providers.Factory(
+        lambda svc: svc,
+        svc=services.series_matcher,
     )
 
 
@@ -305,6 +387,7 @@ def override_db_session(mock_session: AsyncSession):
 
 __all__ = [
     "ApplicationContainer",
+    "ConfigContainer",
     "InfrastructureContainer",
     "ServiceContainer",
     "container",

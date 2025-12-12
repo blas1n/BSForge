@@ -7,9 +7,12 @@ used throughout the topic collection pipeline.
 import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, Field, HttpUrl
+
+# Type variable for source config types
+ConfigT = TypeVar("ConfigT", bound=BaseModel)
 
 
 class RawTopic(BaseModel):
@@ -106,26 +109,33 @@ class ScoredTopic(NormalizedTopic):
     score_total: int = Field(ge=0, le=100)
 
 
-class BaseSource(ABC):
+class BaseSource(ABC, Generic[ConfigT]):
     """Abstract base class for all source collectors.
 
     Each source type (Reddit, HN, RSS, etc.) implements this interface
     to provide a consistent collection API.
 
+    Type Parameters:
+        ConfigT: The typed configuration class for this source
+
     Attributes:
-        config: Source configuration from database
+        _config: Typed configuration object
         source_id: UUID of the source
     """
 
-    def __init__(self, config: dict[str, Any], source_id: uuid.UUID):
+    def __init__(
+        self,
+        config: ConfigT,
+        source_id: uuid.UUID,
+    ):
         """Initialize source collector.
 
         Args:
-            config: Source configuration (connection_config, parser_config, etc.)
+            config: Typed configuration object
             source_id: UUID of the source in database
         """
-        self.config = config
         self.source_id = source_id
+        self._config = config
 
     @abstractmethod
     async def collect(self, params: dict[str, Any]) -> list[RawTopic]:
@@ -203,4 +213,5 @@ __all__ = [
     "ScoredTopic",
     "BaseSource",
     "CollectionResult",
+    "ConfigT",
 ]
