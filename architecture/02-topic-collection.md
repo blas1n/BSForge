@@ -685,116 +685,113 @@ class TopicNormalizer {
 
 ## 5. 중복 제거
 
-### 5.1 중복 감지 전략
-```typescript
-interface DedupResult {
-  isDuplicate: boolean;
-  duplicateOf?: string;        // 원본 토픽 ID
-  similarity: number;          // 유사도 (0-1)
-  reason?: 'exact_hash' | 'similar_title' | 'same_event' | 'keyword_overlap';
-}
+### 5.1 설계 결정
 
-class TopicDeduplicator {
-  constructor(
-    private vectorDB: VectorDB,
-    private recentTopics: RecentTopicCache,
-  ) {}
+**Hash-Only 중복 제거 채택**
 
-  async checkDuplicate(
-    topic: NormalizedTopic,
-    config: DedupConfig
-  ): Promise<DedupResult> {
-    // 1. 해시 완전 일치 (가장 빠름)
-    const hashMatch = await this.recentTopics.findByHash(topic.hash);
-    if (hashMatch) {
-      return {
-        isDuplicate: true,
-        duplicateOf: hashMatch.id,
-        similarity: 1.0,
-        reason: 'exact_hash',
-      };
-    }
+원래 3-level (해시, 시맨틱, 이벤트)로 설계했으나, 다음 이유로 **Hash-Only**로 단순화:
 
-    // 2. 제목 유사도 체크
-    const titleEmbedding = await this.embed(topic.title.normalized);
-    const similarByTitle = await this.vectorDB.query({
-      vector: titleEmbedding,
-      topK: 5,
-      filter: {
-        collectedAfter: new Date(Date.now() - config.timeWindowHours * 60 * 60 * 1000),
-      },
-    });
+#### 왜 Semantic Similarity를 제거했나?
 
-    for (const match of similarByTitle) {
-      if (match.similarity >= config.titleSimilarityThreshold) {
-        return {
-          isDuplicate: true,
-          duplicateOf: match.id,
-          similarity: match.similarity,
-          reason: 'similar_title',
-        };
-      }
-    }
+1. **같은 제목이라도 소스마다 콘텐츠가 다름**
+   - Reddit의 "Tesla 주가 급등" → 커뮤니티 반응, 밈
+   - TechCrunch의 "Tesla 주가 급등" → 분석 기사, 전문가 의견
+   - HN의 "Tesla 주가 급등" → 기술적 논의
 
-    // 3. 같은 이벤트 감지 (엔티티 + 시간 기반)
-    if (topic.classification.entities.length > 0) {
-      const sameEvent = await this.findSameEvent(topic, config);
-      if (sameEvent) {
-        return {
-          isDuplicate: true,
-          duplicateOf: sameEvent.id,
-          similarity: sameEvent.similarity,
-          reason: 'same_event',
-        };
-      }
-    }
+2. **페르소나가 여러 소스를 통합해야 함**
+   - 각 채널의 페르소나는 같은 이벤트에 대한 다양한 관점을 수집
+   - 이를 종합하여 자신만의 의견 생성
+   - 유사한 제목이라고 중복 처리하면 다양한 관점 손실
 
-    return { isDuplicate: false, similarity: 0 };
-  }
+#### 왜 Event Overlap도 제거했나?
 
-  // 같은 이벤트/사건 감지
-  private async findSameEvent(
-    topic: NormalizedTopic,
-    config: DedupConfig
-  ): Promise<{ id: string; similarity: number } | null> {
-    const entityNames = topic.classification.entities.map(e => e.name);
+1. **같은 이벤트, 다른 소스 = 더 풍부한 콘텐츠**
+   - 하나의 토픽을 다루더라도 여러 소스가 있어야 양질의 콘텐츠
+   - Reddit + HN + TechCrunch를 모두 수집해야 다각적 관점 제공
 
-    const candidates = await this.recentTopics.findByEntities(
-      entityNames,
-      config.timeWindowHours
-    );
+2. **페르소나의 역할**
+   - 중복 필터링은 Deduplicator가 아닌 Persona가 담당
+   - 같은 이벤트에 대한 여러 토픽을 수집 → RAG에서 통합하여 콘텐츠 생성
 
-    for (const candidate of candidates) {
-      // 엔티티 오버랩 체크
-      const candidateEntities = candidate.classification.entities.map(e => e.name);
-      const overlap = this.calculateOverlap(entityNames, candidateEntities);
+3. **채널 간 독립성 보장**
+   - 채널 A가 "Tesla" 토픽 선택 → 채널 A 스타일로 영상
+   - 채널 B도 같은 토픽 선택 가능 → 채널 B 스타일로 다른 영상
 
-      // 키워드 오버랩 체크
-      const keywordOverlap = this.calculateOverlap(
-        topic.classification.keywords,
-        candidate.classification.keywords
-      );
+**최종 구조:**
+| Level | 비교 대상 | Scope | 목적 |
+|-------|----------|-------|------|
+| Hash | content_hash | Per-channel | 정확히 같은 콘텐츠 중복 방지 |
 
-      const combinedSimilarity = (overlap + keywordOverlap) / 2;
+### 5.2 중복 감지 전략
+```python
+"""Topic deduplication service.
 
-      if (combinedSimilarity >= config.eventSimilarityThreshold) {
-        return { id: candidate.id, similarity: combinedSimilarity };
-      }
-    }
+Hash-only deduplication - only exact content matches are filtered.
+Different articles about the same event are intentionally allowed
+to provide diverse perspectives for richer content generation.
+"""
 
-    return null;
-  }
-}
+class DedupReason(str, Enum):
+    """Reason for duplicate detection."""
+    EXACT_HASH = "exact_hash"
+
+
+class DedupResult(BaseModel):
+    """Result of duplicate detection."""
+    is_duplicate: bool
+    duplicate_of: str | None = None
+    reason: DedupReason | None = None
+
+
+class TopicDeduplicator:
+    """Detects and removes duplicate topics using hash matching.
+
+    Only exact content matches are considered duplicates.
+    Different articles about the same event are NOT duplicates
+    - they provide diverse perspectives for the persona.
+    """
+
+    HASH_KEY_PREFIX = "dedup:hash:"
+
+    def __init__(self, redis: AsyncRedis, config: DedupConfig | None = None):
+        self.redis = redis
+        self.config = config or DedupConfig()
+
+    async def is_duplicate(
+        self, topic: NormalizedTopic, channel_id: str
+    ) -> DedupResult:
+        """Check if topic is a duplicate via hash match."""
+        hash_key = f"{self.HASH_KEY_PREFIX}{channel_id}:{topic.content_hash}"
+
+        existing = await self.redis.get(hash_key)
+        if existing:
+            return DedupResult(
+                is_duplicate=True,
+                duplicate_of=topic.content_hash,
+                reason=DedupReason.EXACT_HASH,
+            )
+
+        return DedupResult(is_duplicate=False)
+
+    async def mark_as_seen(self, topic: NormalizedTopic, channel_id: str) -> None:
+        """Mark topic as seen to prevent future duplicates."""
+        ttl_seconds = int(timedelta(days=self.config.hash_ttl_days).total_seconds())
+
+        hash_key = f"{self.HASH_KEY_PREFIX}{channel_id}:{topic.content_hash}"
+        await self.redis.setex(hash_key, ttl_seconds, topic.title_normalized)
 ```
 
-### 5.2 이벤트 클러스터링
+### 5.3 토픽 클러스터링 (향후 확장 - RAG 단계)
+
+중복 제거는 Hash-Only이지만, 같은 이벤트에 대한 여러 토픽을 **클러스터링**하여 RAG에서 활용할 수 있음:
+
 ```typescript
-// 같은 이벤트에 대한 여러 소스 → 클러스터로 묶기
+// 같은 이벤트에 대한 여러 소스 → 클러스터로 묶기 (RAG 단계)
 interface TopicCluster {
   id: string;
   event: string;                    // 이벤트 요약
   mainTopic: NormalizedTopic;       // 대표 토픽 (가장 높은 점수)
-  relatedTopics: NormalizedTopic[]; // 관련 토픽들
+  relatedTopics: NormalizedTopic[]; // 관련 토픽들 (다른 소스)
 
   // 클러스터 메타
   sourceCount: number;              // 몇 개 소스에서 나왔는지
@@ -806,8 +803,10 @@ interface TopicCluster {
 }
 
 // 클러스터링 → 더 신뢰성 있는 토픽으로 승격
-// 여러 소스에서 같은 이벤트 → 중요한 이슈일 가능성 높음
+// 여러 소스에서 같은 이벤트 → 더 풍부한 콘텐츠 생성 가능
 ```
+
+**주의**: 이 클러스터링은 중복 제거가 아닌, 콘텐츠 생성 품질 향상을 위한 것
 
 ---
 
@@ -1135,69 +1134,286 @@ class TopicQueueManager {
 
 ---
 
-## 9. 수집 스케줄러
+## 9. 수집 아키텍처: 하이브리드 방식
 
-```typescript
-class CollectionScheduler {
-  private jobs: Map<string, CronJob> = new Map();
+### 9.1 설계 배경
 
-  async initialize(channels: ChannelConfig[]) {
-    for (const channel of channels) {
-      await this.scheduleForChannel(channel);
-    }
-  }
+**문제점**: 순수 채널별 수집의 한계
+- 모든 채널이 HN, Google Trends 등을 각각 수집 → API 중복 호출
+- 반대로 순수 공통 수집은 불가능 (Reddit의 모든 subreddit 수집? ❌)
 
-  private async scheduleForChannel(channel: ChannelConfig) {
-    const sources = await this.getEnabledSources(channel);
+**해결책**: 소스 특성에 따른 하이브리드 수집
 
-    for (const source of sources) {
-      const jobId = `${channel.id}-${source.id}`;
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      Source Classification                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│   Global Sources (공통 수집)        Scoped Sources (채널별 수집)  │
+│   ───────────────────────────      ──────────────────────────── │
+│   • HackerNews (top N 고정)        • Reddit (subreddit 지정)     │
+│   • Google Trends (trending)       • DCInside (gallery 지정)     │
+│   • YouTube Trending (국가별)       • Clien (board 지정)         │
+│   • RSS (고정 피드 목록)            • RSS (채널별 피드)           │
+│                                                                  │
+│           ↓                                   ↓                  │
+│     [Global Pool]                    [Channel Collection]        │
+│     Redis에 캐싱 (TTL)                직접 수집 후 처리           │
+│           ↓                                   ↓                  │
+│     채널별 필터링                     정규화/중복제거/스코어링    │
+│           ↓                                   ↓                  │
+│                      [Channel Queue]                             │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-      const job = new CronJob(source.schedule.cron, async () => {
-        console.log(`[Scheduler] Running collection: ${jobId}`);
+### 9.2 소스 타입 분류
 
-        try {
-          const collector = this.getCollector(source.type);
-          const rawTopics = await collector.collect(source, channel.sourceConfig);
+```python
+class SourceScope(str, Enum):
+    """소스의 수집 범위 분류."""
+    GLOBAL = "global"   # 한 번 수집, 모든 채널 공유
+    SCOPED = "scoped"   # 채널별 파라미터로 수집
 
-          for (const raw of rawTopics) {
-            await this.processTopic(raw, source, channel);
-          }
-        } catch (error) {
-          console.error(`[Scheduler] Error in ${jobId}:`, error);
-        }
-      });
+# 소스별 분류
+SOURCE_SCOPES = {
+    # Global: 파라미터 없이 top N 수집
+    "hackernews": SourceScope.GLOBAL,
+    "google_trends": SourceScope.GLOBAL,
+    "youtube_trending": SourceScope.GLOBAL,
 
-      this.jobs.set(jobId, job);
-      job.start();
-    }
-  }
-
-  private async processTopic(
-    raw: RawTopic,
-    source: Source,
-    channel: ChannelConfig
-  ) {
-    // 1. 정규화
-    const normalized = await this.normalizer.normalize(raw, source);
-
-    // 2. 주제 필터링 (include/exclude)
-    const filterResult = await this.topicFilter.check(normalized, channel.topicConfig);
-    if (!filterResult.passed) {
-      return;
-    }
-
-    // 3. 중복 체크
-    const dedupResult = await this.deduplicator.check(normalized);
-    if (dedupResult.isDuplicate) {
-      return;
-    }
-
-    // 4. 스코어링
-    const scored = await this.scorer.score(normalized);
-
-    // 5. 큐에 추가
-    await this.queueManager.addTopic(channel.id, scored);
-  }
+    # Scoped: 채널별 파라미터 필요
+    "reddit": SourceScope.SCOPED,      # subreddits 필요
+    "dcinside": SourceScope.SCOPED,    # galleries 필요
+    "clien": SourceScope.SCOPED,       # boards 필요
+    "rss": SourceScope.SCOPED,         # feed_url 필요 (채널별 다를 수 있음)
 }
+```
+
+### 9.3 Global Topic Pool
+
+```python
+class GlobalTopicPool:
+    """Global 소스에서 수집된 토픽을 저장하는 Redis 기반 풀.
+
+    모든 채널이 공유하며, 각 채널은 자신의 필터로 필요한 것만 가져감.
+    """
+
+    POOL_KEY_PREFIX = "global_pool:"
+    DEFAULT_TTL_HOURS = 24
+
+    def __init__(self, redis: AsyncRedis):
+        self.redis = redis
+
+    async def add_topics(
+        self,
+        source_type: str,
+        topics: list[RawTopic],
+        ttl_hours: int = DEFAULT_TTL_HOURS
+    ) -> int:
+        """Global Pool에 토픽 추가.
+
+        Args:
+            source_type: 소스 타입 (hackernews, google_trends 등)
+            topics: 수집된 RawTopic 리스트
+            ttl_hours: 캐시 TTL
+
+        Returns:
+            추가된 토픽 수
+        """
+        key = f"{self.POOL_KEY_PREFIX}{source_type}"
+
+        # 기존 데이터 삭제 후 새로 추가 (최신 데이터로 교체)
+        await self.redis.delete(key)
+
+        for topic in topics:
+            await self.redis.rpush(key, topic.model_dump_json())
+
+        await self.redis.expire(key, ttl_hours * 3600)
+        return len(topics)
+
+    async def get_topics(self, source_type: str) -> list[RawTopic]:
+        """Global Pool에서 토픽 조회.
+
+        Args:
+            source_type: 소스 타입
+
+        Returns:
+            캐시된 RawTopic 리스트 (없으면 빈 리스트)
+        """
+        key = f"{self.POOL_KEY_PREFIX}{source_type}"
+        data = await self.redis.lrange(key, 0, -1)
+
+        return [RawTopic.model_validate_json(item) for item in data]
+
+    async def is_fresh(self, source_type: str) -> bool:
+        """캐시가 유효한지 확인."""
+        key = f"{self.POOL_KEY_PREFIX}{source_type}"
+        return await self.redis.exists(key) > 0
+```
+
+### 9.4 수집 흐름
+
+#### Global Collector (별도 스케줄)
+
+```python
+@shared_task(name="app.workers.collect.collect_global_sources")
+def collect_global_sources():
+    """모든 Global 소스를 한 번에 수집하여 Pool에 저장.
+
+    스케줄: 2시간마다 (0 */2 * * *)
+    모든 채널보다 먼저 실행되어 Pool을 채움.
+    """
+    global_sources = ["hackernews", "google_trends", "youtube_trending"]
+
+    for source_type in global_sources:
+        topics = collect_from_source(source_type)
+        global_pool.add_topics(source_type, topics)
+```
+
+#### Channel Collector (채널별 스케줄)
+
+```python
+@shared_task(name="app.workers.collect.collect_channel_topics")
+def collect_channel_topics(channel_id: str, channel_config: dict):
+    """채널별 토픽 수집.
+
+    1. Global Pool에서 해당 채널에 맞는 토픽 필터링
+    2. Scoped 소스 직접 수집
+    3. 합쳐서 정규화 → 중복제거 → 스코어링 → 큐 추가
+    """
+    all_topics = []
+
+    # 1. Global Pool에서 가져오기
+    for source_type in channel_config["global_sources"]:
+        pool_topics = global_pool.get_topics(source_type)
+        # 채널 필터 적용
+        filtered = apply_channel_filter(pool_topics, channel_config["filters"])
+        all_topics.extend(filtered)
+
+    # 2. Scoped 소스 직접 수집
+    for source_def in channel_config["scoped_sources"]:
+        # 예: {"type": "reddit", "params": {"subreddits": ["python", "programming"]}}
+        topics = collect_from_source(
+            source_type=source_def["type"],
+            params=source_def["params"]
+        )
+        all_topics.extend(topics)
+
+    # 3. 처리 파이프라인
+    for topic in all_topics:
+        normalized = normalizer.normalize(topic)
+        if deduplicator.is_duplicate(normalized, channel_id):
+            continue
+        scored = scorer.score(normalized)
+        queue_manager.add_topic(channel_id, scored)
+```
+
+### 9.5 Scoped 소스 중복 수집 최적화
+
+같은 subreddit을 여러 채널이 관심 있는 경우 캐싱으로 최적화:
+
+```python
+class ScopedSourceCache:
+    """Scoped 소스의 수집 결과를 짧은 시간 캐싱.
+
+    예: 채널 A, B 모두 r/programming 관심
+    → 첫 번째 수집 시 캐시, 두 번째는 캐시에서 가져옴
+    """
+
+    CACHE_KEY_PREFIX = "scoped_cache:"
+    DEFAULT_TTL_MINUTES = 30  # 30분 캐시
+
+    def _make_key(self, source_type: str, params: dict) -> str:
+        """파라미터 기반 캐시 키 생성."""
+        # 예: scoped_cache:reddit:subreddits=programming,python
+        param_str = ",".join(f"{k}={v}" for k, v in sorted(params.items()))
+        return f"{self.CACHE_KEY_PREFIX}{source_type}:{param_str}"
+
+    async def get_or_collect(
+        self,
+        source_type: str,
+        params: dict,
+        collector: Callable
+    ) -> list[RawTopic]:
+        """캐시에 있으면 반환, 없으면 수집 후 캐시."""
+        key = self._make_key(source_type, params)
+
+        # 캐시 확인
+        cached = await self.redis.get(key)
+        if cached:
+            return [RawTopic.model_validate_json(t) for t in json.loads(cached)]
+
+        # 수집
+        topics = await collector(source_type, params)
+
+        # 캐시 저장
+        await self.redis.setex(
+            key,
+            self.DEFAULT_TTL_MINUTES * 60,
+            json.dumps([t.model_dump_json() for t in topics])
+        )
+
+        return topics
+```
+
+### 9.6 스케줄 구성
+
+```python
+# Celery Beat 스케줄 예시
+CELERY_BEAT_SCHEDULE = {
+    # Global 수집: 2시간마다 (모든 채널보다 먼저)
+    "collect-global-sources": {
+        "task": "app.workers.collect.collect_global_sources",
+        "schedule": crontab(minute=0, hour="*/2"),
+        "options": {"queue": "collect-global"},
+    },
+
+    # 채널별 수집: 4시간마다 (Global 수집 30분 후)
+    "collect-channel-tech": {
+        "task": "app.workers.collect.collect_channel_topics",
+        "schedule": crontab(minute=30, hour="*/4"),
+        "args": ["channel-tech-uuid", {...config...}],
+        "options": {"queue": "collect-channel"},
+    },
+    "collect-channel-entertainment": {
+        "task": "app.workers.collect.collect_channel_topics",
+        "schedule": crontab(minute=30, hour="*/4"),
+        "args": ["channel-ent-uuid", {...config...}],
+        "options": {"queue": "collect-channel"},
+    },
+}
+```
+
+### 9.7 채널 Config 예시 (업데이트)
+
+```yaml
+# config/channels/tech-channel.yaml
+channel:
+  id: "tech-channel-uuid"
+  name: "테크 뉴스"
+
+topic_collection:
+  # Global 소스 (Pool에서 가져옴)
+  global_sources:
+    - hackernews
+    - google_trends
+    - youtube_trending
+
+  # Scoped 소스 (직접 수집)
+  scoped_sources:
+    - type: reddit
+      params:
+        subreddits: ["programming", "technology", "MachineLearning"]
+    - type: dcinside
+      params:
+        galleries: ["programming", "ai"]
+    - type: clien
+      params:
+        boards: ["cm_ittalk", "cm_tech"]
+
+  # 필터 (Global Pool 토픽에 적용)
+  filters:
+    include_categories: ["tech", "programming", "ai", "startup"]
+    exclude_keywords: ["광고", "홍보"]
+    min_score: 50
 ```

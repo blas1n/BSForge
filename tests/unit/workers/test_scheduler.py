@@ -1,0 +1,508 @@
+"""Unit tests for collection scheduler.
+
+Tests the CollectionScheduler class and schedule management.
+"""
+
+import uuid
+from datetime import UTC, datetime
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from app.workers.scheduler import (
+    CollectionScheduler,
+    ScheduleEntry,
+    create_default_schedule,
+    get_scheduler,
+)
+
+
+@pytest.fixture
+def scheduler() -> CollectionScheduler:
+    """Create a fresh scheduler instance."""
+    return CollectionScheduler()
+
+
+@pytest.fixture
+def channel_id() -> str:
+    """Create a test channel UUID."""
+    return str(uuid.uuid4())
+
+
+@pytest.fixture
+def sample_global_sources() -> list[str]:
+    """Create sample global source types."""
+    return ["hackernews", "google_trends"]
+
+
+@pytest.fixture
+def sample_scoped_sources() -> list[dict]:
+    """Create sample scoped source configurations."""
+    return [
+        {
+            "type": "reddit",
+            "params": {"subreddits": ["python", "programming"]},
+        },
+        {
+            "type": "dcinside",
+            "params": {"galleries": ["programming"]},
+        },
+    ]
+
+
+class TestScheduleEntry:
+    """Tests for ScheduleEntry model."""
+
+    def test_default_values(self):
+        """Test ScheduleEntry default values."""
+        entry = ScheduleEntry(
+            name="test-schedule",
+            channel_id=str(uuid.uuid4()),
+        )
+
+        assert entry.global_sources == []
+        assert entry.scoped_sources == []
+        assert entry.filters is None
+        assert entry.cron_minute == "0"
+        assert entry.cron_hour == "*/4"
+        assert entry.target_language == "ko"
+        assert entry.enabled is True
+        assert entry.last_run is None
+
+    def test_custom_values(self):
+        """Test ScheduleEntry with custom values."""
+        channel_id = str(uuid.uuid4())
+        global_sources = ["hackernews", "youtube_trending"]
+        scoped_sources = [{"type": "reddit", "params": {"subreddits": ["python"]}}]
+        filters = {"include_keywords": ["AI"]}
+
+        entry = ScheduleEntry(
+            name="custom-schedule",
+            channel_id=channel_id,
+            global_sources=global_sources,
+            scoped_sources=scoped_sources,
+            filters=filters,
+            cron_minute="30",
+            cron_hour="*/6",
+            target_language="en",
+            enabled=False,
+        )
+
+        assert entry.name == "custom-schedule"
+        assert entry.channel_id == channel_id
+        assert entry.global_sources == global_sources
+        assert entry.scoped_sources == scoped_sources
+        assert entry.filters == filters
+        assert entry.cron_minute == "30"
+        assert entry.cron_hour == "*/6"
+        assert entry.target_language == "en"
+        assert entry.enabled is False
+
+
+class TestCollectionSchedulerAdd:
+    """Tests for CollectionScheduler.add_channel_schedule()."""
+
+    def test_add_channel_schedule_default(
+        self,
+        scheduler: CollectionScheduler,
+        channel_id: str,
+        sample_global_sources: list,
+        sample_scoped_sources: list,
+    ):
+        """Test adding a schedule with default cron."""
+        entry = scheduler.add_channel_schedule(
+            channel_id=channel_id,
+            global_sources=sample_global_sources,
+            scoped_sources=sample_scoped_sources,
+        )
+
+        assert entry.name == f"collect-{channel_id}"
+        assert entry.channel_id == channel_id
+        assert entry.global_sources == sample_global_sources
+        assert entry.scoped_sources == sample_scoped_sources
+        assert entry.cron_minute == "0"
+        assert entry.cron_hour == "*/4"
+        assert entry.enabled is True
+
+    def test_add_channel_schedule_custom_cron(
+        self,
+        scheduler: CollectionScheduler,
+        channel_id: str,
+        sample_global_sources: list,
+    ):
+        """Test adding a schedule with custom cron."""
+        entry = scheduler.add_channel_schedule(
+            channel_id=channel_id,
+            global_sources=sample_global_sources,
+            cron_minute="15",
+            cron_hour="*/2",
+        )
+
+        assert entry.cron_minute == "15"
+        assert entry.cron_hour == "*/2"
+
+    def test_add_channel_schedule_with_filters(
+        self,
+        scheduler: CollectionScheduler,
+        channel_id: str,
+        sample_global_sources: list,
+    ):
+        """Test adding a schedule with filters."""
+        filters = {"include_keywords": ["AI", "ML"], "exclude_keywords": ["광고"]}
+        entry = scheduler.add_channel_schedule(
+            channel_id=channel_id,
+            global_sources=sample_global_sources,
+            filters=filters,
+        )
+
+        assert entry.filters == filters
+
+    def test_add_channel_schedule_stores_in_dict(
+        self,
+        scheduler: CollectionScheduler,
+        channel_id: str,
+        sample_global_sources: list,
+    ):
+        """Test that schedule is stored in schedules dict."""
+        scheduler.add_channel_schedule(
+            channel_id=channel_id,
+            global_sources=sample_global_sources,
+        )
+
+        name = f"collect-{channel_id}"
+        assert name in scheduler.schedules
+        assert scheduler.schedules[name].channel_id == channel_id
+
+    def test_add_multiple_schedules(
+        self, scheduler: CollectionScheduler, sample_global_sources: list
+    ):
+        """Test adding multiple channel schedules."""
+        channel_ids = [str(uuid.uuid4()) for _ in range(3)]
+
+        for cid in channel_ids:
+            scheduler.add_channel_schedule(channel_id=cid, global_sources=sample_global_sources)
+
+        assert len(scheduler.schedules) == 3
+        for cid in channel_ids:
+            assert f"collect-{cid}" in scheduler.schedules
+
+
+class TestCollectionSchedulerRemove:
+    """Tests for CollectionScheduler.remove_channel_schedule()."""
+
+    def test_remove_existing_schedule(
+        self,
+        scheduler: CollectionScheduler,
+        channel_id: str,
+        sample_global_sources: list,
+    ):
+        """Test removing an existing schedule."""
+        scheduler.add_channel_schedule(channel_id=channel_id, global_sources=sample_global_sources)
+        assert f"collect-{channel_id}" in scheduler.schedules
+
+        result = scheduler.remove_channel_schedule(channel_id)
+
+        assert result is True
+        assert f"collect-{channel_id}" not in scheduler.schedules
+
+    def test_remove_nonexistent_schedule(self, scheduler: CollectionScheduler):
+        """Test removing a non-existent schedule."""
+        result = scheduler.remove_channel_schedule("nonexistent-id")
+        assert result is False
+
+
+class TestCollectionSchedulerUpdate:
+    """Tests for CollectionScheduler.update_channel_schedule()."""
+
+    def test_update_global_sources(
+        self,
+        scheduler: CollectionScheduler,
+        channel_id: str,
+        sample_global_sources: list,
+    ):
+        """Test updating global sources."""
+        scheduler.add_channel_schedule(channel_id=channel_id, global_sources=sample_global_sources)
+
+        new_sources = ["youtube_trending"]
+        entry = scheduler.update_channel_schedule(channel_id=channel_id, global_sources=new_sources)
+
+        assert entry is not None
+        assert entry.global_sources == new_sources
+
+    def test_update_scoped_sources(
+        self,
+        scheduler: CollectionScheduler,
+        channel_id: str,
+        sample_scoped_sources: list,
+    ):
+        """Test updating scoped sources."""
+        scheduler.add_channel_schedule(channel_id=channel_id, scoped_sources=sample_scoped_sources)
+
+        new_scoped = [{"type": "clien", "params": {"boards": ["cm_tech"]}}]
+        entry = scheduler.update_channel_schedule(channel_id=channel_id, scoped_sources=new_scoped)
+
+        assert entry is not None
+        assert entry.scoped_sources == new_scoped
+
+    def test_update_filters(
+        self,
+        scheduler: CollectionScheduler,
+        channel_id: str,
+        sample_global_sources: list,
+    ):
+        """Test updating filters."""
+        scheduler.add_channel_schedule(channel_id=channel_id, global_sources=sample_global_sources)
+
+        new_filters = {"include_keywords": ["Python"]}
+        entry = scheduler.update_channel_schedule(channel_id=channel_id, filters=new_filters)
+
+        assert entry is not None
+        assert entry.filters == new_filters
+
+    def test_update_cron(
+        self,
+        scheduler: CollectionScheduler,
+        channel_id: str,
+        sample_global_sources: list,
+    ):
+        """Test updating cron expression."""
+        scheduler.add_channel_schedule(channel_id=channel_id, global_sources=sample_global_sources)
+
+        entry = scheduler.update_channel_schedule(
+            channel_id=channel_id,
+            cron_minute="30",
+            cron_hour="*/8",
+        )
+
+        assert entry is not None
+        assert entry.cron_minute == "30"
+        assert entry.cron_hour == "*/8"
+
+    def test_update_enabled(
+        self,
+        scheduler: CollectionScheduler,
+        channel_id: str,
+        sample_global_sources: list,
+    ):
+        """Test disabling a schedule."""
+        scheduler.add_channel_schedule(channel_id=channel_id, global_sources=sample_global_sources)
+        assert scheduler.schedules[f"collect-{channel_id}"].enabled is True
+
+        entry = scheduler.update_channel_schedule(channel_id=channel_id, enabled=False)
+
+        assert entry is not None
+        assert entry.enabled is False
+
+    def test_update_nonexistent(self, scheduler: CollectionScheduler):
+        """Test updating non-existent schedule returns None."""
+        result = scheduler.update_channel_schedule(
+            channel_id="nonexistent",
+            cron_hour="*/12",
+        )
+        assert result is None
+
+    def test_partial_update(
+        self,
+        scheduler: CollectionScheduler,
+        channel_id: str,
+        sample_global_sources: list,
+        sample_scoped_sources: list,
+    ):
+        """Test partial update preserves other fields."""
+        scheduler.add_channel_schedule(
+            channel_id=channel_id,
+            global_sources=sample_global_sources,
+            scoped_sources=sample_scoped_sources,
+            target_language="en",
+        )
+
+        entry = scheduler.update_channel_schedule(channel_id=channel_id, cron_hour="*/12")
+
+        assert entry is not None
+        assert entry.target_language == "en"  # Preserved
+        assert entry.global_sources == sample_global_sources  # Preserved
+        assert entry.scoped_sources == sample_scoped_sources  # Preserved
+        assert entry.cron_hour == "*/12"  # Updated
+
+
+class TestCollectionSchedulerGet:
+    """Tests for CollectionScheduler.get_schedule()."""
+
+    def test_get_existing_schedule(
+        self,
+        scheduler: CollectionScheduler,
+        channel_id: str,
+        sample_global_sources: list,
+    ):
+        """Test getting an existing schedule."""
+        scheduler.add_channel_schedule(channel_id=channel_id, global_sources=sample_global_sources)
+
+        entry = scheduler.get_schedule(channel_id)
+
+        assert entry is not None
+        assert entry.channel_id == channel_id
+
+    def test_get_nonexistent_schedule(self, scheduler: CollectionScheduler):
+        """Test getting a non-existent schedule."""
+        entry = scheduler.get_schedule("nonexistent")
+        assert entry is None
+
+
+class TestCollectionSchedulerList:
+    """Tests for CollectionScheduler.list_schedules()."""
+
+    def test_list_empty(self, scheduler: CollectionScheduler):
+        """Test listing empty schedules."""
+        schedules = scheduler.list_schedules()
+        assert schedules == []
+
+    def test_list_multiple(self, scheduler: CollectionScheduler, sample_global_sources: list):
+        """Test listing multiple schedules."""
+        channel_ids = [str(uuid.uuid4()) for _ in range(3)]
+        for cid in channel_ids:
+            scheduler.add_channel_schedule(channel_id=cid, global_sources=sample_global_sources)
+
+        schedules = scheduler.list_schedules()
+
+        assert len(schedules) == 3
+        listed_ids = {s.channel_id for s in schedules}
+        assert listed_ids == set(channel_ids)
+
+
+class TestCollectionSchedulerApply:
+    """Tests for CollectionScheduler.apply_schedules()."""
+
+    def test_apply_schedules(
+        self,
+        scheduler: CollectionScheduler,
+        channel_id: str,
+        sample_global_sources: list,
+        sample_scoped_sources: list,
+    ):
+        """Test applying schedules to Celery Beat."""
+        scheduler.add_channel_schedule(
+            channel_id=channel_id,
+            global_sources=sample_global_sources,
+            scoped_sources=sample_scoped_sources,
+        )
+
+        with patch("app.workers.scheduler.current_app") as mock_app:
+            mock_app.conf = MagicMock()
+
+            result = scheduler.apply_schedules()
+
+            assert f"collect-{channel_id}" in result
+            assert (
+                result[f"collect-{channel_id}"]["task"]
+                == "app.workers.collect.collect_channel_topics"
+            )
+
+    def test_apply_skips_disabled(
+        self,
+        scheduler: CollectionScheduler,
+        channel_id: str,
+        sample_global_sources: list,
+    ):
+        """Test that disabled schedules are skipped."""
+        scheduler.add_channel_schedule(
+            channel_id=channel_id,
+            global_sources=sample_global_sources,
+            enabled=False,
+        )
+
+        with patch("app.workers.scheduler.current_app") as mock_app:
+            mock_app.conf = MagicMock()
+
+            result = scheduler.apply_schedules()
+
+            assert f"collect-{channel_id}" not in result
+
+    def test_apply_schedule_structure(
+        self,
+        scheduler: CollectionScheduler,
+        channel_id: str,
+        sample_global_sources: list,
+        sample_scoped_sources: list,
+    ):
+        """Test the structure of applied schedules."""
+        filters = {"include_keywords": ["AI"]}
+        scheduler.add_channel_schedule(
+            channel_id=channel_id,
+            global_sources=sample_global_sources,
+            scoped_sources=sample_scoped_sources,
+            filters=filters,
+            cron_minute="15",
+            cron_hour="*/6",
+            target_language="en",
+        )
+
+        with patch("app.workers.scheduler.current_app") as mock_app:
+            mock_app.conf = MagicMock()
+
+            result = scheduler.apply_schedules()
+
+            schedule_entry = result[f"collect-{channel_id}"]
+            assert schedule_entry["task"] == "app.workers.collect.collect_channel_topics"
+            assert schedule_entry["kwargs"]["channel_id"] == channel_id
+            assert schedule_entry["kwargs"]["global_sources"] == sample_global_sources
+            assert schedule_entry["kwargs"]["scoped_sources"] == sample_scoped_sources
+            assert schedule_entry["kwargs"]["filters"] == filters
+            assert schedule_entry["kwargs"]["target_language"] == "en"
+            assert schedule_entry["options"]["queue"] == "collect"
+
+
+class TestCollectionSchedulerRecordRun:
+    """Tests for CollectionScheduler.record_run()."""
+
+    def test_record_run_updates_timestamp(
+        self,
+        scheduler: CollectionScheduler,
+        channel_id: str,
+        sample_global_sources: list,
+    ):
+        """Test recording a run updates last_run timestamp."""
+        scheduler.add_channel_schedule(channel_id=channel_id, global_sources=sample_global_sources)
+        assert scheduler.schedules[f"collect-{channel_id}"].last_run is None
+
+        scheduler.record_run(channel_id)
+
+        entry = scheduler.schedules[f"collect-{channel_id}"]
+        assert entry.last_run is not None
+        assert isinstance(entry.last_run, datetime)
+        assert entry.last_run.tzinfo == UTC
+
+    def test_record_run_nonexistent(self, scheduler: CollectionScheduler):
+        """Test recording run for non-existent schedule does nothing."""
+        # Should not raise
+        scheduler.record_run("nonexistent")
+
+
+class TestDefaultSchedule:
+    """Tests for create_default_schedule()."""
+
+    def test_default_schedule_structure(self):
+        """Test default schedule has expected structure."""
+        schedule = create_default_schedule()
+
+        assert "health-check" in schedule
+        assert schedule["health-check"]["task"] == "app.workers.collect.health_check"
+
+
+class TestGetScheduler:
+    """Tests for get_scheduler() singleton."""
+
+    def test_get_scheduler_returns_instance(self):
+        """Test get_scheduler returns a CollectionScheduler."""
+        # Reset the global scheduler
+        import app.workers.scheduler as scheduler_module
+
+        scheduler_module._scheduler = None
+
+        scheduler = get_scheduler()
+        assert isinstance(scheduler, CollectionScheduler)
+
+    def test_get_scheduler_singleton(self):
+        """Test get_scheduler returns same instance."""
+        scheduler1 = get_scheduler()
+        scheduler2 = get_scheduler()
+        assert scheduler1 is scheduler2

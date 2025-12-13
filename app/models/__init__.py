@@ -11,9 +11,23 @@ Models are organized by feature and created incrementally:
 """
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
+from app.models.channel import Channel, ChannelStatus, Persona, TTSService
+from app.models.source import Source, SourceRegion, SourceType, channel_sources
+from app.models.topic import Topic, TopicStatus
 
 __all__ = [
     "Base",
     "UUIDMixin",
     "TimestampMixin",
+    # Phase 3 Models
+    "Channel",
+    "ChannelStatus",
+    "Persona",
+    "TTSService",
+    "Source",
+    "SourceType",
+    "SourceRegion",
+    "channel_sources",
+    "Topic",
+    "TopicStatus",
 ]

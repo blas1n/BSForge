@@ -164,10 +164,19 @@ Four review gates: Topic → Script → Video → Upload
 Each can be: `auto`, `manual`, or `hybrid`
 
 ### 4. Series Auto-Detection
-System automatically detects high-performing content patterns and suggests series based on:
-- Keyword clustering
-- Category overlap
-- Consecutive success (3+ videos, >5% engagement)
+Two-part system for series management:
+
+**SeriesMatcher** (Phase 3 - Implemented):
+- Matches new topics to existing configured series
+- Uses keyword/category overlap with configurable similarity threshold
+- Provides score boost for matched series topics
+
+**SeriesDetector** (Phase 6 - Deferred):
+- Auto-detects high-performing content patterns from analytics data
+- Requires Performance data from YouTube Analytics
+- Clusters videos by keywords/categories
+- Suggests new series when: 3+ videos, >5% engagement rate
+- Creates `SeriesConfig` suggestions for user confirmation
 
 ### 5. A/B Testing System
 When channel performance is low, run experiments to optimize:
@@ -228,6 +237,11 @@ from app.models import Topic
 from app.services.collector import TopicCollector
 ```
 
+### Import Location
+- **All imports must be at module top level**
+- No function-level imports (hurts readability, IDE autocomplete)
+- Solve circular imports by design (fix dependency direction)
+
 ### Error Handling
 ```python
 # Use custom exceptions
@@ -246,6 +260,58 @@ logger.error(
     exc_info=True,
 )
 ```
+
+### Dependency Injection
+Uses `dependency-injector` with ASP.NET Core-style lifecycles:
+- **Singleton**: One instance for entire app (Redis, DB engine)
+- **Scoped**: One instance per request/task (DB session)
+- **Transient/Factory**: New instance each time (Services)
+
+```python
+# In FastAPI endpoints - use Depends
+from app.core.container import get_redis, get_db_session
+
+@router.get("/items")
+async def get_items(
+    redis: AsyncRedis = Depends(get_redis),
+    db: AsyncSession = Depends(get_db_session),
+):
+    ...
+
+# In services - inject via constructor
+class TopicDeduplicator:
+    def __init__(self, redis: AsyncRedis):
+        self.redis = redis
+
+# Instantiate services via container
+from app.core.container import container
+
+deduplicator = container.deduplicator()  # Redis auto-injected
+scorer = container.scorer()
+
+# In Celery tasks - use TaskScope
+from app.core.container import TaskScope
+
+@celery_app.task
+def process_topic():
+    with TaskScope() as scope:
+        deduplicator = scope.deduplicator()
+        ...
+
+# In tests - use override
+from app.core.container import override_redis
+
+def test_something():
+    mock_redis = AsyncMock()
+    with override_redis(mock_redis):
+        # All Redis access uses mock
+        ...
+```
+
+Container structure:
+- `InfrastructureContainer`: Redis, Database (Singletons)
+- `ServiceContainer`: Business services (Factories)
+- `ApplicationContainer`: Root container with convenience accessors
 
 ---
 
@@ -465,26 +531,64 @@ Detailed designs are in `architecture/`:
 
 ---
 
-## Current Status
+## Current Status & TODO
 
-**Phase**: Design Complete, Implementation Starting
+**Current Phase**: Phase 3 (Topic Collection) - Completed
 
-### Completed
-- [x] Project planning
-- [x] System architecture
-- [x] All component designs
-- [x] DB schema design
-- [x] API design
+### Phase 1-2: Foundation (Completed)
+- [x] Project scaffolding (FastAPI + SQLAlchemy)
+- [x] DevContainer setup
+- [x] Config system (Pydantic models, YAML loader)
+- [x] DI Container (dependency-injector)
+- [x] DB models (Channel, Source, Topic)
+- [x] Core utilities (logging, exceptions, redis)
 
-### Next Steps
-1. [ ] Project scaffolding (FastAPI + SQLAlchemy)
-2. [ ] DB models & migrations
-3. [ ] Config loader
-4. [ ] Topic collection service
-5. [ ] RAG system
-6. [ ] Video generation
-7. [ ] YouTube upload
-8. [ ] Dashboard
+### Phase 3: Topic Collection (Completed)
+- [x] 3.1 Base DTOs & Source interface (`RawTopic`, `NormalizedTopic`, `ScoredTopic`, `BaseSource`)
+- [x] 3.2 Normalization (`TopicNormalizer` - translation, classification)
+- [x] 3.3 Deduplication (`TopicDeduplicator` - hash-only for exact duplicate filtering)
+- [x] 3.4 Filtering (`TopicFilter` - category/keyword include/exclude filters)
+- [x] 3.5 Scoring (`TopicScorer` - multi-factor scoring)
+- [x] 3.6 Queue Management (`TopicQueueManager` - Redis priority queue)
+- [x] 3.7 Series Matcher (`SeriesMatcher` - topic-to-series matching)
+- [x] 3.8 Source Implementations (Reddit, HN, RSS, YouTube, Google Trends, DCInside, Clien)
+- [x] 3.9 Collection Scheduler (Celery-based scheduling)
+- [x] 3.10 Hybrid Collection System (Global Pool + Scoped Sources)
+  - [x] GlobalTopicPool (Redis-based shared pool for HN, Trends, YouTube)
+  - [x] GlobalCollector task (collect once, share across channels)
+  - [x] ScopedSourceCache (cache Reddit/DCInside results for short TTL)
+  - [x] ChannelCollector (pull from pool + collect scoped)
+
+### Phase 4: RAG System
+- [ ] 4.1 Vector DB setup (Chroma dev / Pinecone prod)
+- [ ] 4.2 Embedder service (BGE-M3)
+- [ ] 4.3 Retriever with hybrid search
+- [ ] 4.4 Reranker (BGE-Reranker)
+- [ ] 4.5 Script generator with persona
+
+### Phase 5: Video Generation
+- [ ] 5.1 TTS engine (Edge TTS / ElevenLabs)
+- [ ] 5.2 Subtitle generator
+- [ ] 5.3 Visual selector (stock video/image)
+- [ ] 5.4 Video compositor (FFmpeg)
+
+### Phase 6: Upload & Analytics
+- [ ] 6.1 YouTube API integration
+- [ ] 6.2 Metadata generator
+- [ ] 6.3 Upload scheduler
+- [ ] 6.4 Analytics sync
+- [ ] 6.5 Series Detector (`SeriesDetector` - auto-detect series from performance data)
+  - Clusters high-performing videos by keywords/categories
+  - Requires 3+ videos with >5% engagement rate
+  - Creates `SeriesConfig` suggestions for user confirmation
+  - Location: `app/services/analyzer/series_detector.py`
+
+### Phase 7-11: Later Phases
+- [ ] Phase 7: A/B Testing system
+- [ ] Phase 8: Review system
+- [ ] Phase 9: API Layer (FastAPI endpoints)
+- [ ] Phase 10: Workers (Celery tasks)
+- [ ] Phase 11: Dashboard (React UI)
 
 ---
 

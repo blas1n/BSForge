@@ -1,0 +1,20 @@
+# Translation Prompt Template
+# Version: 1.0.0
+# Last Updated: 2025-12-11
+
+name: "Translation Prompt"
+version: "1.0.0"
+description: "Translates text from source language to target language using Claude Haiku"
+
+template: |
+  Translate the following ${source_name} text to ${target_name}.
+  Provide ONLY the translation, no explanations or additional text.
+
+  Text: ${text}
+
+  Translation:
+
+example_variables:
+  source_name: "English"
+  target_name: "Korean"
+  text: "Artificial Intelligence is transforming software development"

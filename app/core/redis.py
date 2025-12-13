@@ -1,7 +1,25 @@
 """Redis client configuration and utilities.
 
 This module provides Redis connection management and common operations.
-Supports both sync and async operations.
+Supports both sync and async operations with lazy initialization.
+
+NOTE: For dependency injection, prefer using the container:
+    from app.core.container import container, get_redis
+
+    # In FastAPI endpoints
+    async def endpoint(redis: AsyncRedis = Depends(get_redis)):
+        ...
+
+    # In services (DI via constructor)
+    class MyService:
+        def __init__(self, redis: AsyncRedis):
+            self.redis = redis
+
+    # Instantiate via container
+    service = container.my_service()
+
+The RedisManager and utilities in this module (cache_set, cache_get, etc.)
+remain available for standalone scripts or when direct Redis access is needed.
 """
 
 import json
@@ -16,36 +34,101 @@ from app.core.logging import get_logger
 logger = get_logger(__name__)
 
 
+class RedisManager:
+    """Manages Redis client connections with lazy initialization.
+
+    Provides singleton access to both sync and async Redis clients.
+    Connections are created on first access, not at module load time.
+
+    Example:
+        >>> redis_manager = RedisManager()
+        >>> async_client = redis_manager.async_client
+        >>> sync_client = redis_manager.sync_client
+    """
+
+    _instance: "RedisManager | None" = None
+    _async_client: AsyncRedis | None = None
+    _sync_client: Redis | None = None
+
+    def __new__(cls) -> "RedisManager":
+        """Singleton pattern."""
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    @property
+    def async_client(self) -> AsyncRedis:
+        """Get async Redis client (lazy initialization).
+
+        Returns:
+            Async Redis client instance
+        """
+        if self._async_client is None:
+            self._async_client = AsyncRedis.from_url(
+                str(settings.redis_url),
+                encoding="utf-8",
+                decode_responses=True,
+                socket_connect_timeout=5,
+                socket_keepalive=True,
+            )
+            logger.debug("Async Redis client initialized")
+        return self._async_client
+
+    @property
+    def sync_client(self) -> Redis:
+        """Get sync Redis client (lazy initialization).
+
+        Returns:
+            Sync Redis client instance
+        """
+        if self._sync_client is None:
+            self._sync_client = Redis.from_url(
+                str(settings.redis_url),
+                encoding="utf-8",
+                decode_responses=True,
+                socket_connect_timeout=5,
+                socket_keepalive=True,
+            )
+            logger.debug("Sync Redis client initialized")
+        return self._sync_client
+
+    async def close(self) -> None:
+        """Close all Redis connections."""
+        if self._async_client is not None:
+            await self._async_client.close()
+            self._async_client = None
+        if self._sync_client is not None:
+            self._sync_client.close()
+            self._sync_client = None
+        logger.info("Redis connections closed")
+
+    @classmethod
+    def reset(cls) -> None:
+        """Reset the singleton instance (useful for testing).
+
+        This closes existing connections and clears the singleton.
+        """
+        if cls._instance is not None:
+            if cls._async_client is not None:
+                # Note: Can't await here, caller should close async client first
+                cls._async_client = None
+            if cls._sync_client is not None:
+                cls._sync_client.close()
+                cls._sync_client = None
+            cls._instance = None
+
+
+# Global manager instance
+redis_manager = RedisManager()
+
+
 # ============================================
-# Redis Clients
-# ============================================
-
-# Sync Redis client (for Celery, simple operations)
-redis_client: Redis = Redis.from_url(
-    str(settings.redis_url),
-    encoding="utf-8",
-    decode_responses=True,
-    socket_connect_timeout=5,
-    socket_keepalive=True,
-)
-
-# Async Redis client (for FastAPI)
-async_redis_client: AsyncRedis = AsyncRedis.from_url(
-    str(settings.redis_url),
-    encoding="utf-8",
-    decode_responses=True,
-    socket_connect_timeout=5,
-    socket_keepalive=True,
-)
-
-
-# ============================================
-# Helper Functions
+# FastAPI Dependency Functions
 # ============================================
 
 
 async def get_redis() -> AsyncRedis:
-    """Get async Redis client dependency.
+    """Get async Redis client as FastAPI dependency.
 
     Returns:
         Async Redis client
@@ -55,7 +138,7 @@ async def get_redis() -> AsyncRedis:
         >>> async def get_cached_data(redis: AsyncRedis = Depends(get_redis)):
         ...     return await redis.get("cache_key")
     """
-    return async_redis_client
+    return redis_manager.async_client
 
 
 def get_redis_sync() -> Redis:
@@ -68,7 +151,12 @@ def get_redis_sync() -> Redis:
         >>> redis = get_redis_sync()
         >>> redis.set("key", "value")
     """
-    return redis_client
+    return redis_manager.sync_client
+
+
+# ============================================
+# Cache Helper Functions
+# ============================================
 
 
 async def cache_set(key: str, value: Any, expire: int | None = None) -> bool:
@@ -87,11 +175,12 @@ async def cache_set(key: str, value: Any, expire: int | None = None) -> bool:
         >>> await cache_set("counter", 42, expire=60)
     """
     try:
+        client = redis_manager.async_client
         # Serialize non-string values as JSON
         if not isinstance(value, str):
             value = json.dumps(value)
 
-        result = await async_redis_client.set(key, value, ex=expire)
+        result = await client.set(key, value, ex=expire)
         logger.debug("Cache set", key=key, expire=expire)
         return bool(result)
     except Exception as e:
@@ -115,7 +204,8 @@ async def cache_get(key: str, default: Any = None) -> Any:
         ...     print(user["name"])
     """
     try:
-        value = await async_redis_client.get(key)
+        client = redis_manager.async_client
+        value = await client.get(key)
         if value is None:
             return default
 
@@ -142,7 +232,8 @@ async def cache_delete(key: str) -> bool:
         >>> await cache_delete("user:123")
     """
     try:
-        result = await async_redis_client.delete(key)
+        client = redis_manager.async_client
+        result = await client.delete(key)
         logger.debug("Cache delete", key=key)
         return bool(result)
     except Exception as e:
@@ -164,7 +255,8 @@ async def cache_exists(key: str) -> bool:
         ...     print("User is cached")
     """
     try:
-        result = await async_redis_client.exists(key)
+        client = redis_manager.async_client
+        result = await client.exists(key)
         return bool(result)
     except Exception as e:
         logger.error("Cache exists check failed", key=key, error=str(e))
@@ -185,12 +277,13 @@ async def cache_clear_pattern(pattern: str) -> int:
         >>> print(f"Deleted {deleted} cached users")
     """
     try:
+        client = redis_manager.async_client
         keys = []
-        async for key in async_redis_client.scan_iter(match=pattern):
+        async for key in client.scan_iter(match=pattern):
             keys.append(key)
 
         if keys:
-            deleted = await async_redis_client.delete(*keys)
+            deleted = await client.delete(*keys)
             logger.info("Cache pattern cleared", pattern=pattern, count=deleted)
             return deleted
         return 0
@@ -211,7 +304,8 @@ async def check_redis_connection() -> bool:
         ...     logger.error("Redis connection failed")
     """
     try:
-        await async_redis_client.ping()
+        client = redis_manager.async_client
+        await client.ping()
         return True
     except Exception as e:
         logger.error("Redis health check failed", error=str(e))
@@ -226,6 +320,4 @@ async def close_redis() -> None:
     Example:
         >>> await close_redis()
     """
-    await async_redis_client.close()
-    redis_client.close()
-    logger.info("Redis connections closed")
+    await redis_manager.close()

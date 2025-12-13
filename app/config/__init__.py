@@ -5,6 +5,8 @@ from pydantic import BaseModel, Field
 from app.config.channel import ChannelInfo, YouTubeConfig
 from app.config.content import (
     ContentConfig,
+    DedupConfig,
+    QueueConfig,
     RegionWeights,
     ScheduleConfig,
     ScoringConfig,
@@ -15,6 +17,13 @@ from app.config.content import (
     TrendConfig,
     UploadConfig,
     VisualConfig,
+)
+from app.config.filtering import (
+    CategoryFilter,
+    ExcludeFilters,
+    IncludeFilters,
+    KeywordFilter,
+    TopicFilterConfig,
 )
 from app.config.operation import (
     AutoApproveConfig,
@@ -30,6 +39,15 @@ from app.config.persona import (
     SpeechPatterns,
     VoiceConfig,
     VoiceSettings,
+)
+from app.config.series import SeriesConfig, SeriesCriteria, SeriesMatcherConfig
+from app.config.sources import (
+    GoogleTrendsConfig,
+    HackerNewsConfig,
+    RedditConfig,
+    RSSConfig,
+    WebScraperConfig,
+    YouTubeTrendingConfig,
 )
 
 
@@ -59,6 +77,12 @@ __all__ = [
     # Channel
     "ChannelInfo",
     "YouTubeConfig",
+    # Filtering
+    "TopicFilterConfig",
+    "IncludeFilters",
+    "ExcludeFilters",
+    "CategoryFilter",
+    "KeywordFilter",
     # Persona
     "PersonaConfig",
     "VoiceConfig",
@@ -74,6 +98,8 @@ __all__ = [
     "TrendConfig",
     "ScoringConfig",
     "ScoringWeights",
+    "QueueConfig",
+    "DedupConfig",
     "ContentConfig",
     "VisualConfig",
     "SubtitleConfig",
@@ -84,6 +110,17 @@ __all__ = [
     "ReviewGates",
     "AutoApproveConfig",
     "NotificationConfig",
+    # Series
+    "SeriesCriteria",
+    "SeriesConfig",
+    "SeriesMatcherConfig",
+    # Sources
+    "HackerNewsConfig",
+    "RedditConfig",
+    "RSSConfig",
+    "GoogleTrendsConfig",
+    "YouTubeTrendingConfig",
+    "WebScraperConfig",
     # Main
     "ChannelConfig",
 ]

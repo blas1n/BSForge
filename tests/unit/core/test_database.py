@@ -1,57 +1,44 @@
 """Tests for app.core.database module."""
 
 import pytest
-from sqlalchemy import String, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Mapped, mapped_column
 
-from app.core.database import Base
-from app.models.base import TimestampMixin, UUIDMixin
-
-
-# Test model
-class TestUser(Base, UUIDMixin, TimestampMixin):
-    """Test user model."""
-
-    __tablename__ = "test_users"
-
-    name: Mapped[str] = mapped_column(String(100))
-    email: Mapped[str] = mapped_column(String(100), unique=True)
+from app.models.channel import Channel, ChannelStatus
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_base_tablename():
-    """Test that __tablename__ is generated from class name."""
-    assert TestUser.__tablename__ == "test_users"
+    """Test that __tablename__ is defined."""
+    assert Channel.__tablename__ == "channels"
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_uuid_mixin(db_session: AsyncSession):
     """Test UUIDMixin provides UUID primary key."""
-    user = TestUser(name="John", email="john@example.com")
-    db_session.add(user)
+    channel = Channel(name="Test Channel", status=ChannelStatus.ACTIVE)
+    db_session.add(channel)
     await db_session.commit()
-    await db_session.refresh(user)
+    await db_session.refresh(channel)
 
-    assert user.id is not None
-    assert isinstance(user.id, object)  # UUID type
-    assert len(str(user.id)) == 36  # UUID string length
+    assert channel.id is not None
+    assert len(str(channel.id)) == 36  # UUID string length
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_timestamp_mixin(db_session: AsyncSession):
     """Test TimestampMixin provides created_at and updated_at."""
-    user = TestUser(name="Jane", email="jane@example.com")
-    db_session.add(user)
+    channel = Channel(name="Timestamp Test", status=ChannelStatus.ACTIVE)
+    db_session.add(channel)
     await db_session.commit()
-    await db_session.refresh(user)
+    await db_session.refresh(channel)
 
-    assert user.created_at is not None
-    assert user.updated_at is not None
-    assert user.created_at <= user.updated_at
+    assert channel.created_at is not None
+    assert channel.updated_at is not None
+    assert channel.created_at <= channel.updated_at
 
 
 @pytest.mark.unit
@@ -60,33 +47,34 @@ async def test_updated_at_changes(db_session: AsyncSession):
     """Test that updated_at changes on update."""
     import asyncio
 
-    user = TestUser(name="Bob", email="bob@example.com")
-    db_session.add(user)
+    channel = Channel(name="Update Test", status=ChannelStatus.ACTIVE)
+    db_session.add(channel)
     await db_session.commit()
-    await db_session.refresh(user)
+    await db_session.refresh(channel)
+
+    original_updated_at = channel.updated_at
 
     # Wait a bit to ensure timestamp difference
     await asyncio.sleep(0.1)
 
-    user.name = "Robert"
+    channel.name = "Updated Name"
     await db_session.commit()
-    await db_session.refresh(user)
+    await db_session.refresh(channel)
 
-    # Note: updated_at might not change in SQLite without proper triggers
-    # This test mainly verifies the column exists
-    assert user.updated_at is not None
+    # updated_at should be updated
+    assert channel.updated_at is not None
+    assert channel.updated_at >= original_updated_at
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_model_repr():
     """Test that __repr__ shows model attributes."""
-    user = TestUser(name="Alice", email="alice@example.com")
-    repr_str = repr(user)
+    channel = Channel(name="Repr Test", status=ChannelStatus.ACTIVE)
+    repr_str = repr(channel)
 
-    assert "TestUser" in repr_str
-    assert "name='Alice'" in repr_str
-    assert "email='alice@example.com'" in repr_str
+    assert "Channel" in repr_str
+    assert "Repr Test" in repr_str
 
 
 @pytest.mark.unit
@@ -94,46 +82,54 @@ async def test_model_repr():
 async def test_crud_operations(db_session: AsyncSession):
     """Test basic CRUD operations."""
     # Create
-    user = TestUser(name="Charlie", email="charlie@example.com")
-    db_session.add(user)
+    channel = Channel(name="CRUD Test", status=ChannelStatus.ACTIVE)
+    db_session.add(channel)
     await db_session.commit()
-    await db_session.refresh(user)
+    await db_session.refresh(channel)
 
-    user_id = user.id
+    channel_id = channel.id
 
     # Read
-    result = await db_session.execute(select(TestUser).where(TestUser.id == user_id))
-    fetched_user = result.scalar_one_or_none()
-    assert fetched_user is not None
-    assert fetched_user.name == "Charlie"
+    result = await db_session.execute(select(Channel).where(Channel.id == channel_id))
+    fetched = result.scalar_one_or_none()
+    assert fetched is not None
+    assert fetched.name == "CRUD Test"
 
     # Update
-    fetched_user.name = "Charles"
+    fetched.name = "Updated CRUD Test"
     await db_session.commit()
-    await db_session.refresh(fetched_user)
-    assert fetched_user.name == "Charles"
+    await db_session.refresh(fetched)
+    assert fetched.name == "Updated CRUD Test"
 
     # Delete
-    await db_session.delete(fetched_user)
+    await db_session.delete(fetched)
     await db_session.commit()
 
-    result = await db_session.execute(select(TestUser).where(TestUser.id == user_id))
-    deleted_user = result.scalar_one_or_none()
-    assert deleted_user is None
+    result = await db_session.execute(select(Channel).where(Channel.id == channel_id))
+    deleted = result.scalar_one_or_none()
+    assert deleted is None
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_unique_constraint(db_session: AsyncSession):
-    """Test unique constraint on email."""
+    """Test unique constraint on youtube_channel_id."""
     from sqlalchemy.exc import IntegrityError
 
-    user1 = TestUser(name="User1", email="same@example.com")
-    db_session.add(user1)
+    channel1 = Channel(
+        name="Channel 1",
+        status=ChannelStatus.ACTIVE,
+        youtube_channel_id="UC123456789",
+    )
+    db_session.add(channel1)
     await db_session.commit()
 
-    user2 = TestUser(name="User2", email="same@example.com")
-    db_session.add(user2)
+    channel2 = Channel(
+        name="Channel 2",
+        status=ChannelStatus.ACTIVE,
+        youtube_channel_id="UC123456789",  # Duplicate
+    )
+    db_session.add(channel2)
 
     with pytest.raises(IntegrityError):
         await db_session.commit()
@@ -143,24 +139,24 @@ async def test_unique_constraint(db_session: AsyncSession):
 @pytest.mark.asyncio
 async def test_session_rollback(db_session: AsyncSession):
     """Test that session rollback works."""
-    # Count initial users
-    result = await db_session.execute(select(TestUser))
+    # Count initial channels
+    result = await db_session.execute(select(Channel))
     initial_count = len(result.scalars().all())
 
-    # Add and flush a new user
-    user = TestUser(name="Test", email="test@example.com")
-    db_session.add(user)
+    # Add and flush a new channel
+    channel = Channel(name="Rollback Test", status=ChannelStatus.ACTIVE)
+    db_session.add(channel)
     await db_session.flush()
 
-    # Verify user was added
-    result = await db_session.execute(select(TestUser))
+    # Verify channel was added
+    result = await db_session.execute(select(Channel))
     after_flush_count = len(result.scalars().all())
     assert after_flush_count == initial_count + 1
 
     # Rollback
     await db_session.rollback()
 
-    # Verify user was rolled back
-    result = await db_session.execute(select(TestUser))
+    # Verify channel was rolled back
+    result = await db_session.execute(select(Channel))
     after_rollback_count = len(result.scalars().all())
     assert after_rollback_count == initial_count
