@@ -26,6 +26,7 @@ from app.models.base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
     from app.models.channel import Channel
+    from app.models.script import Script
     from app.models.source import Source
 
 
@@ -123,6 +124,9 @@ class Topic(Base, UUIDMixin, TimestampMixin):
     # Relationships
     channel: Mapped["Channel"] = relationship("Channel", back_populates="topics")
     source: Mapped["Source"] = relationship("Source", back_populates="topics")
+    scripts: Mapped[list["Script"]] = relationship(
+        "Script", back_populates="topic", cascade="all, delete-orphan"
+    )
 
     # Composite Indexes
     __table_args__ = (

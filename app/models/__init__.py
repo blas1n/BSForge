@@ -12,6 +12,8 @@ Models are organized by feature and created incrementally:
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
 from app.models.channel import Channel, ChannelStatus, Persona, TTSService
+from app.models.content_chunk import ChunkPosition, ContentChunk, ContentType
+from app.models.script import Script, ScriptStatus
 from app.models.source import Source, SourceRegion, SourceType, channel_sources
 from app.models.topic import Topic, TopicStatus
 
@@ -30,4 +32,10 @@ __all__ = [
     "channel_sources",
     "Topic",
     "TopicStatus",
+    # Phase 4 Models
+    "Script",
+    "ScriptStatus",
+    "ContentChunk",
+    "ChunkPosition",
+    "ContentType",
 ]

@@ -65,8 +65,8 @@ See [architecture/](./architecture/) for detailed design documents.
 | **Language** | Python 3.11+ |
 | **Package Manager** | uv + pyproject.toml |
 | **Backend** | FastAPI |
-| **Database** | PostgreSQL 16 + Redis 7 |
-| **Vector DB** | Chroma → Pinecone |
+| **Database** | PostgreSQL 16 + pgvector + Redis 7 |
+| **Vector Search** | pgvector (HNSW index) |
 | **Embedding** | BGE-M3 (HuggingFace) |
 | **LLM** | Claude API (LangChain) |
 | **TTS** | Edge TTS / ElevenLabs |

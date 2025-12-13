@@ -1101,8 +1101,8 @@ class FineTuningDataCollector {
 | 컴포넌트 | 선택 | 비고 |
 |----------|------|------|
 | **임베딩** | BGE-M3 | 다국어, 한국어 성능 우수 |
-| **벡터 DB** | Chroma (개발) → Pinecone (운영) | 로컬 → 클라우드 |
-| **키워드 검색** | Elasticsearch 또는 자체 BM25 | 하이브리드 검색용 |
+| **벡터 DB** | pgvector (PostgreSQL extension) | 단일 DB, HNSW 인덱스, 운영 간편 |
+| **키워드 검색** | PostgreSQL Full-Text Search | 벡터 검색과 통합 쿼리 가능 |
 | **리랭커** | BGE-Reranker | 오픈소스, 성능 좋음 |
 | **LLM (RAG)** | Claude 3.5 Sonnet | 긴 컨텍스트, 한국어 품질 |
 | **LLM (파인튜닝)** | Llama 3 + LoRA | 비용 효율 |

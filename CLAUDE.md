@@ -12,8 +12,8 @@
 - **Language**: Python 3.11+
 - **Package Manager**: uv + pyproject.toml
 - **Backend**: FastAPI
-- **Database**: PostgreSQL 16 + Redis 7
-- **Vector DB**: Chroma (dev) → Pinecone (prod)
+- **Database**: PostgreSQL 16 + pgvector + Redis 7
+- **Vector Search**: pgvector (PostgreSQL extension with HNSW index)
 - **LLM**: Claude API via LangChain
 - **Embedding**: BGE-M3 (HuggingFace)
 - **TTS**: Edge TTS (free) / ElevenLabs (premium)
@@ -460,7 +460,6 @@ WS     /ws/{channel_id}  # Real-time notifications
 - `data/` - Collected data
 - `datasets/` - Fine-tuning data
 - `outputs/` - Generated content
-- `chroma_db/` - Vector store
 
 ### Public (Open Source)
 - All source code
@@ -560,11 +559,18 @@ Detailed designs are in `architecture/`:
   - [x] ChannelCollector (pull from pool + collect scoped)
 
 ### Phase 4: RAG System
-- [ ] 4.1 Vector DB setup (Chroma dev / Pinecone prod)
-- [ ] 4.2 Embedder service (BGE-M3)
-- [ ] 4.3 Retriever with hybrid search
-- [ ] 4.4 Reranker (BGE-Reranker)
-- [ ] 4.5 Script generator with persona
+- [x] 4.1 Vector DB setup (pgvector with PostgreSQL)
+  - [x] ContentChunk model with embedding column (Vector(1024))
+  - [x] HNSW index for fast cosine similarity search
+  - [x] PgVectorDB implementation (VectorDB protocol)
+- [x] 4.2 Database models (Script, ContentChunk)
+- [x] 4.3 RAG configuration (Pydantic models)
+- [x] 4.4 Embedder service (BGE-M3)
+- [ ] 4.5 Retriever with hybrid search (semantic + BM25)
+- [ ] 4.6 Reranker (BGE-Reranker + MMR)
+- [ ] 4.7 Script chunker (structure-based)
+- [ ] 4.8 Context builder and prompt builder
+- [ ] 4.9 Script generator with persona and quality checks
 
 ### Phase 5: Video Generation
 - [ ] 5.1 TTS engine (Edge TTS / ElevenLabs)

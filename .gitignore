@@ -151,9 +151,8 @@ tmp/
 # ============================================
 # AI/ML Data
 # ============================================
-# Vector DB
-chroma_db/
-vector_db/
+# Vector embeddings (stored in PostgreSQL via pgvector)
+# Only ignore standalone vector files if any
 embeddings/
 *.faiss
 *.index
