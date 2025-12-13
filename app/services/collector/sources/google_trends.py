@@ -151,7 +151,10 @@ class GoogleTrendsSource(BaseSource[GoogleTrendsConfig]):
                 metadata={
                     "google_query": query,
                     "region": region,
-                    "trends_url": f"https://trends.google.com/trends/explore?q={query.replace(' ', '%20')}&geo={region}",
+                    "trends_url": (
+                        f"https://trends.google.com/trends/explore"
+                        f"?q={query.replace(' ', '%20')}&geo={region}"
+                    ),
                 },
             )
         except Exception as e:

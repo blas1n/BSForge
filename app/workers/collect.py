@@ -1,16 +1,22 @@
 """Topic collection Celery tasks.
 
 This module defines Celery tasks for scheduled topic collection
-from various sources (Reddit, HN, RSS, etc.).
+using a hybrid approach:
+
+1. Global sources (HN, Trends, YouTube): Collected once, shared via GlobalTopicPool
+2. Scoped sources (Reddit, DCInside, Clien): Collected per channel with caching
 
 Tasks:
-- collect_topics: Collect topics from all sources for a channel
-- collect_from_source: Collect from a single source
+- collect_global_sources: Collect all global sources to shared pool
+- collect_channel_topics: Hybrid collection for a channel (pool + scoped)
+- collect_from_source: Collect from a single source (utility)
 """
 
 import asyncio
+import importlib
 import uuid
 from datetime import UTC, datetime
+from time import time
 from typing import Any
 
 from celery import shared_task
@@ -18,27 +24,67 @@ from celery.utils.log import get_task_logger
 from pydantic import BaseModel
 from redis.asyncio import Redis as AsyncRedis
 
+from app.config import DedupConfig, ScoringConfig
+from app.config.sources import (
+    ClienConfig,
+    DCInsideConfig,
+    GoogleTrendsConfig,
+    HackerNewsConfig,
+    RedditConfig,
+    RSSConfig,
+    YouTubeTrendingConfig,
+)
 from app.core.config import settings
 from app.services.collector.base import CollectionResult, RawTopic
+from app.services.collector.deduplicator import TopicDeduplicator
+from app.services.collector.global_pool import (
+    SOURCE_SCOPES,
+    GlobalTopicPool,
+    ScopedSourceCache,
+    SourceScope,
+    is_global_source,
+)
+from app.services.collector.normalizer import TopicNormalizer
+from app.services.collector.scorer import TopicScorer
 
 logger = get_task_logger(__name__)
 
 
-class CollectionTaskResult(BaseModel):
-    """Result of a collection task.
+class GlobalCollectionResult(BaseModel):
+    """Result of global source collection.
+
+    Attributes:
+        source_results: Results per source type
+        total_collected: Total topics across all sources
+        started_at: Task start time
+        completed_at: Task completion time
+        errors: List of error messages
+    """
+
+    source_results: dict[str, int]  # source_type -> count
+    total_collected: int = 0
+    started_at: datetime
+    completed_at: datetime | None = None
+    errors: list[str] = []
+
+
+class ChannelCollectionResult(BaseModel):
+    """Result of channel topic collection.
 
     Attributes:
         channel_id: Channel UUID
-        source_results: Results from each source
-        total_collected: Total topics collected
-        total_processed: Total topics after processing
+        global_topics: Topics pulled from global pool
+        scoped_topics: Topics collected from scoped sources
+        total_collected: Total raw topics
+        total_processed: Topics after dedup/filtering
         started_at: Task start time
         completed_at: Task completion time
         errors: List of error messages
     """
 
     channel_id: str
-    source_results: list[dict[str, Any]]
+    global_topics: int = 0
+    scoped_topics: int = 0
     total_collected: int = 0
     total_processed: int = 0
     started_at: datetime
@@ -75,8 +121,6 @@ def _get_source_class(source_type: str):
         raise ValueError(f"Unknown source type: {source_type}")
 
     module_path, class_name = source_map[source_type]
-    import importlib
-
     module = importlib.import_module(module_path)
     return getattr(module, class_name)
 
@@ -88,18 +132,8 @@ def _get_config_class(source_type: str):
         source_type: Source type
 
     Returns:
-        Config class
+        Config class or None if unknown
     """
-    from app.config.sources import (
-        ClienConfig,
-        DCInsideConfig,
-        GoogleTrendsConfig,
-        HackerNewsConfig,
-        RedditConfig,
-        RSSConfig,
-        YouTubeTrendingConfig,
-    )
-
     config_map = {
         "hackernews": HackerNewsConfig,
         "reddit": RedditConfig,
@@ -113,195 +147,363 @@ def _get_config_class(source_type: str):
     return config_map.get(source_type)
 
 
-async def _collect_from_source_async(
+async def _collect_source_topics(
     source_type: str,
-    source_id: str,
-    source_config: dict[str, Any],
+    source_config: dict[str, Any] | None = None,
     params: dict[str, Any] | None = None,
-) -> CollectionResult:
-    """Async implementation of source collection.
+) -> list[RawTopic]:
+    """Collect topics from a single source.
 
     Args:
         source_type: Type of source
-        source_id: Source UUID
-        source_config: Source configuration dict
+        source_config: Source configuration dict (uses defaults if None)
         params: Optional collection parameters
 
     Returns:
-        CollectionResult with statistics
+        List of RawTopic
     """
-    from time import time
-
-    start_time = time()
-    errors: list[str] = []
-    collected_count = 0
-
     try:
-        # Get source and config classes
         source_class = _get_source_class(source_type)
         config_class = _get_config_class(source_type)
 
         if not config_class:
             raise ValueError(f"No config class for source type: {source_type}")
 
-        # Create typed config
-        config = config_class(**source_config)
+        config = config_class(**(source_config or {}))
+        source = source_class(config=config, source_id=uuid.uuid4())
 
-        # Create source instance
-        source = source_class(config=config, source_id=uuid.UUID(source_id))
-
-        # Collect topics
-        raw_topics = await source.collect(params or {})
-        collected_count = len(raw_topics)
-
-        logger.info(
-            f"Collected {collected_count} topics from {source_type}",
-            extra={"source_id": source_id, "source_type": source_type},
-        )
+        return await source.collect(params or {})
 
     except Exception as e:
-        error_msg = f"Collection failed for {source_type}: {str(e)}"
-        logger.error(error_msg, exc_info=True)
-        errors.append(error_msg)
+        logger.error(f"Collection failed for {source_type}: {e}", exc_info=True)
+        return []
 
-    duration = time() - start_time
 
-    return CollectionResult(
-        source_id=uuid.UUID(source_id),
-        source_name=source_type,
-        collected_count=collected_count,
+async def _collect_global_sources_async() -> GlobalCollectionResult:
+    """Collect all global sources and store in GlobalTopicPool.
+
+    Returns:
+        GlobalCollectionResult with statistics
+    """
+    started_at = datetime.now(UTC)
+    source_results: dict[str, int] = {}
+    errors: list[str] = []
+    total_collected = 0
+
+    redis = AsyncRedis.from_url(str(settings.redis_url))
+    pool = GlobalTopicPool(redis)
+
+    # Get all global source types
+    global_sources = [
+        source_type for source_type, scope in SOURCE_SCOPES.items() if scope == SourceScope.GLOBAL
+    ]
+
+    for source_type in global_sources:
+        try:
+            logger.info(f"Collecting global source: {source_type}")
+            topics = await _collect_source_topics(source_type)
+
+            if topics:
+                await pool.add_topics(source_type, topics)
+                source_results[source_type] = len(topics)
+                total_collected += len(topics)
+                logger.info(f"Added {len(topics)} topics to global pool for {source_type}")
+            else:
+                source_results[source_type] = 0
+                logger.warning(f"No topics collected for {source_type}")
+
+        except Exception as e:
+            error_msg = f"Global collection error ({source_type}): {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            errors.append(error_msg)
+            source_results[source_type] = 0
+
+    await redis.aclose()
+
+    return GlobalCollectionResult(
+        source_results=source_results,
+        total_collected=total_collected,
+        started_at=started_at,
+        completed_at=datetime.now(UTC),
         errors=errors,
-        duration_seconds=duration,
     )
 
 
-async def _collect_topics_async(
+async def _collect_channel_topics_async(
     channel_id: str,
-    sources: list[dict[str, Any]],
+    global_sources: list[str],
+    scoped_sources: list[dict[str, Any]],
+    filters: dict[str, Any] | None = None,
     target_language: str = "ko",
-) -> CollectionTaskResult:
-    """Async implementation of topic collection.
+) -> ChannelCollectionResult:
+    """Hybrid collection for a channel.
 
-    Collects topics from all configured sources for a channel,
-    then normalizes, deduplicates, and scores them.
+    1. Pull topics from GlobalTopicPool for configured global sources
+    2. Collect scoped sources directly (with caching)
+    3. Apply channel filters
+    4. Normalize, deduplicate, score
 
     Args:
         channel_id: Channel UUID
-        sources: List of source configurations
+        global_sources: List of global source types to pull from pool
+        scoped_sources: List of scoped source configs
+            [{"type": "reddit", "params": {"subreddits": [...]}}]
+        filters: Channel-specific filters for global topics
         target_language: Target language for translation
 
     Returns:
-        CollectionTaskResult with statistics
+        ChannelCollectionResult with statistics
     """
-    from app.config import DedupConfig, ScoringConfig
-    from app.services.collector.deduplicator import TopicDeduplicator
-    from app.services.collector.normalizer import TopicNormalizer
-    from app.services.collector.scorer import TopicScorer
-
     started_at = datetime.now(UTC)
-    source_results: list[dict[str, Any]] = []
-    all_raw_topics: list[tuple[RawTopic, str, str]] = []  # (topic, source_id, source_type)
     errors: list[str] = []
+    all_raw_topics: list[tuple[RawTopic, str]] = []  # (topic, source_type)
 
-    # Phase 1: Collect from all sources
-    for source_def in sources:
-        source_type = source_def.get("type", "")
-        source_id = source_def.get("id", str(uuid.uuid4()))
-        source_config = source_def.get("config", {})
-        params = source_def.get("params")
+    redis = AsyncRedis.from_url(str(settings.redis_url))
+    pool = GlobalTopicPool(redis)
+    scoped_cache = ScopedSourceCache(redis)
+
+    global_topic_count = 0
+    scoped_topic_count = 0
+
+    # Phase 1: Pull from Global Pool
+    for source_type in global_sources:
+        if not is_global_source(source_type):
+            logger.warning(f"{source_type} is not a global source, skipping pool pull")
+            continue
 
         try:
-            result = await _collect_from_source_async(
-                source_type=source_type,
-                source_id=source_id,
-                source_config=source_config,
-                params=params,
-            )
+            topics = await pool.get_topics(source_type)
 
-            source_results.append(result.model_dump())
+            if not topics:
+                logger.warning(f"No topics in pool for {source_type}, pool may need refresh")
+                continue
 
-            if result.errors:
-                errors.extend(result.errors)
+            # Apply channel filters to global topics
+            if filters:
+                filtered_topics = []
+                for topic in topics:
+                    # Simple keyword filter on raw topics
+                    include_keywords = filters.get("include_keywords", [])
+                    exclude_keywords = filters.get("exclude_keywords", [])
 
-            # If collection succeeded, re-collect to get actual topics
-            # (This is a simplified version; in production, we'd store topics in result)
-            if result.collected_count > 0:
-                source_class = _get_source_class(source_type)
-                config_class = _get_config_class(source_type)
-                config = config_class(**source_config)
-                source = source_class(config=config, source_id=uuid.UUID(source_id))
-                raw_topics = await source.collect(params or {})
-                for topic in raw_topics:
-                    all_raw_topics.append((topic, source_id, source_type))
+                    title_lower = topic.title.lower()
+
+                    if exclude_keywords and any(
+                        kw.lower() in title_lower for kw in exclude_keywords
+                    ):
+                        continue
+
+                    if include_keywords and not any(
+                        kw.lower() in title_lower for kw in include_keywords
+                    ):
+                        continue
+
+                    filtered_topics.append(topic)
+
+                topics = filtered_topics
+
+            for topic in topics:
+                all_raw_topics.append((topic, source_type))
+
+            global_topic_count += len(topics)
+            logger.info(f"Pulled {len(topics)} topics from pool for {source_type}")
 
         except Exception as e:
-            error_msg = f"Source collection error ({source_type}): {str(e)}"
+            error_msg = f"Pool pull error ({source_type}): {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            errors.append(error_msg)
+
+    # Phase 2: Collect Scoped Sources (with caching)
+    for source_def in scoped_sources:
+        source_type = source_def.get("type", "")
+        params = source_def.get("params", {})
+        config = source_def.get("config", {})
+
+        if is_global_source(source_type):
+            logger.warning(f"{source_type} is a global source, use global_sources instead")
+            continue
+
+        try:
+            # Use cache for scoped sources
+            # Capture config in default argument to avoid closure issue
+            async def collector(st: str, p: dict, cfg: dict = config) -> list[RawTopic]:
+                return await _collect_source_topics(st, cfg, p)
+
+            topics = await scoped_cache.get_or_collect(
+                source_type=source_type,
+                params=params,
+                collector_func=lambda st=source_type, p=params: collector(st, p),
+            )
+
+            for topic in topics:
+                all_raw_topics.append((topic, source_type))
+
+            scoped_topic_count += len(topics)
+            logger.info(f"Collected {len(topics)} topics from {source_type} (params: {params})")
+
+        except Exception as e:
+            error_msg = f"Scoped collection error ({source_type}): {str(e)}"
             logger.error(error_msg, exc_info=True)
             errors.append(error_msg)
 
     total_collected = len(all_raw_topics)
-    logger.info(f"Total collected from all sources: {total_collected}")
+    logger.info(
+        f"Channel {channel_id}: collected {total_collected} topics "
+        f"(global: {global_topic_count}, scoped: {scoped_topic_count})"
+    )
 
-    # Phase 2: Normalize, deduplicate, and score
+    # Phase 3: Process (normalize, dedupe, score)
     total_processed = 0
 
     if all_raw_topics:
         try:
-            # Initialize services
-            redis = AsyncRedis.from_url(str(settings.redis_url))
             normalizer = TopicNormalizer()
             deduplicator = TopicDeduplicator(redis=redis, config=DedupConfig())
             scorer = TopicScorer(config=ScoringConfig())
 
-            for raw_topic, source_id, _source_type in all_raw_topics:
+            for raw_topic, _source_type in all_raw_topics:
                 try:
                     # Normalize
                     normalized = await normalizer.normalize(
                         raw=raw_topic,
-                        source_id=uuid.UUID(source_id),
+                        source_id=uuid.uuid4(),  # Generate new ID for this channel
                         target_language=target_language,
                     )
 
                     # Check for duplicates
                     dedup_result = await deduplicator.is_duplicate(normalized, channel_id)
                     if dedup_result.is_duplicate:
-                        logger.debug(f"Duplicate detected: {normalized.title_normalized[:50]}")
                         continue
 
-                    # Score
-                    scored = scorer.score(normalized)
+                    # Score (result used for queue in future)
+                    scorer.score(normalized)
 
                     # Mark as seen
                     await deduplicator.mark_as_seen(normalized, channel_id)
 
                     total_processed += 1
-                    logger.debug(
-                        f"Processed topic: {scored.title_normalized[:50]}, score: {scored.score_total}"
-                    )
 
                 except Exception as e:
-                    error_msg = f"Processing error for topic: {str(e)}"
+                    error_msg = f"Processing error: {str(e)}"
                     logger.warning(error_msg)
                     errors.append(error_msg)
-
-            await redis.aclose()
 
         except Exception as e:
             error_msg = f"Processing pipeline error: {str(e)}"
             logger.error(error_msg, exc_info=True)
             errors.append(error_msg)
 
-    completed_at = datetime.now(UTC)
+    await redis.aclose()
 
-    return CollectionTaskResult(
+    return ChannelCollectionResult(
         channel_id=channel_id,
-        source_results=source_results,
+        global_topics=global_topic_count,
+        scoped_topics=scoped_topic_count,
         total_collected=total_collected,
         total_processed=total_processed,
         started_at=started_at,
-        completed_at=completed_at,
+        completed_at=datetime.now(UTC),
         errors=errors,
     )
+
+
+# =============================================================================
+# Celery Tasks
+# =============================================================================
+
+
+@shared_task(
+    bind=True,
+    name="app.workers.collect.collect_global_sources",
+    max_retries=3,
+    default_retry_delay=300,
+)
+def collect_global_sources(self) -> dict[str, Any]:
+    """Collect all global sources to shared pool.
+
+    This task should run on a fixed schedule (e.g., every 2 hours)
+    BEFORE channel collection tasks to ensure fresh pool data.
+
+    Global sources: hackernews, google_trends, youtube_trending
+
+    Returns:
+        GlobalCollectionResult as dict
+    """
+    logger.info("Starting global source collection")
+
+    try:
+        result = asyncio.run(_collect_global_sources_async())
+
+        logger.info(
+            f"Global collection complete: {result.total_collected} topics "
+            f"from {len(result.source_results)} sources"
+        )
+
+        return result.model_dump()
+
+    except Exception as exc:
+        logger.error(f"Global collection failed: {exc}", exc_info=True)
+        raise self.retry(exc=exc) from exc
+
+
+@shared_task(
+    bind=True,
+    name="app.workers.collect.collect_channel_topics",
+    max_retries=3,
+    default_retry_delay=300,
+)
+def collect_channel_topics(
+    self,
+    channel_id: str,
+    global_sources: list[str],
+    scoped_sources: list[dict[str, Any]],
+    filters: dict[str, Any] | None = None,
+    target_language: str = "ko",
+) -> dict[str, Any]:
+    """Hybrid topic collection for a channel.
+
+    1. Pulls topics from GlobalTopicPool for specified global sources
+    2. Collects scoped sources directly (with caching)
+    3. Applies channel-specific filters
+    4. Normalizes, deduplicates, and scores
+
+    Args:
+        self: Celery task instance
+        channel_id: Channel UUID
+        global_sources: Global source types to pull from pool
+            e.g., ["hackernews", "google_trends"]
+        scoped_sources: Scoped source definitions
+            e.g., [{"type": "reddit", "params": {"subreddits": ["python"]}}]
+        filters: Filters for global topics
+            e.g., {"include_keywords": ["AI"], "exclude_keywords": ["광고"]}
+        target_language: Target language (default: "ko")
+
+    Returns:
+        ChannelCollectionResult as dict
+    """
+    logger.info(f"Starting hybrid collection for channel: {channel_id}")
+
+    try:
+        result = asyncio.run(
+            _collect_channel_topics_async(
+                channel_id=channel_id,
+                global_sources=global_sources,
+                scoped_sources=scoped_sources,
+                filters=filters,
+                target_language=target_language,
+            )
+        )
+
+        logger.info(
+            f"Channel {channel_id} collection complete: "
+            f"collected={result.total_collected}, processed={result.total_processed}"
+        )
+
+        return result.model_dump()
+
+    except Exception as exc:
+        logger.error(f"Channel collection failed for {channel_id}: {exc}", exc_info=True)
+        raise self.retry(exc=exc) from exc
 
 
 @shared_task(
@@ -317,7 +519,7 @@ def collect_from_source(
     source_config: dict[str, Any],
     params: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Collect topics from a single source.
+    """Collect topics from a single source (utility task).
 
     Args:
         self: Celery task instance
@@ -331,15 +533,28 @@ def collect_from_source(
     """
     logger.info(f"Starting collection from source: {source_type}")
 
+    start_time = time()
+    errors: list[str] = []
+
     try:
-        result = asyncio.run(
-            _collect_from_source_async(
+        topics = asyncio.run(
+            _collect_source_topics(
                 source_type=source_type,
-                source_id=source_id,
                 source_config=source_config,
                 params=params,
             )
         )
+
+        duration = time() - start_time
+
+        result = CollectionResult(
+            source_id=uuid.UUID(source_id),
+            source_name=source_type,
+            collected_count=len(topics),
+            errors=errors,
+            duration_seconds=duration,
+        )
+
         return result.model_dump()
 
     except Exception as exc:
@@ -347,62 +562,10 @@ def collect_from_source(
         raise self.retry(exc=exc) from exc
 
 
-@shared_task(
-    bind=True,
-    name="app.workers.collect.collect_topics",
-    max_retries=3,
-    default_retry_delay=300,
-)
-def collect_topics(
-    self,
-    channel_id: str,
-    sources: list[dict[str, Any]],
-    target_language: str = "ko",
-) -> dict[str, Any]:
-    """Collect topics from all sources for a channel.
-
-    This is the main collection task that:
-    1. Collects raw topics from all configured sources
-    2. Normalizes topics (translate, classify, clean)
-    3. Deduplicates using content hash
-    4. Scores topics based on various factors
-    5. Queues high-scoring topics for review/generation
-
-    Args:
-        self: Celery task instance
-        channel_id: Channel UUID
-        sources: List of source configurations with format:
-            [{"type": "hackernews", "id": "uuid", "config": {...}, "params": {...}}, ...]
-        target_language: Target language for translation (default: "ko")
-
-    Returns:
-        CollectionTaskResult as dict
-    """
-    logger.info(f"Starting topic collection for channel: {channel_id}")
-
-    try:
-        result = asyncio.run(
-            _collect_topics_async(
-                channel_id=channel_id,
-                sources=sources,
-                target_language=target_language,
-            )
-        )
-
-        logger.info(
-            f"Collection complete for channel {channel_id}: "
-            f"collected={result.total_collected}, processed={result.total_processed}"
-        )
-
-        return result.model_dump()
-
-    except Exception as exc:
-        logger.error(f"Collection task failed for channel {channel_id}: {exc}", exc_info=True)
-        raise self.retry(exc=exc) from exc
-
-
 __all__ = [
-    "collect_topics",
+    "collect_global_sources",
+    "collect_channel_topics",
     "collect_from_source",
-    "CollectionTaskResult",
+    "GlobalCollectionResult",
+    "ChannelCollectionResult",
 ]

@@ -27,7 +27,9 @@ class ScheduleEntry(BaseModel):
     Attributes:
         name: Unique task name
         channel_id: Channel UUID
-        sources: Source configurations
+        global_sources: Global source types to pull from pool
+        scoped_sources: Scoped source definitions with params
+        filters: Optional filters for global topics
         cron_minute: Cron minute expression
         cron_hour: Cron hour expression
         target_language: Target language for translation
@@ -37,7 +39,9 @@ class ScheduleEntry(BaseModel):
 
     name: str
     channel_id: str
-    sources: list[dict[str, Any]]
+    global_sources: list[str] = Field(default_factory=list)
+    scoped_sources: list[dict[str, Any]] = Field(default_factory=list)
+    filters: dict[str, Any] | None = None
     cron_minute: str = Field(default="0")
     cron_hour: str = Field(default="*/4")  # Every 4 hours by default
     target_language: str = Field(default="ko")
@@ -55,7 +59,8 @@ class CollectionScheduler:
         scheduler = CollectionScheduler()
         scheduler.add_channel_schedule(
             channel_id="uuid",
-            sources=[{"type": "hackernews", "id": "uuid", "config": {}}],
+            global_sources=["hackernews", "google_trends"],
+            scoped_sources=[{"type": "reddit", "params": {"subreddits": ["python"]}}],
             cron_hour="*/6",
         )
         scheduler.apply_schedules()
@@ -68,7 +73,9 @@ class CollectionScheduler:
     def add_channel_schedule(
         self,
         channel_id: str,
-        sources: list[dict[str, Any]],
+        global_sources: list[str] | None = None,
+        scoped_sources: list[dict[str, Any]] | None = None,
+        filters: dict[str, Any] | None = None,
         cron_minute: str = "0",
         cron_hour: str = "*/4",
         target_language: str = "ko",
@@ -78,7 +85,9 @@ class CollectionScheduler:
 
         Args:
             channel_id: Channel UUID
-            sources: List of source configurations
+            global_sources: Global source types to pull from pool
+            scoped_sources: Scoped source definitions with params
+            filters: Optional filters for global topics
             cron_minute: Cron minute expression (default: "0")
             cron_hour: Cron hour expression (default: "*/4" for every 4 hours)
             target_language: Target language for translation
@@ -92,7 +101,9 @@ class CollectionScheduler:
         entry = ScheduleEntry(
             name=name,
             channel_id=channel_id,
-            sources=sources,
+            global_sources=global_sources or [],
+            scoped_sources=scoped_sources or [],
+            filters=filters,
             cron_minute=cron_minute,
             cron_hour=cron_hour,
             target_language=target_language,
@@ -106,7 +117,8 @@ class CollectionScheduler:
             extra={
                 "schedule_name": name,
                 "cron": f"{cron_minute} {cron_hour} * * *",
-                "source_count": len(sources),
+                "global_source_count": len(entry.global_sources),
+                "scoped_source_count": len(entry.scoped_sources),
             },
         )
 
@@ -131,7 +143,9 @@ class CollectionScheduler:
     def update_channel_schedule(
         self,
         channel_id: str,
-        sources: list[dict[str, Any]] | None = None,
+        global_sources: list[str] | None = None,
+        scoped_sources: list[dict[str, Any]] | None = None,
+        filters: dict[str, Any] | None = None,
         cron_minute: str | None = None,
         cron_hour: str | None = None,
         target_language: str | None = None,
@@ -141,7 +155,9 @@ class CollectionScheduler:
 
         Args:
             channel_id: Channel UUID
-            sources: Optional new source configurations
+            global_sources: Optional new global source types
+            scoped_sources: Optional new scoped source definitions
+            filters: Optional new filters for global topics
             cron_minute: Optional new cron minute
             cron_hour: Optional new cron hour
             target_language: Optional new target language
@@ -157,8 +173,12 @@ class CollectionScheduler:
 
         entry = self.schedules[name]
 
-        if sources is not None:
-            entry.sources = sources
+        if global_sources is not None:
+            entry.global_sources = global_sources
+        if scoped_sources is not None:
+            entry.scoped_sources = scoped_sources
+        if filters is not None:
+            entry.filters = filters
         if cron_minute is not None:
             entry.cron_minute = cron_minute
         if cron_hour is not None:
@@ -208,16 +228,18 @@ class CollectionScheduler:
                 continue
 
             beat_schedule[name] = {
-                "task": "app.workers.collect.collect_topics",
+                "task": "app.workers.collect.collect_channel_topics",
                 "schedule": crontab(
                     minute=entry.cron_minute,
                     hour=entry.cron_hour,
                 ),
-                "args": [
-                    entry.channel_id,
-                    entry.sources,
-                    entry.target_language,
-                ],
+                "kwargs": {
+                    "channel_id": entry.channel_id,
+                    "global_sources": entry.global_sources,
+                    "scoped_sources": entry.scoped_sources,
+                    "filters": entry.filters,
+                    "target_language": entry.target_language,
+                },
                 "options": {
                     "queue": "collect",
                 },

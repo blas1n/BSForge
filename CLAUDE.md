@@ -237,6 +237,11 @@ from app.models import Topic
 from app.services.collector import TopicCollector
 ```
 
+### Import Location
+- **All imports must be at module top level**
+- No function-level imports (hurts readability, IDE autocomplete)
+- Solve circular imports by design (fix dependency direction)
+
 ### Error Handling
 ```python
 # Use custom exceptions
@@ -528,7 +533,7 @@ Detailed designs are in `architecture/`:
 
 ## Current Status & TODO
 
-**Current Phase**: Phase 3 (Topic Collection) - Hybrid Collection Implementation
+**Current Phase**: Phase 3 (Topic Collection) - Completed
 
 ### Phase 1-2: Foundation (Completed)
 - [x] Project scaffolding (FastAPI + SQLAlchemy)
@@ -538,7 +543,7 @@ Detailed designs are in `architecture/`:
 - [x] DB models (Channel, Source, Topic)
 - [x] Core utilities (logging, exceptions, redis)
 
-### Phase 3: Topic Collection (In Progress)
+### Phase 3: Topic Collection (Completed)
 - [x] 3.1 Base DTOs & Source interface (`RawTopic`, `NormalizedTopic`, `ScoredTopic`, `BaseSource`)
 - [x] 3.2 Normalization (`TopicNormalizer` - translation, classification)
 - [x] 3.3 Deduplication (`TopicDeduplicator` - hash-only for exact duplicate filtering)
@@ -547,12 +552,12 @@ Detailed designs are in `architecture/`:
 - [x] 3.6 Queue Management (`TopicQueueManager` - Redis priority queue)
 - [x] 3.7 Series Matcher (`SeriesMatcher` - topic-to-series matching)
 - [x] 3.8 Source Implementations (Reddit, HN, RSS, YouTube, Google Trends, DCInside, Clien)
-- [x] 3.9 Collection Scheduler (Celery-based scheduling - basic)
-- [ ] 3.10 Hybrid Collection System (Global Pool + Scoped Sources)
-  - [ ] GlobalTopicPool (Redis-based shared pool for HN, Trends, YouTube)
-  - [ ] GlobalCollector task (collect once, share across channels)
-  - [ ] ScopedSourceCache (cache Reddit/DCInside results for short TTL)
-  - [ ] Updated ChannelCollector (pull from pool + collect scoped)
+- [x] 3.9 Collection Scheduler (Celery-based scheduling)
+- [x] 3.10 Hybrid Collection System (Global Pool + Scoped Sources)
+  - [x] GlobalTopicPool (Redis-based shared pool for HN, Trends, YouTube)
+  - [x] GlobalCollector task (collect once, share across channels)
+  - [x] ScopedSourceCache (cache Reddit/DCInside results for short TTL)
+  - [x] ChannelCollector (pull from pool + collect scoped)
 
 ### Phase 4: RAG System
 - [ ] 4.1 Vector DB setup (Chroma dev / Pinecone prod)
