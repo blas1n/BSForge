@@ -8,10 +8,10 @@ import re
 import uuid
 from typing import Any
 
-from anthropic import AsyncAnthropic
-
 from app.config.rag import GenerationConfig, QualityCheckConfig
+from app.core.config import settings
 from app.core.logging import get_logger
+from app.infrastructure.llm import LLMClient, LLMConfig, get_llm_client
 from app.infrastructure.pgvector_db import PgVectorDB
 from app.models.content_chunk import ContentType
 from app.models.script import Script, ScriptStatus
@@ -41,7 +41,7 @@ class ScriptGenerator:
     Pipeline:
     1. Build context (topic + persona + retrieved content)
     2. Build prompt
-    3. Generate script via Claude
+    3. Generate script via LLM
     4. Post-process (parse, quality check)
     5. Save to database
     6. Chunk and embed for future retrieval
@@ -52,7 +52,7 @@ class ScriptGenerator:
         chunker: ScriptChunker instance
         embedder: ContentEmbedder instance
         vector_db: PgVectorDB instance
-        llm_client: Anthropic client
+        llm_client: LLMClient for unified LLM access
         db_session_factory: AsyncSession factory
         config: Generation configuration
         quality_config: Quality check configuration
@@ -65,10 +65,10 @@ class ScriptGenerator:
         chunker: ScriptChunker,
         embedder: ContentEmbedder,
         vector_db: PgVectorDB,
-        llm_client: AsyncAnthropic,
-        db_session_factory: Any,
-        config: GenerationConfig,
-        quality_config: QualityCheckConfig,
+        llm_client: LLMClient | None = None,
+        db_session_factory: Any = None,
+        config: GenerationConfig | None = None,
+        quality_config: QualityCheckConfig | None = None,
     ):
         """Initialize ScriptGenerator.
 
@@ -78,9 +78,9 @@ class ScriptGenerator:
             chunker: ScriptChunker instance
             embedder: ContentEmbedder instance
             vector_db: PgVectorDB instance
-            llm_client: Anthropic client
+            llm_client: LLMClient instance (default: singleton)
             db_session_factory: SQLAlchemy async session factory
-            config: Generation configuration
+            config: Generation configuration (default: from settings)
             quality_config: Quality check configuration
         """
         self.context_builder = context_builder
@@ -88,10 +88,26 @@ class ScriptGenerator:
         self.chunker = chunker
         self.embedder = embedder
         self.vector_db = vector_db
-        self.llm_client = llm_client
+        self.llm_client = llm_client or get_llm_client()
         self.db_session_factory = db_session_factory
-        self.config = config
-        self.quality_config = quality_config
+        self.config = config or GenerationConfig()
+        self.quality_config = quality_config or QualityCheckConfig()
+
+    def _get_model_name(self, config: GenerationConfig) -> str:
+        """Get LiteLLM-format model name.
+
+        Args:
+            config: Generation config
+
+        Returns:
+            Model name in LiteLLM format (provider/model)
+        """
+        model = config.model
+        # If already in LiteLLM format, return as-is
+        if model.startswith(("anthropic/", "openai/", "gemini/")):
+            return model
+        # Otherwise, use settings default
+        return settings.llm_model_heavy
 
     async def generate(
         self,
@@ -116,9 +132,11 @@ class ScriptGenerator:
         if config is None:
             config = self.config
 
+        model = self._get_model_name(config)
+
         logger.info(
             f"Generating script for topic {topic_id}",
-            extra={"channel_id": str(channel_id), "model": config.model},
+            extra={"channel_id": str(channel_id), "model": model},
         )
 
         # Retry loop
@@ -176,28 +194,30 @@ class ScriptGenerator:
         logger.info("Building prompt")
         prompt = await self.prompt_builder.build_prompt(context)
 
-        # 3. Generate via Claude
-        logger.info(f"Calling Claude API ({config.model})")
-        response = await self.llm_client.messages.create(
-            model=config.model,
+        # 3. Get model name
+        model = self._get_model_name(config)
+
+        # 4. Generate via LLM
+        logger.info(f"Calling LLM API ({model})")
+        llm_config = LLMConfig(
+            model=model,
             max_tokens=config.max_tokens,
             temperature=config.temperature,
+        )
+
+        response = await self.llm_client.complete(
+            config=llm_config,
             messages=[{"role": "user", "content": prompt}],
         )
 
-        # Extract text from response
-        content_block = response.content[0]
-        if not hasattr(content_block, "text"):
-            raise ValueError(f"Unexpected content type: {type(content_block)}")
-
-        script_text = content_block.text.strip()
+        script_text = response.content.strip()
         logger.info(f"Generated {len(script_text)} characters")
 
-        # 4. Post-process
+        # 5. Post-process
         logger.info("Post-processing script")
         parsed = self._parse_script(script_text)
 
-        # 5. Quality check
+        # 6. Quality check
         logger.info("Running quality checks")
         quality_result = await self._check_quality(
             script_text=script_text,
@@ -208,7 +228,7 @@ class ScriptGenerator:
         if not quality_result["passed"]:
             raise QualityCheckFailedError(f"Quality check failed: {quality_result['reasons']}")
 
-        # 6. Save to database
+        # 7. Save to database
         logger.info("Saving script to database")
         script = await self._save_script(
             channel_id=channel_id,
@@ -219,10 +239,11 @@ class ScriptGenerator:
             conclusion=parsed["conclusion"],
             quality_result=quality_result,
             config=config,
+            model_used=model,
             context_chunks_used=len(context.retrieved.similar),
         )
 
-        # 7. Chunk and embed
+        # 8. Chunk and embed
         logger.info("Chunking and embedding script")
         await self._chunk_and_embed(script)
 
@@ -460,6 +481,7 @@ class ScriptGenerator:
         conclusion: str,
         quality_result: dict[str, Any],
         config: GenerationConfig,
+        model_used: str,
         context_chunks_used: int,
     ) -> Script:
         """Save script to database.
@@ -473,6 +495,7 @@ class ScriptGenerator:
             conclusion: Conclusion section
             quality_result: Quality check result
             config: Generation config
+            model_used: Actual model used (LiteLLM format)
             context_chunks_used: Number of chunks used
 
         Returns:
@@ -493,7 +516,7 @@ class ScriptGenerator:
             hook_score=quality_result["hook_score"],
             forbidden_words=quality_result["forbidden_words"],
             quality_passed=quality_result["passed"],
-            generation_model=config.model,
+            generation_model=model_used,
             context_chunks_used=context_chunks_used,
             generation_metadata={
                 "temperature": config.temperature,

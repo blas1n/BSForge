@@ -34,9 +34,9 @@ services:
     networks:
       - bsforge-network
 
-  # PostgreSQL Database
+  # PostgreSQL Database with pgvector extension
   postgres:
-    image: postgres:16
+    image: pgvector/pgvector:pg16
     container_name: postgres
     restart: unless-stopped
     environment:

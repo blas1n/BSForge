@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.infrastructure.llm import LLMResponse
 from app.services.rag.classifier import ContentClassifier
 
 
@@ -12,7 +13,7 @@ class TestContentClassifier:
 
     @pytest.fixture
     def mock_llm_client(self) -> AsyncMock:
-        """Create mock Anthropic client."""
+        """Create mock LLM client."""
         client = AsyncMock()
         return client
 
@@ -21,23 +22,23 @@ class TestContentClassifier:
         """Create ContentClassifier with mock client."""
         return ContentClassifier(
             llm_client=mock_llm_client,
-            model="claude-3-5-haiku-20241022",
+            model="anthropic/claude-3-5-haiku-20241022",
         )
 
-    def _create_mock_response(self, text: str) -> MagicMock:
+    def _create_mock_response(self, text: str) -> LLMResponse:
         """Create mock LLM response."""
-        content_block = MagicMock()
-        content_block.text = text
-        response = MagicMock()
-        response.content = [content_block]
-        return response
+        return LLMResponse(
+            content=text,
+            model="anthropic/claude-3-5-haiku-20241022",
+            usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+        )
 
     @pytest.mark.asyncio
     async def test_classify_opinion(
         self, classifier: ContentClassifier, mock_llm_client: AsyncMock
     ) -> None:
         """Should classify opinion correctly."""
-        mock_llm_client.messages.create.return_value = self._create_mock_response(
+        mock_llm_client.complete.return_value = self._create_mock_response(
             "opinion: yes\nexample: no\nanalogy: no"
         )
 
@@ -54,7 +55,7 @@ class TestContentClassifier:
         self, classifier: ContentClassifier, mock_llm_client: AsyncMock
     ) -> None:
         """Should classify example correctly."""
-        mock_llm_client.messages.create.return_value = self._create_mock_response(
+        mock_llm_client.complete.return_value = self._create_mock_response(
             "opinion: no\nexample: yes\nanalogy: no"
         )
 
@@ -71,7 +72,7 @@ class TestContentClassifier:
         self, classifier: ContentClassifier, mock_llm_client: AsyncMock
     ) -> None:
         """Should classify analogy correctly."""
-        mock_llm_client.messages.create.return_value = self._create_mock_response(
+        mock_llm_client.complete.return_value = self._create_mock_response(
             "opinion: no\nexample: no\nanalogy: yes"
         )
 
@@ -86,7 +87,7 @@ class TestContentClassifier:
         self, classifier: ContentClassifier, mock_llm_client: AsyncMock
     ) -> None:
         """Should handle multiple characteristics."""
-        mock_llm_client.messages.create.return_value = self._create_mock_response(
+        mock_llm_client.complete.return_value = self._create_mock_response(
             "opinion: yes\nexample: yes\nanalogy: no"
         )
 
@@ -103,7 +104,7 @@ class TestContentClassifier:
         self, classifier: ContentClassifier, mock_llm_client: AsyncMock
     ) -> None:
         """Should handle text with no special characteristics."""
-        mock_llm_client.messages.create.return_value = self._create_mock_response(
+        mock_llm_client.complete.return_value = self._create_mock_response(
             "opinion: no\nexample: no\nanalogy: no"
         )
 
@@ -118,7 +119,7 @@ class TestContentClassifier:
         self, classifier: ContentClassifier, mock_llm_client: AsyncMock
     ) -> None:
         """Should return False for all on LLM error."""
-        mock_llm_client.messages.create.side_effect = Exception("API Error")
+        mock_llm_client.complete.side_effect = Exception("API Error")
 
         result = await classifier.classify_characteristics("Some text")
 
@@ -127,19 +128,17 @@ class TestContentClassifier:
         assert result["is_analogy"] is False
 
     @pytest.mark.asyncio
-    async def test_classify_handles_unexpected_response_type(
+    async def test_classify_handles_unexpected_response(
         self, classifier: ContentClassifier, mock_llm_client: AsyncMock
     ) -> None:
-        """Should handle unexpected content type gracefully."""
-        # Create response without text attribute
-        content_block = MagicMock(spec=[])  # No attributes
-        response = MagicMock()
-        response.content = [content_block]
-        mock_llm_client.messages.create.return_value = response
+        """Should handle unexpected content gracefully."""
+        mock_llm_client.complete.return_value = self._create_mock_response(
+            "unexpected response format"
+        )
 
         result = await classifier.classify_characteristics("Some text")
 
-        # Should fall back to defaults on error
+        # Should fall back to defaults on parse error
         assert result["is_opinion"] is False
         assert result["is_example"] is False
         assert result["is_analogy"] is False
@@ -154,7 +153,7 @@ class TestContentClassifier:
             self._create_mock_response("opinion: no\nexample: yes\nanalogy: no"),
             self._create_mock_response("opinion: no\nexample: no\nanalogy: yes"),
         ]
-        mock_llm_client.messages.create.side_effect = responses
+        mock_llm_client.complete.side_effect = responses
 
         texts = [
             "I think this is better",
@@ -176,8 +175,10 @@ class TestContentClassifier:
             mock_pm.render.return_value = "Rendered prompt"
             mock_get_pm.return_value = mock_pm
 
-            mock_llm_client.messages.create.return_value = self._create_mock_response(
-                "opinion: no\nexample: no\nanalogy: no"
+            mock_llm_client.complete.return_value = LLMResponse(
+                content="opinion: no\nexample: no\nanalogy: no",
+                model="anthropic/claude-3-5-haiku-20241022",
+                usage={},
             )
 
             classifier = ContentClassifier(llm_client=mock_llm_client)
@@ -190,7 +191,7 @@ class TestContentClassifier:
         self, classifier: ContentClassifier, mock_llm_client: AsyncMock
     ) -> None:
         """Should parse response case-insensitively."""
-        mock_llm_client.messages.create.return_value = self._create_mock_response(
+        mock_llm_client.complete.return_value = self._create_mock_response(
             "OPINION: YES\nEXAMPLE: NO\nANALOGY: NO"
         )
 

@@ -87,20 +87,38 @@ class Settings(BaseSettings):
     # ============================================
     anthropic_api_key: str = Field(default="", description="Anthropic API key")
     openai_api_key: str = Field(default="", description="OpenAI API key")
+    gemini_api_key: str = Field(default="", description="Google Gemini API key")
 
-    # Translation settings
+    # LLM Model Settings (LiteLLM format: provider/model-name)
+    # Lightweight tasks (translation, classification, content classification)
+    llm_model_light: str = Field(
+        default="anthropic/claude-3-5-haiku-20241022",
+        description="LLM model for lightweight tasks (translation, classification)",
+    )
+    llm_model_light_max_tokens: int = Field(
+        default=500, description="Max tokens for lightweight LLM tasks", ge=100, le=2000
+    )
+
+    # Heavy tasks (script generation)
+    llm_model_heavy: str = Field(
+        default="anthropic/claude-sonnet-4-20250514",
+        description="LLM model for heavy tasks (script generation)",
+    )
+    llm_model_heavy_max_tokens: int = Field(
+        default=2000, description="Max tokens for heavy LLM tasks", ge=500, le=8000
+    )
+
+    # Legacy settings (for backward compatibility, will use llm_model_light)
     translation_model: str = Field(
-        default="claude-3-5-haiku-20241022",
-        description="LLM model for translation (Haiku for cost efficiency)",
+        default="anthropic/claude-3-5-haiku-20241022",
+        description="LLM model for translation (deprecated, use llm_model_light)",
     )
     translation_max_tokens: int = Field(
         default=500, description="Max tokens for translation", ge=100, le=2000
     )
-
-    # Classification settings
     classification_model: str = Field(
-        default="claude-3-5-haiku-20241022",
-        description="LLM model for topic classification",
+        default="anthropic/claude-3-5-haiku-20241022",
+        description="LLM model for classification (deprecated, use llm_model_light)",
     )
     classification_max_tokens: int = Field(
         default=500, description="Max tokens for classification", ge=100, le=2000

@@ -27,6 +27,7 @@ dependencies = [
     "flower>=2.0.1",
     # LLM & AI
     "anthropic>=0.18.0",
+    "litellm>=1.50.0",
     "langchain>=0.1.5",
     "langchain-anthropic>=0.1.0",
     "langchain-community>=0.0.17",
@@ -228,6 +229,7 @@ ignore_missing_imports = true
 module = [
     "celery.*",
     "anthropic.*",
+    "litellm.*",
     "langchain.*",
     "pgvector.*",
     "sentence_transformers.*",

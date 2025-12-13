@@ -4,15 +4,10 @@ This module provides LLM-based classification for content chunks when
 pattern-based classification is insufficient.
 """
 
-from typing import TYPE_CHECKING
-
-from anthropic import AsyncAnthropic
-
+from app.core.config import settings
 from app.core.logging import get_logger
+from app.infrastructure.llm import LLMClient, LLMConfig, get_llm_client
 from app.prompts.manager import PromptType, get_prompt_manager
-
-if TYPE_CHECKING:
-    pass
 
 logger = get_logger(__name__)
 
@@ -25,24 +20,24 @@ class ContentClassifier:
     from prompts/templates/.
 
     Attributes:
-        llm_client: Anthropic client for LLM calls
-        model: Model to use (default: Haiku for cost efficiency)
+        llm_client: LLMClient for unified LLM access
+        model: Model to use (default: llm_model_light from settings)
         prompt_manager: PromptManager for template rendering
     """
 
     def __init__(
         self,
-        llm_client: AsyncAnthropic,
-        model: str = "claude-3-5-haiku-20241022",
+        llm_client: LLMClient | None = None,
+        model: str | None = None,
     ):
         """Initialize ContentClassifier.
 
         Args:
-            llm_client: Anthropic client
-            model: Model name (default: Haiku)
+            llm_client: LLMClient instance (default: singleton)
+            model: Model name in LiteLLM format (default: from settings)
         """
-        self.llm_client = llm_client
-        self.model = model
+        self.llm_client = llm_client or get_llm_client()
+        self.model = model or settings.llm_model_light
         self.prompt_manager = get_prompt_manager()
 
     async def classify_characteristics(self, text: str) -> dict[str, bool]:
@@ -61,18 +56,18 @@ class ContentClassifier:
         )
 
         try:
-            response = await self.llm_client.messages.create(
+            config = LLMConfig(
                 model=self.model,
                 max_tokens=50,
+                temperature=0.0,  # Deterministic for classification
+            )
+
+            response = await self.llm_client.complete(
+                config=config,
                 messages=[{"role": "user", "content": prompt}],
             )
 
-            # Extract text from response (handle union types)
-            content_block = response.content[0]
-            if not hasattr(content_block, "text"):
-                raise ValueError(f"Unexpected content type: {type(content_block)}")
-
-            result_text = content_block.text.strip().lower()
+            result_text = response.content.strip().lower()
 
             # Parse response
             is_opinion = "opinion: yes" in result_text

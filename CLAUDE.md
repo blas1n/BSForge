@@ -14,7 +14,7 @@
 - **Backend**: FastAPI
 - **Database**: PostgreSQL 16 + pgvector + Redis 7
 - **Vector Search**: pgvector (PostgreSQL extension with HNSW index)
-- **LLM**: Claude API via LangChain
+- **LLM**: LiteLLM (unified interface for Anthropic, OpenAI, Gemini)
 - **Embedding**: BGE-M3 (HuggingFace)
 - **TTS**: Edge TTS (free) / ElevenLabs (premium)
 - **Video**: FFmpeg
@@ -84,10 +84,14 @@ bsforge/
 │   ├── core/
 │   │   ├── config.py         # App settings (pydantic-settings)
 │   │   ├── config_loader.py  # YAML config loader & manager
+│   │   ├── container.py      # DI container (dependency-injector)
 │   │   ├── database.py       # SQLAlchemy setup
 │   │   ├── redis.py          # Redis client
 │   │   ├── logging.py        # Logging setup
 │   │   └── exceptions.py     # Custom exceptions
+│   ├── infrastructure/       # External service clients
+│   │   ├── llm.py            # LiteLLM unified client
+│   │   └── pgvector_db.py    # pgvector implementation
 │   ├── models/               # SQLAlchemy ORM models
 │   │   ├── base.py           # UUIDMixin, TimestampMixin
 │   │   ├── channel.py
@@ -506,12 +510,53 @@ pytest --cov=app --cov-report=html
 
 ---
 
+## LLM Infrastructure
+
+### LiteLLM Integration
+All LLM calls use LiteLLM for provider-agnostic access:
+
+**Location**: `app/infrastructure/llm.py`
+
+**Components**:
+- `LLMConfig`: Configuration dataclass (model, max_tokens, temperature, timeout)
+- `LLMResponse`: Standardized response (content, model, usage)
+- `LLMClient`: Unified client using `litellm.acompletion()`
+- `get_llm_client()`: Singleton accessor
+
+**Model Naming** (LiteLLM format):
+```python
+"anthropic/claude-3-5-haiku-20241022"  # Lightweight tasks
+"anthropic/claude-sonnet-4-20250514"   # Heavy tasks (script generation)
+"openai/gpt-4o"                         # OpenAI alternative
+"gemini/gemini-1.5-pro"                 # Gemini alternative
+```
+
+**Configuration** (`app/core/config.py`):
+```python
+llm_model_light = "anthropic/claude-3-5-haiku-20241022"  # Translation, classification
+llm_model_heavy = "anthropic/claude-sonnet-4-20250514"   # Script generation
+```
+
+**Usage Example**:
+```python
+from app.infrastructure.llm import LLMClient, LLMConfig, get_llm_client
+
+client = get_llm_client()
+config = LLMConfig(model="anthropic/claude-3-5-haiku-20241022", max_tokens=500)
+response = await client.complete(config, messages=[{"role": "user", "content": "Hello"}])
+print(response.content)
+```
+
+---
+
 ## Environment Variables
 
 Critical env vars (see `.env.example` for full list):
 - `DATABASE_URL` - PostgreSQL connection
 - `REDIS_URL` - Redis connection
-- `ANTHROPIC_API_KEY` - Claude API
+- `ANTHROPIC_API_KEY` - Claude API (via LiteLLM)
+- `OPENAI_API_KEY` - OpenAI API (optional, via LiteLLM)
+- `GEMINI_API_KEY` - Gemini API (optional, via LiteLLM)
 - `GOOGLE_CLIENT_ID/SECRET` - YouTube OAuth
 - `ELEVENLABS_API_KEY` - Premium TTS
 - `PEXELS_API_KEY` - Stock visuals

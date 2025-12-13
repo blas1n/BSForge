@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.config.rag import GenerationConfig, QualityCheckConfig
+from app.infrastructure.llm import LLMResponse
 from app.models.script import Script
 from app.services.rag.context import GenerationContext, RetrievedContent
 from app.services.rag.generator import QualityCheckFailedError, ScriptGenerator
@@ -53,10 +54,9 @@ class TestScriptGenerator:
 
     @pytest.fixture
     def mock_llm_client(self) -> AsyncMock:
-        """Create mock Anthropic client."""
+        """Create mock LLM client."""
         client = AsyncMock()
-        content_block = MagicMock()
-        content_block.text = """Have you ever wondered why Python is so popular?
+        script_content = """Have you ever wondered why Python is so popular?
 
 Python was created by Guido van Rossum. It emphasizes code readability.
 Many companies use Python today including Google and Netflix.
@@ -64,9 +64,11 @@ Python is one of the most popular languages. It has great libraries.
 The syntax is clean and easy to learn. Many beginners start with Python.
 
 That's why Python remains one of the most loved languages!"""
-        response = MagicMock()
-        response.content = [content_block]
-        client.messages.create.return_value = response
+        client.complete.return_value = LLMResponse(
+            content=script_content,
+            model="anthropic/claude-sonnet-4-20250514",
+            usage={"prompt_tokens": 100, "completion_tokens": 80, "total_tokens": 180},
+        )
         return client
 
     @pytest.fixture
@@ -244,7 +246,7 @@ That's why Python remains one of the most loved languages!"""
 
             await generator.generate(topic_id, channel_id)
 
-            mock_llm_client.messages.create.assert_called_once()
+            mock_llm_client.complete.assert_called_once()
 
     def test_parse_script_basic(self, generator: ScriptGenerator) -> None:
         """Should parse script into sections."""
