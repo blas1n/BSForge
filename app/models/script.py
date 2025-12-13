@@ -6,7 +6,7 @@ and lifecycle tracking.
 
 import enum
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import ARRAY, JSON
@@ -87,7 +87,7 @@ class Script(Base, UUIDMixin, TimestampMixin):
     # Generation Info
     generation_model: Mapped[str] = mapped_column(String(100), nullable=False)
     context_chunks_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    generation_metadata: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    generation_metadata: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
 
     # Status
     status: Mapped[ScriptStatus] = mapped_column(

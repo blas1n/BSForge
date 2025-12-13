@@ -4,13 +4,15 @@ This package provides services for:
 - Content embedding (BGE-M3)
 - Hybrid retrieval (semantic + keyword)
 - Reranking and MMR
-- Script chunking
+- Script chunking with configurable patterns
+- LLM-based content classification
 - Context building
 - Prompt construction
 - Script generation with quality checks
 """
 
 from app.services.rag.chunker import ScriptChunker
+from app.services.rag.classifier import ContentClassifier
 from app.services.rag.context import ContextBuilder
 from app.services.rag.embedder import ContentEmbedder
 from app.services.rag.generator import ScriptGenerator
@@ -24,6 +26,7 @@ __all__ = [
     "SpecializedRetriever",
     "RAGReranker",
     "ScriptChunker",
+    "ContentClassifier",
     "ContextBuilder",
     "PromptBuilder",
     "ScriptGenerator",

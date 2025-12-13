@@ -7,7 +7,7 @@ Settings are validated at startup and provide type-safe access throughout the ap
 import secrets
 from typing import Literal
 
-from pydantic import Field, HttpUrl, PostgresDsn, RedisDsn, field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     # ============================================
     # Database Settings
     # ============================================
-    database_url: PostgresDsn = Field(
+    database_url: str = Field(
         default="postgresql+asyncpg://bsforge:bsforge_password@localhost:5432/bsforge",
         description="Async PostgreSQL connection URL",
     )
@@ -59,13 +59,11 @@ class Settings(BaseSettings):
         default=10, description="Max overflow connections", ge=0, le=50
     )
 
-    redis_url: RedisDsn = Field(
-        default="redis://localhost:6379/0", description="Redis connection URL"
-    )
-    celery_broker_url: RedisDsn = Field(
+    redis_url: str = Field(default="redis://localhost:6379/0", description="Redis connection URL")
+    celery_broker_url: str = Field(
         default="redis://localhost:6379/1", description="Celery broker URL"
     )
-    celery_result_backend: RedisDsn = Field(
+    celery_result_backend: str = Field(
         default="redis://localhost:6379/2", description="Celery result backend URL"
     )
 
@@ -123,7 +121,7 @@ class Settings(BaseSettings):
     # ============================================
     google_client_id: str = Field(default="", description="Google OAuth client ID")
     google_client_secret: str = Field(default="", description="Google OAuth client secret")
-    google_redirect_uri: HttpUrl = Field(
+    google_redirect_uri: str = Field(
         default="http://localhost:8000/auth/google/callback", description="OAuth redirect URI"
     )
 

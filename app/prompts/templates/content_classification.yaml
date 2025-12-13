@@ -1,0 +1,27 @@
+# Content Characteristic Classification Prompt
+# Version: 1.0.0
+# Last Updated: 2025-12-14
+
+name: "Content Classification Prompt"
+version: "1.0.0"
+description: "Classifies text chunks as opinion, example, or analogy for RAG indexing"
+
+template: |
+  Analyze this text and classify its characteristics.
+
+  Text:
+  "${text}"
+
+  For each characteristic, answer with ONLY "yes" or "no":
+
+  1. Is this an OPINION (personal view, belief, or judgment)?
+  2. Is this an EXAMPLE (specific instance or illustration)?
+  3. Is this an ANALOGY (comparison to explain something)?
+
+  Format your response EXACTLY as:
+  opinion: yes/no
+  example: yes/no
+  analogy: yes/no
+
+example_variables:
+  text: "I think AI coding tools are overhyped. They work well for boilerplate, but struggle with complex business logic."

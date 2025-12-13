@@ -33,8 +33,8 @@ dependencies = [
     "openai>=1.10.0",
     # Embeddings & Vector DB
     "sentence-transformers>=2.3.1",
-    "chromadb>=0.4.22",
-    "pinecone-client>=3.0.0",
+    "pgvector>=0.2.5",
+    "torch>=2.1.0",
     # Web Scraping & API
     "httpx>=0.26.0",
     "scrapy>=2.11.0",
@@ -229,8 +229,8 @@ module = [
     "celery.*",
     "anthropic.*",
     "langchain.*",
-    "chromadb.*",
-    "pinecone.*",
+    "pgvector.*",
+    "sentence_transformers.*",
     "scrapy.*",
     "playwright.*",
     "praw.*",

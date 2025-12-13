@@ -231,7 +231,7 @@ Desktop.ini
 *~
 
 # ============================================
-# Testing
+# Testing & Type Checking
 # ============================================
 .coverage
 .pytest_cache/
@@ -242,6 +242,13 @@ coverage.xml
 *.cover
 *.py,cover
 .hypothesis/
+
+# Type checking cache
+.mypy_cache/
+.pytype/
+.pyre/
+.dmypy.json
+dmypy.json
 
 # ============================================
 # Packages & Dependencies

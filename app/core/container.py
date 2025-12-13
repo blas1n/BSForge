@@ -94,6 +94,26 @@ class InfrastructureContainer(containers.DeclarativeContainer):
         factory=db_session_factory,
     )
 
+    # ============================================
+    # Vector DB (pgvector)
+    # ============================================
+
+    vector_db = providers.Singleton(
+        "app.infrastructure.pgvector_db.PgVectorDB",
+        db_session_factory=db_session_factory,
+        model_name="BAAI/bge-m3",
+        device="cpu",
+    )
+
+    # ============================================
+    # LLM Clients
+    # ============================================
+
+    anthropic_client = providers.Singleton(
+        "anthropic.AsyncAnthropic",
+        api_key=config.anthropic_api_key,
+    )
+
 
 class ConfigContainer(containers.DeclarativeContainer):
     """Configuration models container.
@@ -148,6 +168,38 @@ class ConfigContainer(containers.DeclarativeContainer):
         "app.config.sources.WebScraperConfig",
     )
 
+    # ============================================
+    # RAG configs
+    # ============================================
+
+    rag_config = providers.Singleton(
+        "app.config.rag.RAGConfig",
+    )
+
+    embedding_config = providers.Singleton(
+        "app.config.rag.EmbeddingConfig",
+    )
+
+    retrieval_config = providers.Singleton(
+        "app.config.rag.RetrievalConfig",
+    )
+
+    query_expansion_config = providers.Singleton(
+        "app.config.rag.QueryExpansionConfig",
+    )
+
+    chunking_config = providers.Singleton(
+        "app.config.rag.ChunkingConfig",
+    )
+
+    quality_check_config = providers.Singleton(
+        "app.config.rag.QualityCheckConfig",
+    )
+
+    generation_config = providers.Singleton(
+        "app.config.rag.GenerationConfig",
+    )
+
 
 class ServiceContainer(containers.DeclarativeContainer):
     """Service layer dependencies.
@@ -193,6 +245,65 @@ class ServiceContainer(containers.DeclarativeContainer):
     series_matcher = providers.Factory(
         "app.services.collector.series_matcher.SeriesMatcher",
         config=configs.series_matcher_config,
+    )
+
+    # ============================================
+    # RAG Services
+    # ============================================
+
+    content_embedder = providers.Factory(
+        "app.services.rag.embedder.ContentEmbedder",
+        vector_db=infrastructure.vector_db,
+        config=configs.embedding_config,
+    )
+
+    rag_retriever = providers.Factory(
+        "app.services.rag.retriever.SpecializedRetriever",
+        vector_db=infrastructure.vector_db,
+        db_session_factory=infrastructure.db_session_factory,
+        retrieval_config=configs.retrieval_config,
+        query_config=configs.query_expansion_config,
+        llm_client=infrastructure.anthropic_client,
+    )
+
+    rag_reranker = providers.Factory(
+        "app.services.rag.reranker.RAGReranker",
+        config=configs.retrieval_config,
+    )
+
+    content_classifier = providers.Factory(
+        "app.services.rag.classifier.ContentClassifier",
+        llm_client=infrastructure.anthropic_client,
+        model="claude-3-5-haiku-20241022",
+    )
+
+    script_chunker = providers.Factory(
+        "app.services.rag.chunker.ScriptChunker",
+        config=configs.chunking_config,
+        llm_classifier=content_classifier,
+    )
+
+    context_builder = providers.Factory(
+        "app.services.rag.context.ContextBuilder",
+        retriever=rag_retriever,
+        db_session_factory=infrastructure.db_session_factory,
+    )
+
+    prompt_builder = providers.Factory(
+        "app.services.rag.prompt.PromptBuilder",
+    )
+
+    script_generator = providers.Factory(
+        "app.services.rag.generator.ScriptGenerator",
+        context_builder=context_builder,
+        prompt_builder=prompt_builder,
+        chunker=script_chunker,
+        embedder=content_embedder,
+        vector_db=infrastructure.vector_db,
+        llm_client=infrastructure.anthropic_client,
+        db_session_factory=infrastructure.db_session_factory,
+        config=configs.generation_config,
+        quality_config=configs.quality_check_config,
     )
 
 
@@ -272,6 +383,32 @@ class ApplicationContainer(containers.DeclarativeContainer):
         svc=services.series_matcher,
     )
 
+    # RAG Services
+    embedder = providers.Factory(
+        lambda svc: svc,
+        svc=services.content_embedder,
+    )
+
+    retriever = providers.Factory(
+        lambda svc: svc,
+        svc=services.rag_retriever,
+    )
+
+    reranker = providers.Factory(
+        lambda svc: svc,
+        svc=services.rag_reranker,
+    )
+
+    chunker = providers.Factory(
+        lambda svc: svc,
+        svc=services.script_chunker,
+    )
+
+    generator = providers.Factory(
+        lambda svc: svc,
+        svc=services.script_generator,
+    )
+
 
 def create_container() -> ApplicationContainer:
     """Create and configure the application container.
@@ -287,6 +424,7 @@ def create_container() -> ApplicationContainer:
             "redis_url": str(settings.redis_url),
             "database_url": str(settings.database_url),
             "debug": settings.debug,
+            "anthropic_api_key": settings.anthropic_api_key,
         }
     )
 

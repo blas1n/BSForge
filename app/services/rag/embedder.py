@@ -4,6 +4,8 @@ Wraps BGE-M3 model to generate embeddings for content chunks.
 Enriches text with metadata before embedding for better retrieval.
 """
 
+from typing import Any
+
 from app.config.rag import EmbeddingConfig
 from app.core.logging import get_logger
 from app.core.vectordb import VectorDB
@@ -70,7 +72,7 @@ class ContentEmbedder:
 
     async def embed_batch(
         self,
-        chunks: list[tuple[str, dict]],
+        chunks: list[tuple[str, dict[str, Any]]],
     ) -> list[list[float]]:
         """Embed multiple chunks in batch.
 

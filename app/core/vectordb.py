@@ -19,7 +19,7 @@ Usage:
 """
 
 from datetime import datetime
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -85,7 +85,7 @@ class VectorDB(Protocol):
         self,
         doc_id: str,
         vector: list[float],
-        metadata: dict | None = None,
+        metadata: dict[str, Any] | None = None,
         namespace: str | None = None,
     ) -> None:
         """Insert or update a vector.
@@ -100,7 +100,7 @@ class VectorDB(Protocol):
 
     async def upsert_batch(
         self,
-        items: list[tuple[str, list[float], dict | None]],
+        items: list[tuple[str, list[float], dict[str, Any] | None]],
         namespace: str | None = None,
     ) -> None:
         """Insert or update multiple vectors.

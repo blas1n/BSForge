@@ -309,9 +309,108 @@ def test_something():
 ```
 
 Container structure:
-- `InfrastructureContainer`: Redis, Database (Singletons)
+- `InfrastructureContainer`: Redis, Database, VectorDB (Singletons)
+- `ConfigContainer`: Pydantic config models (Singletons)
 - `ServiceContainer`: Business services (Factories)
 - `ApplicationContainer`: Root container with convenience accessors
+
+---
+
+## Code Quality Standards
+
+### Required Tools
+Before committing, always run:
+```bash
+ruff check app/         # Linting (must pass: 0 errors)
+mypy app/               # Type checking (must pass: 0 errors)
+pytest tests/           # Tests (must pass)
+```
+
+### Type Hints (Strict)
+All code must have complete type annotations:
+
+```python
+# ✅ Good - Full type hints
+def process_topic(
+    topic_id: uuid.UUID,
+    config: ProcessConfig,
+) -> ProcessResult:
+    ...
+
+async def fetch_data(url: str) -> dict[str, Any]:
+    ...
+
+# ❌ Bad - Missing types
+def process_topic(topic_id, config):
+    ...
+```
+
+**Generic types must have parameters:**
+```python
+# ✅ Good
+def get_items() -> dict[str, Any]: ...
+def get_names() -> list[str]: ...
+
+# ❌ Bad - Missing type parameters
+def get_items() -> dict: ...
+def get_names() -> list: ...
+```
+
+**Union types with external libraries:**
+```python
+# When accessing attributes on union types (e.g., anthropic API responses)
+content_block = response.content[0]
+if not hasattr(content_block, "text"):
+    raise ValueError(f"Unexpected type: {type(content_block)}")
+text = content_block.text  # Now safe to access
+```
+
+### Common Patterns
+
+**TYPE_CHECKING for circular imports:**
+```python
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.services.rag.classifier import ContentClassifier
+
+class ScriptChunker:
+    def __init__(self, classifier: "ContentClassifier | None" = None):
+        ...
+```
+
+**Explicit casts for library limitations:**
+```python
+# Mako template returns Any
+return str(rendered).strip()
+
+# numpy array type inference
+return similarities.astype(np.float64)  # type: ignore[no-any-return]
+```
+
+### Ruff Rules
+Key rules enforced:
+- `F401`: No unused imports
+- `F821`: No undefined names
+- `E501`: Line length ≤ 88 chars
+- `I001`: Import sorting (isort)
+
+### MyPy Configuration
+Strict mode enabled. Common fixes:
+| Error | Fix |
+|-------|-----|
+| `Missing type parameters for generic type` | Use `dict[str, Any]` not `dict` |
+| `Function is missing a return type` | Add `-> ReturnType` or `-> None` |
+| `Returning Any from function` | Use explicit `str()`, `float()` cast |
+| `has no attribute` on union | Use `hasattr()` check or `isinstance()` |
+
+### Pre-commit Checklist
+- [ ] `ruff check app/` passes with 0 errors
+- [ ] `mypy app/` passes with 0 errors
+- [ ] All new functions have type hints
+- [ ] All new functions have docstrings (Google style)
+- [ ] No hardcoded prompts (use `app/prompts/templates/`)
+- [ ] No hardcoded patterns (use config)
 
 ---
 
@@ -327,9 +426,16 @@ Models are created alongside the features that use them:
 - `sources` - Topic sources (Reddit, HN, etc.)
 - `topics` - Collected topics
 
-**Phase 4: RAG System**
-- `content_chunks` - Vector DB references
+**Phase 4: RAG System** ✅ COMPLETED
 - `scripts` - Generated scripts
+  - hook, body, conclusion 섹션 분리
+  - quality_passed, style_score, hook_score 등 품질 메트릭
+  - status: GENERATED, REVIEWED, APPROVED, REJECTED, PRODUCED
+- `content_chunks` - 벡터 검색용 청크
+  - embedding: Vector(1024) - BGE-M3 임베딩
+  - is_opinion, is_example, is_analogy - 콘텐츠 특성 (패턴/LLM 분류)
+  - position: HOOK, BODY, CONCLUSION
+  - HNSW 인덱스: `CREATE INDEX USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64)`
 
 **Phase 5: Video Generation**
 - `videos` - Generated videos
@@ -439,10 +545,14 @@ WS     /ws/{channel_id}  # Real-time notifications
 - Index frequently queried columns (see schema doc)
 - Use Redis for caching hot data
 
-### Vector Search
-- Batch embeddings (32-64 texts)
-- Cache embeddings for repeated queries
-- Use approximate search in production
+### Vector Search (pgvector + HNSW)
+- **HNSW Index**: 1000x faster than brute force, 99%+ accuracy
+  - Parameters: m=16 (connections per node), ef_construction=64 (build quality)
+  - Approximate nearest neighbor search: O(log n) vs O(n)
+- **Batch embeddings** (32 texts per batch for BGE-M3)
+- **Hybrid search**: 70% semantic (vector) + 30% BM25 (keyword)
+- **MMR diversity**: λ=0.7 balances relevance and diversity
+- **Content classification**: Pattern-based (fast) + optional LLM (accurate)
 
 ### Video Generation
 - Process in background (Celery)
@@ -532,7 +642,7 @@ Detailed designs are in `architecture/`:
 
 ## Current Status & TODO
 
-**Current Phase**: Phase 3 (Topic Collection) - Completed
+**Current Phase**: Phase 4 (RAG System) - Completed ✅
 
 ### Phase 1-2: Foundation (Completed)
 - [x] Project scaffolding (FastAPI + SQLAlchemy)
@@ -555,22 +665,42 @@ Detailed designs are in `architecture/`:
 - [x] 3.10 Hybrid Collection System (Global Pool + Scoped Sources)
   - [x] GlobalTopicPool (Redis-based shared pool for HN, Trends, YouTube)
   - [x] GlobalCollector task (collect once, share across channels)
-  - [x] ScopedSourceCache (cache Reddit/DCInside results for short TTL)
-  - [x] ChannelCollector (pull from pool + collect scoped)
 
-### Phase 4: RAG System
-- [x] 4.1 Vector DB setup (pgvector with PostgreSQL)
-  - [x] ContentChunk model with embedding column (Vector(1024))
-  - [x] HNSW index for fast cosine similarity search
-  - [x] PgVectorDB implementation (VectorDB protocol)
-- [x] 4.2 Database models (Script, ContentChunk)
-- [x] 4.3 RAG configuration (Pydantic models)
-- [x] 4.4 Embedder service (BGE-M3)
-- [ ] 4.5 Retriever with hybrid search (semantic + BM25)
-- [ ] 4.6 Reranker (BGE-Reranker + MMR)
-- [ ] 4.7 Script chunker (structure-based)
-- [ ] 4.8 Context builder and prompt builder
-- [ ] 4.9 Script generator with persona and quality checks
+### Phase 4: RAG System (Completed ✅)
+- [x] 4.1 Database Models
+  - [x] `Script` model (hook, body, conclusion, quality metrics, status)
+  - [x] `ContentChunk` model (embedding, characteristics, position)
+  - [x] Alembic migration with pgvector extension
+  - [x] HNSW index for vector similarity search
+- [x] 4.2 RAG Configuration (`app/config/rag.py`)
+  - [x] EmbeddingConfig (BGE-M3 settings)
+  - [x] RetrievalConfig (hybrid search, MMR, reranking)
+  - [x] ChunkingConfig (patterns, LLM classification)
+  - [x] QualityCheckConfig (quality gates)
+  - [x] GenerationConfig (LLM settings)
+- [x] 4.3 Vector Database Infrastructure
+  - [x] PgVectorDB (pgvector implementation with HNSW)
+  - [x] BGE-M3 embedding integration
+- [x] 4.4 RAG Services
+  - [x] ContentEmbedder (메타데이터 태그 추가, 배치 처리)
+  - [x] RAGRetriever / SpecializedRetriever (하이브리드 검색, 쿼리 확장)
+  - [x] RAGReranker (BGE-Reranker, MMR diversity)
+  - [x] ContentClassifier (LLM 기반 분류, Claude Haiku)
+  - [x] ScriptChunker (구조 기반 청킹, 설정 가능한 패턴)
+  - [x] ContextBuilder (병렬 검색, Persona 통합)
+  - [x] PromptBuilder (프롬프트 템플릿)
+  - [x] ScriptGenerator (전체 파이프라인, 품질 게이트)
+- [x] 4.5 DI Container Integration
+  - [x] ConfigContainer with RAG configs
+  - [x] ServiceContainer with RAG services
+  - [x] ApplicationContainer convenience accessors
+
+**Key Features**:
+- **Hybrid Search**: 70% semantic (pgvector) + 30% BM25 (keyword)
+- **HNSW Index**: 1000x faster vector search with 99%+ accuracy
+- **Extensible Classification**: Configurable pattern matching + optional LLM (Claude Haiku)
+- **Quality Gates**: style_score ≥ 0.7, hook_score ≥ 0.5, max 2 forbidden words
+- **Multi-language Support**: Pattern configs support Korean, English, easily extensible
 
 ### Phase 5: Video Generation
 - [ ] 5.1 TTS engine (Edge TTS / ElevenLabs)

@@ -4,6 +4,7 @@ Unified database for metadata and vector embeddings using pgvector extension.
 """
 
 from datetime import datetime
+from typing import Any
 
 from sentence_transformers import SentenceTransformer
 from sqlalchemy import select
@@ -29,7 +30,7 @@ class PgVectorDB:
 
     def __init__(
         self,
-        db_session_factory,
+        db_session_factory: Any,
         model_name: str = "BAAI/bge-m3",
         device: str = "cpu",
     ):
@@ -131,7 +132,7 @@ class PgVectorDB:
         self,
         doc_id: str,
         vector: list[float],
-        metadata: dict | None = None,
+        metadata: dict[str, Any] | None = None,
         namespace: str | None = None,
     ) -> None:
         """Insert or update a vector.
@@ -153,7 +154,7 @@ class PgVectorDB:
 
     async def upsert_batch(
         self,
-        items: list[tuple[str, list[float], dict | None]],
+        items: list[tuple[str, list[float], dict[str, Any] | None]],
         namespace: str | None = None,
     ) -> None:
         """Insert or update multiple vectors.

@@ -230,9 +230,12 @@ bsforge/
 - Normalize → Deduplicate → Score
 - Priority queue based on channel relevance
 
-### 2️⃣ Script Generation (Persona RAG)
-- Hybrid search: Semantic (70%) + BM25 (30%)
-- Reranking + MMR for diversity
+### 2️⃣ Script Generation (Persona RAG) ✅
+- **Hybrid search**: Semantic (70% via pgvector HNSW) + BM25 (30% keyword)
+- **Reranking**: BGE-Reranker for precision
+- **MMR diversity**: λ=0.7 for balanced relevance and diversity
+- **Content classification**: Configurable patterns + optional LLM (Claude Haiku)
+- **Quality gates**: style_score ≥ 0.7, hook_score ≥ 0.5
 - Reflect high-performing content style from history
 
 ### 3️⃣ Video Generation

@@ -86,12 +86,65 @@ class ChunkingConfig(BaseModel):
         max_chunk_tokens: Maximum tokens per chunk
         overlap_tokens: Overlap between chunks
         preserve_structure: Whether to preserve structural boundaries
+        use_llm_classification: Use LLM for characteristic classification
+        opinion_patterns: Regex patterns for opinion detection
+        example_patterns: Regex patterns for example detection
+        analogy_patterns: Regex patterns for analogy detection
     """
 
     strategy: Literal["structure", "fixed", "semantic"] = Field(default="structure")
     max_chunk_tokens: int = Field(default=200, ge=50, le=1000)
     overlap_tokens: int = Field(default=20, ge=0, le=100)
     preserve_structure: bool = Field(default=True)
+    use_llm_classification: bool = Field(
+        default=False, description="Use LLM for more accurate classification"
+    )
+
+    # Pattern-based classification (fast, configurable)
+    opinion_patterns: list[str] = Field(
+        default=[
+            r"i think",
+            r"i believe",
+            r"in my (view|opinion)",
+            r"personally",
+            r"제 생각",
+            r"생각하는",
+            r"개인적으로",
+            r"제가 보기엔",
+            r"저는.*생각",
+        ],
+        description="Regex patterns for detecting opinions",
+    )
+
+    example_patterns: list[str] = Field(
+        default=[
+            r"for example",
+            r"for instance",
+            r"such as",
+            r"like",
+            r"예를 들어",
+            r"예시로",
+            r"같은 경우",
+            r"예컨대",
+            r"이를테면",
+        ],
+        description="Regex patterns for detecting examples",
+    )
+
+    analogy_patterns: list[str] = Field(
+        default=[
+            r"similar to",
+            r"like",
+            r"as if",
+            r"reminds me of",
+            r"마치",
+            r"비슷하게",
+            r"같이",
+            r"흡사",
+            r"~처럼",
+        ],
+        description="Regex patterns for detecting analogies",
+    )
 
 
 class QualityCheckConfig(BaseModel):
