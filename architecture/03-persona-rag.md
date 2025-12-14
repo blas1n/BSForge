@@ -325,6 +325,14 @@ interface ChunkConfig {
   maxTokens: number;               // 최대 토큰
   overlap: number;                 // 오버랩 토큰
   splitBy: 'paragraph' | 'sentence' | 'semantic';
+
+  // 패턴 기반 분류 (설정 가능)
+  opinionPatterns: string[];       // 의견 탐지 패턴
+  examplePatterns: string[];       // 예시 탐지 패턴
+  analogyPatterns: string[];       // 비유 탐지 패턴
+
+  // LLM 기반 분류 (선택)
+  useLlmClassification: boolean;   // 더 정확한 분류
 }
 
 interface ContentChunk {
@@ -344,6 +352,7 @@ interface ContentChunk {
   };
 
   // 청크 특성 (검색 필터용)
+  // 패턴 기반 또는 LLM 기반으로 자동 분류
   characteristics: {
     isOpinion: boolean;            // 의견 부분
     isExample: boolean;            // 예시 부분
@@ -357,7 +366,12 @@ interface ContentChunk {
 
 // 스크립트 특화 청킹
 class ScriptChunker {
-  chunk(script: string, config: ChunkConfig): ContentChunk[] {
+  constructor(
+    private config: ChunkConfig,
+    private llmClassifier?: ContentClassifier
+  ) {}
+
+  async chunk(script: string): Promise<ContentChunk[]> {
     // 스크립트 구조 파악
     const sections = this.identifySections(script);
 
@@ -366,18 +380,18 @@ class ScriptChunker {
 
     // Hook은 통째로 (보통 짧음)
     if (sections.hook) {
-      chunks.push(this.createChunk(sections.hook, 'hook', 0));
+      chunks.push(await this.createChunk(sections.hook, 'hook', 0));
     }
 
     // Body는 의미 단위로 분할
-    const bodyChunks = this.splitBody(sections.body, config);
-    chunks.push(...bodyChunks.map((text, i) =>
-      this.createChunk(text, 'body', i + 1)
-    ));
+    const bodyChunks = this.splitBody(sections.body, this.config);
+    for (let i = 0; i < bodyChunks.length; i++) {
+      chunks.push(await this.createChunk(bodyChunks[i], 'body', i + 1));
+    }
 
     // Conclusion도 통째로
     if (sections.conclusion) {
-      chunks.push(this.createChunk(sections.conclusion, 'conclusion', chunks.length));
+      chunks.push(await this.createChunk(sections.conclusion, 'conclusion', chunks.length));
     }
 
     return chunks;
@@ -395,6 +409,69 @@ class ScriptChunker {
       body: paragraphs.slice(1, -1).join('\n\n'),
       conclusion: paragraphs.slice(-1).join('\n\n'),
     };
+  }
+
+  // 특성 추출: 패턴 기반 (빠름) 또는 LLM 기반 (정확함)
+  private async extractCharacteristics(text: string): Promise<Characteristics> {
+    // 1. 패턴 기반 분류 (항상 실행)
+    const patternBased = {
+      isOpinion: this.matchesPatterns(text, this.config.opinionPatterns),
+      isExample: this.matchesPatterns(text, this.config.examplePatterns),
+      isAnalogy: this.matchesPatterns(text, this.config.analogyPatterns),
+    };
+
+    // 2. LLM 기반 분류 (선택)
+    if (this.config.useLlmClassification && this.llmClassifier) {
+      try {
+        const llmBased = await this.llmClassifier.classify(text);
+        // LLM 결과로 덮어쓰기 (더 정확함)
+        return { ...patternBased, ...llmBased };
+      } catch (error) {
+        // 실패 시 패턴 기반 결과 사용
+        return patternBased;
+      }
+    }
+
+    return patternBased;
+  }
+
+  private matchesPatterns(text: string, patterns: string[]): boolean {
+    const lowerText = text.toLowerCase();
+    return patterns.some(pattern =>
+      new RegExp(pattern, 'i').test(lowerText)
+    );
+  }
+}
+
+// LLM 기반 콘텐츠 분류기 (선택 사용)
+class ContentClassifier {
+  constructor(private llm: AnthropicClient) {}
+
+  async classify(text: string): Promise<{
+    isOpinion: boolean;
+    isExample: boolean;
+    isAnalogy: boolean;
+  }> {
+    const prompt = `Analyze this text and classify:
+
+Text: "${text}"
+
+Answer with ONLY "yes" or "no":
+1. Is this an OPINION?
+2. Is this an EXAMPLE?
+3. Is this an ANALOGY?
+
+Format:
+opinion: yes/no
+example: yes/no
+analogy: yes/no`;
+
+    const response = await this.llm.complete(prompt, {
+      model: 'claude-3-5-haiku-20241022',
+      maxTokens: 50,
+    });
+
+    return this.parseResponse(response);
   }
 }
 ```
@@ -1100,10 +1177,97 @@ class FineTuningDataCollector {
 
 | 컴포넌트 | 선택 | 비고 |
 |----------|------|------|
-| **임베딩** | BGE-M3 | 다국어, 한국어 성능 우수 |
-| **벡터 DB** | Chroma (개발) → Pinecone (운영) | 로컬 → 클라우드 |
-| **키워드 검색** | Elasticsearch 또는 자체 BM25 | 하이브리드 검색용 |
+| **임베딩** | BGE-M3 | 다국어, 한국어 성능 우수, 1024차원 |
+| **벡터 DB** | pgvector (PostgreSQL extension) | 단일 DB, HNSW 인덱스 (m=16, ef_construction=64), 운영 간편 |
+| **키워드 검색** | PostgreSQL Full-Text Search | 벡터 검색과 통합 쿼리 가능 |
 | **리랭커** | BGE-Reranker | 오픈소스, 성능 좋음 |
-| **LLM (RAG)** | Claude 3.5 Sonnet | 긴 컨텍스트, 한국어 품질 |
+| **콘텐츠 분류** | 패턴 기반 + LLM (선택) | 빠른 패턴 매칭, 필요시 Claude Haiku로 정확도 향상 |
+| **LLM (생성)** | Claude 3.5 Sonnet | 긴 컨텍스트, 한국어 품질 |
+| **LLM (분류)** | Claude 3.5 Haiku | 빠르고 저렴, 간단한 분류 태스크 |
 | **LLM (파인튜닝)** | Llama 3 + LoRA | 비용 효율 |
 | **TTS** | Edge TTS (기본) → ElevenLabs (업그레이드) | 비용 단계적 |
+
+---
+
+## 8. 구현 상세
+
+### 8.1 실제 구현된 모델
+
+**Database Models (PostgreSQL + pgvector)**:
+- `scripts`: 생성된 스크립트 저장
+  - hook, body, conclusion 섹션 분리 저장
+  - quality_passed, style_score, hook_score 등 품질 메트릭
+  - generation_metadata: 생성 설정 JSON
+  - status: GENERATED, REVIEWED, APPROVED, REJECTED, PRODUCED
+
+- `content_chunks`: 벡터 검색용 청크
+  - embedding: Vector(1024) - BGE-M3 임베딩
+  - is_opinion, is_example, is_analogy: 콘텐츠 특성 (패턴 또는 LLM 분류)
+  - position: HOOK, BODY, CONCLUSION
+  - keywords: 키워드 배열
+  - performance_score: 성과 피드백
+  - HNSW 인덱스: `CREATE INDEX USING hnsw (embedding vector_cosine_ops)`
+
+**RAG Services (app/services/rag/)**:
+1. **ContentEmbedder**: BGE-M3 임베딩 생성
+   - 메타데이터 태그 추가 (위치, 특성, 키워드)
+   - 배치 처리 지원
+
+2. **RAGRetriever / SpecializedRetriever**: 하이브리드 검색
+   - 70% 시맨틱 (벡터) + 30% BM25 (키워드)
+   - 쿼리 확장 (Claude API)
+   - 특화 검색: 의견, 예시, 훅, 고성과 콘텐츠
+
+3. **RAGReranker**: 재순위화
+   - BGE-Reranker로 정밀도 향상
+   - MMR (λ=0.7)로 다양성 확보
+
+4. **ContentClassifier**: LLM 기반 분류 (선택)
+   - Claude Haiku 사용
+   - 의견/예시/비유 자동 탐지
+   - 패턴 매칭 실패 시 사용
+
+5. **ScriptChunker**: 구조 기반 청킹
+   - Hook/Body/Conclusion 자동 분리
+   - 설정 가능한 패턴 (한국어 + English)
+   - 선택적 LLM 분류 지원
+
+6. **ContextBuilder**: 생성 컨텍스트 구성
+   - 병렬 검색 (유사 콘텐츠, 의견, 예시, 훅)
+   - Persona 통합
+
+7. **PromptBuilder**: 프롬프트 템플릿
+   - Persona 정보 + 검색 결과 + 주제
+
+8. **ScriptGenerator**: 전체 파이프라인 통합
+   - Context → Prompt → LLM → Quality Check
+   - 품질 게이트: style_score ≥ 0.7, hook_score ≥ 0.5
+   - 실패 시 자동 재시도 (최대 2회)
+   - 스크립트 저장 → 청킹 → 임베딩 → 벡터 DB 저장
+
+**Configuration (app/config/rag.py)**:
+- ChunkingConfig: 패턴 리스트 (opinion/example/analogy), LLM 토글
+- RetrievalConfig: 하이브리드 가중치, MMR λ, 리랭킹 설정
+- GenerationConfig: LLM 설정, 스타일, 길이
+- QualityCheckConfig: 품질 게이트 기준
+
+### 8.2 확장성 설계
+
+**다국어 지원**:
+- 패턴 기반 분류: ChunkingConfig에 언어별 패턴 추가
+  ```python
+  opinion_patterns = [
+    r"i think", r"i believe",  # English
+    r"제 생각", r"생각하는",     # Korean
+    r"思います", r"考えます",     # Japanese (예시)
+  ]
+  ```
+
+**분류 정확도 조정**:
+- 빠른 환경: `use_llm_classification=False` (패턴만)
+- 정확한 환경: `use_llm_classification=True` (LLM 분류)
+
+**성능 최적화**:
+- HNSW 인덱스로 1000배 빠른 벡터 검색
+- 배치 임베딩으로 처리량 향상
+- 병렬 검색으로 레이턴시 감소

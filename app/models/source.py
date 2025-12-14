@@ -5,7 +5,7 @@ This module defines sources for topic collection and their channel associations.
 
 import enum
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     JSON,
@@ -93,9 +93,9 @@ class Source(Base, UUIDMixin, TimestampMixin):
     region: Mapped[SourceRegion] = mapped_column(Enum(SourceRegion), nullable=False)
 
     # Configuration (JSONB for flexibility)
-    connection_config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    parser_config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    default_filters: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    connection_config: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    parser_config: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    default_filters: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
 
     # Scheduling
     cron_expression: Mapped[str | None] = mapped_column(String(50))

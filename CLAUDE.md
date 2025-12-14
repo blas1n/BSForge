@@ -12,9 +12,9 @@
 - **Language**: Python 3.11+
 - **Package Manager**: uv + pyproject.toml
 - **Backend**: FastAPI
-- **Database**: PostgreSQL 16 + Redis 7
-- **Vector DB**: Chroma (dev) → Pinecone (prod)
-- **LLM**: Claude API via LangChain
+- **Database**: PostgreSQL 16 + pgvector + Redis 7
+- **Vector Search**: pgvector (PostgreSQL extension with HNSW index)
+- **LLM**: LiteLLM (unified interface for Anthropic, OpenAI, Gemini)
 - **Embedding**: BGE-M3 (HuggingFace)
 - **TTS**: Edge TTS (free) / ElevenLabs (premium)
 - **Video**: FFmpeg
@@ -84,10 +84,14 @@ bsforge/
 │   ├── core/
 │   │   ├── config.py         # App settings (pydantic-settings)
 │   │   ├── config_loader.py  # YAML config loader & manager
+│   │   ├── container.py      # DI container (dependency-injector)
 │   │   ├── database.py       # SQLAlchemy setup
 │   │   ├── redis.py          # Redis client
 │   │   ├── logging.py        # Logging setup
 │   │   └── exceptions.py     # Custom exceptions
+│   ├── infrastructure/       # External service clients
+│   │   ├── llm.py            # LiteLLM unified client
+│   │   └── pgvector_db.py    # pgvector implementation
 │   ├── models/               # SQLAlchemy ORM models
 │   │   ├── base.py           # UUIDMixin, TimestampMixin
 │   │   ├── channel.py
@@ -309,9 +313,108 @@ def test_something():
 ```
 
 Container structure:
-- `InfrastructureContainer`: Redis, Database (Singletons)
+- `InfrastructureContainer`: Redis, Database, VectorDB (Singletons)
+- `ConfigContainer`: Pydantic config models (Singletons)
 - `ServiceContainer`: Business services (Factories)
 - `ApplicationContainer`: Root container with convenience accessors
+
+---
+
+## Code Quality Standards
+
+### Required Tools
+Before committing, always run:
+```bash
+ruff check app/         # Linting (must pass: 0 errors)
+mypy app/               # Type checking (must pass: 0 errors)
+pytest tests/           # Tests (must pass)
+```
+
+### Type Hints (Strict)
+All code must have complete type annotations:
+
+```python
+# ✅ Good - Full type hints
+def process_topic(
+    topic_id: uuid.UUID,
+    config: ProcessConfig,
+) -> ProcessResult:
+    ...
+
+async def fetch_data(url: str) -> dict[str, Any]:
+    ...
+
+# ❌ Bad - Missing types
+def process_topic(topic_id, config):
+    ...
+```
+
+**Generic types must have parameters:**
+```python
+# ✅ Good
+def get_items() -> dict[str, Any]: ...
+def get_names() -> list[str]: ...
+
+# ❌ Bad - Missing type parameters
+def get_items() -> dict: ...
+def get_names() -> list: ...
+```
+
+**Union types with external libraries:**
+```python
+# When accessing attributes on union types (e.g., anthropic API responses)
+content_block = response.content[0]
+if not hasattr(content_block, "text"):
+    raise ValueError(f"Unexpected type: {type(content_block)}")
+text = content_block.text  # Now safe to access
+```
+
+### Common Patterns
+
+**TYPE_CHECKING for circular imports:**
+```python
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.services.rag.classifier import ContentClassifier
+
+class ScriptChunker:
+    def __init__(self, classifier: "ContentClassifier | None" = None):
+        ...
+```
+
+**Explicit casts for library limitations:**
+```python
+# Mako template returns Any
+return str(rendered).strip()
+
+# numpy array type inference
+return similarities.astype(np.float64)  # type: ignore[no-any-return]
+```
+
+### Ruff Rules
+Key rules enforced:
+- `F401`: No unused imports
+- `F821`: No undefined names
+- `E501`: Line length ≤ 88 chars
+- `I001`: Import sorting (isort)
+
+### MyPy Configuration
+Strict mode enabled. Common fixes:
+| Error | Fix |
+|-------|-----|
+| `Missing type parameters for generic type` | Use `dict[str, Any]` not `dict` |
+| `Function is missing a return type` | Add `-> ReturnType` or `-> None` |
+| `Returning Any from function` | Use explicit `str()`, `float()` cast |
+| `has no attribute` on union | Use `hasattr()` check or `isinstance()` |
+
+### Pre-commit Checklist
+- [ ] `ruff check app/` passes with 0 errors
+- [ ] `mypy app/` passes with 0 errors
+- [ ] All new functions have type hints
+- [ ] All new functions have docstrings (Google style)
+- [ ] No hardcoded prompts (use `app/prompts/templates/`)
+- [ ] No hardcoded patterns (use config)
 
 ---
 
@@ -327,9 +430,16 @@ Models are created alongside the features that use them:
 - `sources` - Topic sources (Reddit, HN, etc.)
 - `topics` - Collected topics
 
-**Phase 4: RAG System**
-- `content_chunks` - Vector DB references
+**Phase 4: RAG System** ✅ COMPLETED
 - `scripts` - Generated scripts
+  - hook, body, conclusion 섹션 분리
+  - quality_passed, style_score, hook_score 등 품질 메트릭
+  - status: GENERATED, REVIEWED, APPROVED, REJECTED, PRODUCED
+- `content_chunks` - 벡터 검색용 청크
+  - embedding: Vector(1024) - BGE-M3 임베딩
+  - is_opinion, is_example, is_analogy - 콘텐츠 특성 (패턴/LLM 분류)
+  - position: HOOK, BODY, CONCLUSION
+  - HNSW 인덱스: `CREATE INDEX USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64)`
 
 **Phase 5: Video Generation**
 - `videos` - Generated videos
@@ -400,12 +510,53 @@ pytest --cov=app --cov-report=html
 
 ---
 
+## LLM Infrastructure
+
+### LiteLLM Integration
+All LLM calls use LiteLLM for provider-agnostic access:
+
+**Location**: `app/infrastructure/llm.py`
+
+**Components**:
+- `LLMConfig`: Configuration dataclass (model, max_tokens, temperature, timeout)
+- `LLMResponse`: Standardized response (content, model, usage)
+- `LLMClient`: Unified client using `litellm.acompletion()`
+- `get_llm_client()`: Singleton accessor
+
+**Model Naming** (LiteLLM format):
+```python
+"anthropic/claude-3-5-haiku-20241022"  # Lightweight tasks
+"anthropic/claude-sonnet-4-20250514"   # Heavy tasks (script generation)
+"openai/gpt-4o"                         # OpenAI alternative
+"gemini/gemini-1.5-pro"                 # Gemini alternative
+```
+
+**Configuration** (`app/core/config.py`):
+```python
+llm_model_light = "anthropic/claude-3-5-haiku-20241022"  # Translation, classification
+llm_model_heavy = "anthropic/claude-sonnet-4-20250514"   # Script generation
+```
+
+**Usage Example**:
+```python
+from app.infrastructure.llm import LLMClient, LLMConfig, get_llm_client
+
+client = get_llm_client()
+config = LLMConfig(model="anthropic/claude-3-5-haiku-20241022", max_tokens=500)
+response = await client.complete(config, messages=[{"role": "user", "content": "Hello"}])
+print(response.content)
+```
+
+---
+
 ## Environment Variables
 
 Critical env vars (see `.env.example` for full list):
 - `DATABASE_URL` - PostgreSQL connection
 - `REDIS_URL` - Redis connection
-- `ANTHROPIC_API_KEY` - Claude API
+- `ANTHROPIC_API_KEY` - Claude API (via LiteLLM)
+- `OPENAI_API_KEY` - OpenAI API (optional, via LiteLLM)
+- `GEMINI_API_KEY` - Gemini API (optional, via LiteLLM)
 - `GOOGLE_CLIENT_ID/SECRET` - YouTube OAuth
 - `ELEVENLABS_API_KEY` - Premium TTS
 - `PEXELS_API_KEY` - Stock visuals
@@ -439,10 +590,14 @@ WS     /ws/{channel_id}  # Real-time notifications
 - Index frequently queried columns (see schema doc)
 - Use Redis for caching hot data
 
-### Vector Search
-- Batch embeddings (32-64 texts)
-- Cache embeddings for repeated queries
-- Use approximate search in production
+### Vector Search (pgvector + HNSW)
+- **HNSW Index**: 1000x faster than brute force, 99%+ accuracy
+  - Parameters: m=16 (connections per node), ef_construction=64 (build quality)
+  - Approximate nearest neighbor search: O(log n) vs O(n)
+- **Batch embeddings** (32 texts per batch for BGE-M3)
+- **Hybrid search**: 70% semantic (vector) + 30% BM25 (keyword)
+- **MMR diversity**: λ=0.7 balances relevance and diversity
+- **Content classification**: Pattern-based (fast) + optional LLM (accurate)
 
 ### Video Generation
 - Process in background (Celery)
@@ -460,7 +615,6 @@ WS     /ws/{channel_id}  # Real-time notifications
 - `data/` - Collected data
 - `datasets/` - Fine-tuning data
 - `outputs/` - Generated content
-- `chroma_db/` - Vector store
 
 ### Public (Open Source)
 - All source code
@@ -533,7 +687,7 @@ Detailed designs are in `architecture/`:
 
 ## Current Status & TODO
 
-**Current Phase**: Phase 3 (Topic Collection) - Completed
+**Current Phase**: Phase 4 (RAG System) - Completed ✅
 
 ### Phase 1-2: Foundation (Completed)
 - [x] Project scaffolding (FastAPI + SQLAlchemy)
@@ -556,15 +710,42 @@ Detailed designs are in `architecture/`:
 - [x] 3.10 Hybrid Collection System (Global Pool + Scoped Sources)
   - [x] GlobalTopicPool (Redis-based shared pool for HN, Trends, YouTube)
   - [x] GlobalCollector task (collect once, share across channels)
-  - [x] ScopedSourceCache (cache Reddit/DCInside results for short TTL)
-  - [x] ChannelCollector (pull from pool + collect scoped)
 
-### Phase 4: RAG System
-- [ ] 4.1 Vector DB setup (Chroma dev / Pinecone prod)
-- [ ] 4.2 Embedder service (BGE-M3)
-- [ ] 4.3 Retriever with hybrid search
-- [ ] 4.4 Reranker (BGE-Reranker)
-- [ ] 4.5 Script generator with persona
+### Phase 4: RAG System (Completed ✅)
+- [x] 4.1 Database Models
+  - [x] `Script` model (hook, body, conclusion, quality metrics, status)
+  - [x] `ContentChunk` model (embedding, characteristics, position)
+  - [x] Alembic migration with pgvector extension
+  - [x] HNSW index for vector similarity search
+- [x] 4.2 RAG Configuration (`app/config/rag.py`)
+  - [x] EmbeddingConfig (BGE-M3 settings)
+  - [x] RetrievalConfig (hybrid search, MMR, reranking)
+  - [x] ChunkingConfig (patterns, LLM classification)
+  - [x] QualityCheckConfig (quality gates)
+  - [x] GenerationConfig (LLM settings)
+- [x] 4.3 Vector Database Infrastructure
+  - [x] PgVectorDB (pgvector implementation with HNSW)
+  - [x] BGE-M3 embedding integration
+- [x] 4.4 RAG Services
+  - [x] ContentEmbedder (메타데이터 태그 추가, 배치 처리)
+  - [x] RAGRetriever / SpecializedRetriever (하이브리드 검색, 쿼리 확장)
+  - [x] RAGReranker (BGE-Reranker, MMR diversity)
+  - [x] ContentClassifier (LLM 기반 분류, Claude Haiku)
+  - [x] ScriptChunker (구조 기반 청킹, 설정 가능한 패턴)
+  - [x] ContextBuilder (병렬 검색, Persona 통합)
+  - [x] PromptBuilder (프롬프트 템플릿)
+  - [x] ScriptGenerator (전체 파이프라인, 품질 게이트)
+- [x] 4.5 DI Container Integration
+  - [x] ConfigContainer with RAG configs
+  - [x] ServiceContainer with RAG services
+  - [x] ApplicationContainer convenience accessors
+
+**Key Features**:
+- **Hybrid Search**: 70% semantic (pgvector) + 30% BM25 (keyword)
+- **HNSW Index**: 1000x faster vector search with 99%+ accuracy
+- **Extensible Classification**: Configurable pattern matching + optional LLM (Claude Haiku)
+- **Quality Gates**: style_score ≥ 0.7, hook_score ≥ 0.5, max 2 forbidden words
+- **Multi-language Support**: Pattern configs support Korean, English, easily extensible
 
 ### Phase 5: Video Generation
 - [ ] 5.1 TTS engine (Edge TTS / ElevenLabs)

@@ -21,6 +21,8 @@ class PromptType(str, Enum):
 
     TRANSLATION = "translation"
     CLASSIFICATION = "classification"
+    CONTENT_CLASSIFICATION = "content_classification"
+    SCRIPT_GENERATION = "script_generation"
 
 
 class PromptTemplate(BaseModel):
@@ -149,7 +151,7 @@ class PromptManager:
                 variables=list(variables.keys()),
             )
 
-            return rendered.strip()
+            return str(rendered).strip()  # Explicit cast to str
 
         except Exception as e:
             raise ValueError(f"Failed to render {prompt_type.value} template: {e}") from e

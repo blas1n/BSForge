@@ -27,14 +27,15 @@ dependencies = [
     "flower>=2.0.1",
     # LLM & AI
     "anthropic>=0.18.0",
+    "litellm>=1.50.0",
     "langchain>=0.1.5",
     "langchain-anthropic>=0.1.0",
     "langchain-community>=0.0.17",
     "openai>=1.10.0",
     # Embeddings & Vector DB
     "sentence-transformers>=2.3.1",
-    "chromadb>=0.4.22",
-    "pinecone-client>=3.0.0",
+    "pgvector>=0.2.5",
+    "torch>=2.1.0",
     # Web Scraping & API
     "httpx>=0.26.0",
     "scrapy>=2.11.0",
@@ -228,9 +229,10 @@ ignore_missing_imports = true
 module = [
     "celery.*",
     "anthropic.*",
+    "litellm.*",
     "langchain.*",
-    "chromadb.*",
-    "pinecone.*",
+    "pgvector.*",
+    "sentence_transformers.*",
     "scrapy.*",
     "playwright.*",
     "praw.*",

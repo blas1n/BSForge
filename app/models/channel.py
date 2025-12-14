@@ -5,7 +5,7 @@ This module defines the core models for managing YouTube channels and their AI p
 
 import enum
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import JSON, Enum, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import ARRAY
@@ -14,6 +14,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
+    from app.models.content_chunk import ContentChunk
+    from app.models.script import Script
     from app.models.source import Source
     from app.models.topic import Topic
 
@@ -67,10 +69,10 @@ class Channel(Base, UUIDMixin, TimestampMixin):
     )
 
     # Configuration (JSONB for flexibility)
-    topic_config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    source_config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    content_config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    operation_config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    topic_config: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    source_config: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    content_config: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    operation_config: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
 
     # Defaults
     default_hashtags: Mapped[list[str] | None] = mapped_column(ARRAY(String))
@@ -85,6 +87,12 @@ class Channel(Base, UUIDMixin, TimestampMixin):
     )
     sources: Mapped[list["Source"]] = relationship(
         "Source", secondary="channel_sources", back_populates="channels"
+    )
+    scripts: Mapped[list["Script"]] = relationship(
+        "Script", back_populates="channel", cascade="all, delete-orphan"
+    )
+    content_chunks: Mapped[list["ContentChunk"]] = relationship(
+        "ContentChunk", back_populates="channel", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:
@@ -141,12 +149,12 @@ class Persona(Base, UUIDMixin, TimestampMixin):
         Enum(TTSService), nullable=False, default=TTSService.EDGE_TTS
     )
     voice_id: Mapped[str | None] = mapped_column(String(100))
-    voice_settings: Mapped[dict | None] = mapped_column(JSON)
+    voice_settings: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
     # Personality (JSONB for flexibility)
-    communication_style: Mapped[dict | None] = mapped_column(JSON)
-    perspective: Mapped[dict | None] = mapped_column(JSON)
-    examples: Mapped[dict | None] = mapped_column(JSON)
+    communication_style: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    perspective: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    examples: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
     # Relationships
     channel: Mapped["Channel"] = relationship("Channel", back_populates="persona")

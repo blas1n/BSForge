@@ -13,11 +13,11 @@ import hashlib
 import re
 import uuid
 
-from anthropic import AsyncAnthropic
 from pydantic import BaseModel
 
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.infrastructure.llm import LLMClient, LLMConfig, get_llm_client
 from app.prompts.manager import PromptType, get_prompt_manager
 from app.services.collector.base import NormalizedTopic, RawTopic
 
@@ -36,13 +36,17 @@ class ClassificationResult(BaseModel):
 class TopicNormalizer:
     """Normalizes raw topics for storage and scoring.
 
-    Uses LLM (Claude Haiku) for translation and classification.
+    Uses LLM (Claude Haiku via LiteLLM) for translation and classification.
     Implements caching to reduce API costs.
     """
 
-    def __init__(self):
-        """Initialize normalizer with API clients."""
-        self.anthropic = AsyncAnthropic(api_key=settings.anthropic_api_key)
+    def __init__(self, llm_client: LLMClient | None = None):
+        """Initialize normalizer with API clients.
+
+        Args:
+            llm_client: LLMClient instance (default: singleton)
+        """
+        self.llm_client = llm_client or get_llm_client()
         self.supported_languages = {"en", "ko"}
         self.prompt_manager = get_prompt_manager()
 
@@ -146,9 +150,9 @@ class TopicNormalizer:
         return "en"
 
     async def _translate(self, text: str, source_lang: str, target_lang: str) -> str:
-        """Translate text using Claude Haiku.
+        """Translate text using LLM.
 
-        Uses Claude Haiku for cost-effective translation with good quality.
+        Uses lightweight LLM model for cost-effective translation with good quality.
 
         Args:
             text: Text to translate
@@ -171,13 +175,18 @@ class TopicNormalizer:
                 text=text,
             )
 
-            message = await self.anthropic.messages.create(
-                model=settings.translation_model,
-                max_tokens=settings.translation_max_tokens,
+            config = LLMConfig(
+                model=settings.llm_model_light,
+                max_tokens=settings.llm_model_light_max_tokens,
+                temperature=0.3,
+            )
+
+            response = await self.llm_client.complete(
+                config=config,
                 messages=[{"role": "user", "content": prompt}],
             )
 
-            translation = message.content[0].text.strip()
+            translation = response.content.strip()
             logger.debug(
                 "Translation complete",
                 source_lang=source_lang,
@@ -248,16 +257,21 @@ class TopicNormalizer:
                 text_to_analyze=text_to_analyze,
             )
 
-            message = await self.anthropic.messages.create(
-                model=settings.classification_model,
-                max_tokens=settings.classification_max_tokens,
+            config = LLMConfig(
+                model=settings.llm_model_light,
+                max_tokens=settings.llm_model_light_max_tokens,
+                temperature=0.0,
+            )
+
+            response = await self.llm_client.complete(
+                config=config,
                 messages=[{"role": "user", "content": prompt}],
             )
 
             # Parse JSON response
             import json
 
-            response_text = message.content[0].text.strip()
+            response_text = response.content.strip()
 
             # Extract JSON from response (handle markdown code blocks)
             if "```json" in response_text:

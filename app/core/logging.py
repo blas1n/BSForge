@@ -6,7 +6,7 @@ Logs are output in JSON format for easy parsing and analysis.
 
 import logging
 import sys
-from typing import Any
+from typing import Any, cast
 
 import structlog
 from structlog.types import EventDict, Processor
@@ -116,4 +116,4 @@ def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
         >>> logger.info("Processing started", task_id="123")
         >>> logger.error("Task failed", task_id="123", error="Connection timeout")
     """
-    return structlog.get_logger(name)
+    return cast(structlog.stdlib.BoundLogger, structlog.get_logger(name))

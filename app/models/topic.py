@@ -6,7 +6,7 @@ This module defines the Topic model for collected and scored topics.
 import enum
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     JSON,
@@ -26,6 +26,7 @@ from app.models.base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
     from app.models.channel import Channel
+    from app.models.script import Script
     from app.models.source import Source
 
 
@@ -93,7 +94,7 @@ class Topic(Base, UUIDMixin, TimestampMixin):
     # Classification
     categories: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
     keywords: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
-    entities: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    entities: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     language: Mapped[str] = mapped_column(String(10), nullable=False, default="en")
 
     # Scoring (0-1 for components, 0-100 for total)
@@ -123,6 +124,9 @@ class Topic(Base, UUIDMixin, TimestampMixin):
     # Relationships
     channel: Mapped["Channel"] = relationship("Channel", back_populates="topics")
     source: Mapped["Source"] = relationship("Source", back_populates="topics")
+    scripts: Mapped[list["Script"]] = relationship(
+        "Script", back_populates="topic", cascade="all, delete-orphan"
+    )
 
     # Composite Indexes
     __table_args__ = (
