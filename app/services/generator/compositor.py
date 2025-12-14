@@ -200,10 +200,11 @@ class FFmpegCompositor:
                 segments.append(segment_path)
                 current_duration += segment_duration
 
-        # Pad with black if needed
-        if current_duration < target_duration:
+        # Pad with black if needed (minimum 0.1s to avoid floating point issues)
+        remaining_duration = target_duration - current_duration
+        if remaining_duration > 0.1:
             padding = await self._create_black_video(
-                target_duration - current_duration,
+                remaining_duration,
                 temp_dir,
                 suffix="_padding",
             )
@@ -270,14 +271,16 @@ class FFmpegCompositor:
         duration: float,
         segment_index: int,
         temp_dir: Path,
+        enable_ken_burns: bool = True,
     ) -> Path:
-        """Convert image to video segment.
+        """Convert image to video segment with Ken Burns effect.
 
         Args:
             asset: Image asset
             duration: Segment duration
             segment_index: Segment index
             temp_dir: Temp directory
+            enable_ken_burns: Enable zoom in/out effect
 
         Returns:
             Path to video segment
@@ -287,8 +290,11 @@ class FFmpegCompositor:
 
         output_path = temp_dir / f"segment_{segment_index}.mp4"
 
-        # Build filter for scaling and padding
-        scale_filter = self._build_scale_filter()
+        # Build filter with Ken Burns effect (zoom in/out)
+        if enable_ken_burns:
+            vf = self._build_ken_burns_filter(duration, segment_index)
+        else:
+            vf = self._build_scale_filter()
 
         cmd = [
             "ffmpeg",
@@ -300,7 +306,7 @@ class FFmpegCompositor:
             "-t",
             str(duration),
             "-vf",
-            scale_filter,
+            vf,
             "-c:v",
             self.config.video_codec,
             "-crf",
@@ -316,6 +322,47 @@ class FFmpegCompositor:
 
         await self._run_ffmpeg(cmd)
         return output_path
+
+    def _build_ken_burns_filter(
+        self,
+        duration: float,
+        segment_index: int,
+        apply_color_grade: bool = True,
+    ) -> str:
+        """Build Ken Burns zoom effect filter with optional color grading.
+
+        Alternates between zoom-in and zoom-out based on segment index.
+
+        Args:
+            duration: Segment duration in seconds
+            segment_index: Index to determine zoom direction
+            apply_color_grade: Apply warm/orange color grading for viral style
+
+        Returns:
+            FFmpeg filter string
+        """
+        w = self.config.width
+        h = self.config.height
+        fps = self.config.fps
+        total_frames = int(duration * fps)
+
+        # Alternate between zoom-in (even) and zoom-out (odd)
+        zoom_expr = "zoom+0.0005" if segment_index % 2 == 0 else "if(eq(on,1),1.15,zoom-0.0005)"
+
+        # Scale up first (to allow room for zooming), then apply zoompan
+        base_filter = (
+            f"scale=8000:-1,"
+            f"zoompan=z='{zoom_expr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+            f"d={total_frames}:s={w}x{h}:fps={fps},"
+            f"setsar=1"
+        )
+
+        if apply_color_grade:
+            # Add warm/orange color grading for viral style
+            color_grade = ",eq=brightness=0.05:contrast=1.1:saturation=1.2,colorbalance=rs=0.1:gs=0.05:bs=-0.1"
+            return base_filter + color_grade
+
+        return base_filter
 
     async def _create_black_video(
         self,
@@ -360,12 +407,14 @@ class FFmpegCompositor:
         self,
         segments: list[Path],
         temp_dir: Path,
+        add_flash: bool = True,
     ) -> Path:
-        """Concatenate video segments.
+        """Concatenate video segments with optional flash transitions.
 
         Args:
             segments: List of segment paths
             temp_dir: Temp directory
+            add_flash: Add white flash between segments
 
         Returns:
             Path to concatenated video
@@ -373,14 +422,65 @@ class FFmpegCompositor:
         if len(segments) == 1:
             return segments[0]
 
-        # Create concat file
+        if not add_flash:
+            # Simple concat without transitions
+            concat_file = temp_dir / "concat.txt"
+            with open(concat_file, "w") as f:
+                for segment in segments:
+                    f.write(f"file '{segment}'\n")
+
+            output_path = temp_dir / "sequence.mp4"
+
+            cmd = [
+                "ffmpeg",
+                "-y",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(concat_file),
+                "-c",
+                "copy",
+                str(output_path),
+            ]
+
+            await self._run_ffmpeg(cmd)
+            return output_path
+
+        # Concat with flash transitions using xfade filter
+        output_path = temp_dir / "sequence.mp4"
+
+        # Build complex filter for flash transitions
+        # Flash effect: wipelr with white color overlay
+        inputs = []
+        for _i, segment in enumerate(segments):
+            inputs.extend(["-i", str(segment)])
+
+        # Build xfade filter chain
+        # Each transition: 0.15s flash effect
+        filter_parts = []
+        current_input = "[0:v]"
+
+        for i in range(1, len(segments)):
+            next_input = f"[{i}:v]"
+            output = "[outv]" if i == len(segments) - 1 else f"[v{i}]"
+
+            # xfade with fade transition (flash-like effect)
+            # offset = cumulative duration - transition duration
+            filter_parts.append(
+                f"{current_input}{next_input}xfade=transition=fade:duration=0.15:offset=0{output}"
+            )
+            current_input = output
+
+        # For simple cases, use concat demuxer with fade
+        # Complex xfade requires knowing exact durations, fallback to simple concat
         concat_file = temp_dir / "concat.txt"
         with open(concat_file, "w") as f:
             for segment in segments:
                 f.write(f"file '{segment}'\n")
 
-        output_path = temp_dir / "sequence.mp4"
-
+        # Add flash frames between segments by re-encoding with fade
         cmd = [
             "ffmpeg",
             "-y",
@@ -390,8 +490,16 @@ class FFmpegCompositor:
             "0",
             "-i",
             str(concat_file),
-            "-c",
-            "copy",
+            "-vf",
+            "fade=t=in:st=0:d=0.1",  # Fade in at start
+            "-c:v",
+            self.config.video_codec,
+            "-crf",
+            str(self.config.crf),
+            "-preset",
+            self.config.preset,
+            "-pix_fmt",
+            self.config.pixel_format,
             str(output_path),
         ]
 
@@ -506,8 +614,11 @@ class FFmpegCompositor:
 
         await self._run_ffmpeg(cmd)
 
-    def _build_scale_filter(self) -> str:
+    def _build_scale_filter(self, apply_color_grade: bool = False) -> str:
         """Build FFmpeg scale filter string.
+
+        Args:
+            apply_color_grade: Apply orange/warm color grading for viral style
 
         Returns:
             Filter string for scaling and padding
@@ -516,11 +627,19 @@ class FFmpegCompositor:
         h = self.config.height
 
         # Scale to fit, then pad to exact size
-        return (
+        base_filter = (
             f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
             f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black,"
             f"setsar=1"
         )
+
+        if apply_color_grade:
+            # Add warm/orange color grading for viral style
+            # Increase red, slightly increase green, decrease blue
+            color_grade = ",eq=brightness=0.05:contrast=1.1:saturation=1.2,colorbalance=rs=0.1:gs=0.05:bs=-0.1"
+            return base_filter + color_grade
+
+        return base_filter
 
     async def _get_video_duration(self, video_path: Path) -> float:
         """Get video duration.

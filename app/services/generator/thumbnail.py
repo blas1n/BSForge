@@ -280,7 +280,7 @@ class ThumbnailGenerator:
         font_name: str,
         size: int,
     ) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-        """Get or load font.
+        """Get or load font with Korean support.
 
         Args:
             font_name: Font name
@@ -289,9 +289,35 @@ class ThumbnailGenerator:
         Returns:
             PIL Font
         """
+        import os
+
         cache_key = f"{font_name}_{size}"
         if cache_key in self._font_cache:
             return self._font_cache[cache_key]
+
+        # Priority order for Korean-supporting fonts
+        korean_font_paths = [
+            # User-installed Noto Sans CJK (Korean)
+            os.path.expanduser("~/.local/share/fonts/NotoSansKR-Bold.ttf"),
+            os.path.expanduser("~/.local/share/fonts/NotoSansKR-Regular.ttf"),
+            # System Noto Sans CJK
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+            # Nanum fonts (common Korean fonts)
+            "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
+            "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+        ]
+
+        # Try Korean fonts first
+        for path in korean_font_paths:
+            try:
+                font = ImageFont.truetype(path, size)
+                self._font_cache[cache_key] = font
+                logger.info(f"Using Korean font: {path}")
+                return font
+            except OSError:
+                continue
 
         # Try to load the specified font
         font_paths = [
@@ -329,7 +355,7 @@ class ThumbnailGenerator:
 
         # Ultimate fallback: default font
         # In modern Pillow (10+), load_default() returns FreeTypeFont
-        logger.warning("Using default PIL font")
+        logger.warning("Using default PIL font (Korean may not render correctly)")
         default_font = ImageFont.load_default()
         # Cache the default font as well for consistency
         self._font_cache[cache_key] = default_font

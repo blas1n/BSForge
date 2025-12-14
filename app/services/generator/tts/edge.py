@@ -97,6 +97,7 @@ class EdgeTTSEngine(BaseTTSEngine):
 
         # Collect audio and timestamps
         word_timestamps: list[WordTimestamp] = []
+        sentence_timestamps: list[tuple[str, float, float]] = []
 
         with open(audio_path, "wb") as f:
             async for message in communicate.stream():
@@ -120,6 +121,22 @@ class EdgeTTSEngine(BaseTTSEngine):
                                 end=end,
                             )
                         )
+                elif message["type"] == "SentenceBoundary":
+                    # Fallback: use sentence boundaries if word boundaries not available
+                    sentence = message.get("text", "")
+                    offset_ns = message.get("offset", 0)
+                    duration_ns = message.get("duration", 0)
+
+                    start = offset_ns / 10_000_000
+                    end = start + (duration_ns / 10_000_000)
+
+                    if sentence.strip():
+                        sentence_timestamps.append((sentence.strip(), start, end))
+
+        # If no word timestamps, create them from sentence timestamps
+        if not word_timestamps and sentence_timestamps:
+            logger.info("Using SentenceBoundary for timestamps (WordBoundary not available)")
+            word_timestamps = self._sentences_to_word_timestamps(sentence_timestamps)
 
         # Get actual audio duration
         duration = await self.get_audio_duration(audio_path)
@@ -237,6 +254,43 @@ class EdgeTTSEngine(BaseTTSEngine):
         if volume >= 0:
             return f"+{volume}%"
         return f"{volume}%"
+
+    def _sentences_to_word_timestamps(
+        self,
+        sentence_timestamps: list[tuple[str, float, float]],
+    ) -> list[WordTimestamp]:
+        """Convert sentence timestamps to word-level timestamps.
+
+        Distributes sentence timing evenly across words.
+
+        Args:
+            sentence_timestamps: List of (sentence, start, end) tuples
+
+        Returns:
+            List of word timestamps
+        """
+        word_timestamps: list[WordTimestamp] = []
+
+        for sentence, start, end in sentence_timestamps:
+            words = sentence.split()
+            if not words:
+                continue
+
+            sentence_duration = end - start
+            word_duration = sentence_duration / len(words)
+
+            current_time = start
+            for word in words:
+                word_timestamps.append(
+                    WordTimestamp(
+                        word=word,
+                        start=current_time,
+                        end=current_time + word_duration,
+                    )
+                )
+                current_time += word_duration
+
+        return word_timestamps
 
 
 __all__ = ["EdgeTTSEngine"]
