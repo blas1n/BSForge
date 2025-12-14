@@ -285,15 +285,49 @@ This project follows **open source code, private data** principles.
 # Run all tests
 make test
 
-# Or directly with pytest
-pytest
+# Or directly with pytest (using uv in DevContainer)
+/home/vscode/.local/bin/uv run pytest
+
+# Unit tests only
+/home/vscode/.local/bin/uv run pytest tests/unit/
+
+# E2E tests only
+/home/vscode/.local/bin/uv run pytest tests/e2e/
 
 # Run with coverage
-pytest --cov=app --cov-report=html
+/home/vscode/.local/bin/uv run pytest --cov=app --cov-report=html
 
-# Run specific module
-pytest tests/services/test_collector.py
+# Verbose output
+/home/vscode/.local/bin/uv run pytest -v
 ```
+
+### E2E Test Structure
+
+```
+tests/e2e/
+├── conftest.py              # Shared fixtures & DTO factories
+├── test_video_generation.py # Video pipeline tests (TTS, subtitles, FFmpeg)
+├── test_content_collection.py # Topic collection tests (normalize, filter, score)
+└── test_full_pipeline.py    # End-to-end pipeline tests
+```
+
+| File | Description | Key Tests |
+|------|-------------|-----------|
+| `test_video_generation.py` | Video pipeline | TTS (Edge TTS), subtitles (ASS/SRT), visual fallback, thumbnail, FFmpeg composition |
+| `test_content_collection.py` | Topic collection | Normalization, deduplication, filtering, scoring, full pipeline |
+| `test_full_pipeline.py` | End-to-end | Persona-based script generation, topic-to-video pipeline |
+
+**Shared Fixtures** (`conftest.py`):
+- `temp_output_dir`: Temporary directory for test outputs (auto-cleanup)
+- `skip_without_ffmpeg`: Skip tests requiring FFmpeg
+- `create_raw_topic()`: Factory for RawTopic DTOs
+- `create_normalized_topic()`: Factory for NormalizedTopic DTOs
+- `create_scored_topic()`: Factory for ScoredTopic DTOs
+
+**Prerequisites**:
+- FFmpeg must be installed for video composition tests
+- DevContainer includes FFmpeg by default
+- Tests use mocked LLM/external services (no API keys needed)
 
 **Testing Philosophy**:
 - ✅ Minimum 80% coverage (90%+ for core logic)

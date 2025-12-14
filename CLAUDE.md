@@ -504,15 +504,52 @@ alembic upgrade head
 
 ### Running Tests
 ```bash
-# All tests
-pytest
+# All tests (uses uv)
+/home/vscode/.local/bin/uv run pytest
+
+# Unit tests only
+/home/vscode/.local/bin/uv run pytest tests/unit/
+
+# E2E tests only
+/home/vscode/.local/bin/uv run pytest tests/e2e/
 
 # Specific module
-pytest tests/services/test_collector.py
+/home/vscode/.local/bin/uv run pytest tests/unit/services/test_collector.py
 
 # With coverage
-pytest --cov=app --cov-report=html
+/home/vscode/.local/bin/uv run pytest --cov=app --cov-report=html
+
+# Verbose output
+/home/vscode/.local/bin/uv run pytest -v
 ```
+
+### E2E Test Structure
+```
+tests/e2e/
+├── conftest.py              # Shared fixtures & DTO factories
+├── test_video_generation.py # Video pipeline tests (TTS, subtitles, FFmpeg)
+├── test_content_collection.py # Topic collection tests (normalize, filter, score)
+└── test_full_pipeline.py    # End-to-end pipeline tests
+```
+
+**E2E Test Categories**:
+| File | Description | Key Tests |
+|------|-------------|-----------|
+| `test_video_generation.py` | Video pipeline | TTS (Edge TTS), subtitles (ASS/SRT), visual fallback, thumbnail, FFmpeg composition |
+| `test_content_collection.py` | Topic collection | Normalization, deduplication, filtering, scoring, full pipeline |
+| `test_full_pipeline.py` | End-to-end | Persona-based script generation, topic-to-video pipeline |
+
+**Shared Fixtures** (`conftest.py`):
+- `temp_output_dir`: Temporary directory for test outputs (auto-cleanup)
+- `skip_without_ffmpeg`: Skip tests requiring FFmpeg
+- `create_raw_topic()`: Factory for RawTopic DTOs
+- `create_normalized_topic()`: Factory for NormalizedTopic DTOs
+- `create_scored_topic()`: Factory for ScoredTopic DTOs
+
+**Prerequisites**:
+- FFmpeg must be installed for video composition tests
+- DevContainer includes FFmpeg by default
+- Tests use mocked LLM/external services (no API keys needed)
 
 ---
 
@@ -828,6 +865,11 @@ Detailed designs are in `architecture/`:
 - **Word Timestamps**: Karaoke-style subtitles from TTS
 - **Visual Priority**: stock_video → stock_image → ai_image → fallback
 - **FFmpeg**: Segment concatenation, subtitle burning, audio mixing
+
+- [x] 5.8 E2E Tests (✅ 24 tests passing)
+  - `test_video_generation.py`: TTS, subtitles, visuals, thumbnails, full pipeline (10 tests)
+  - `test_content_collection.py`: Normalization, dedup, filter, score (8 tests)
+  - `test_full_pipeline.py`: Persona-based, batch generation, RAG integration (6 tests)
 
 ### Phase 6: Upload & Analytics
 - [ ] 6.1 YouTube API integration

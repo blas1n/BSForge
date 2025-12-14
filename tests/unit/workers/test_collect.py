@@ -341,6 +341,9 @@ class TestCollectGlobalSourcesAsync:
         mock_redis = AsyncMock()
         mock_redis.pipeline.return_value = AsyncMock()
         mock_redis.pipeline.return_value.execute = AsyncMock()
+        # Support async context manager
+        mock_redis.__aenter__.return_value = mock_redis
+        mock_redis.__aexit__.return_value = None
 
         with (
             patch("app.workers.collect._collect_source_topics", return_value=sample_topics),
@@ -360,6 +363,9 @@ class TestCollectGlobalSourcesAsync:
 
         mock_redis = AsyncMock()
         mock_redis.aclose = AsyncMock()
+        # Support async context manager
+        mock_redis.__aenter__.return_value = mock_redis
+        mock_redis.__aexit__.return_value = None
 
         with (
             patch(
@@ -386,6 +392,9 @@ class TestCollectChannelTopicsAsync:
         mock_redis = AsyncMock()
         mock_redis.lrange.return_value = [t.model_dump_json().encode() for t in sample_topics]
         mock_redis.get.return_value = None
+        # Support async context manager
+        mock_redis.__aenter__.return_value = mock_redis
+        mock_redis.__aexit__.return_value = None
 
         with (
             patch("app.workers.collect.AsyncRedis.from_url", return_value=mock_redis),
@@ -442,6 +451,9 @@ class TestCollectChannelTopicsAsync:
         mock_redis.lrange.return_value = [t.model_dump_json().encode() for t in topics_with_titles]
         mock_redis.get.return_value = None
         mock_redis.aclose = AsyncMock()
+        # Support async context manager
+        mock_redis.__aenter__.return_value = mock_redis
+        mock_redis.__aexit__.return_value = None
 
         with (patch("app.workers.collect.AsyncRedis.from_url", return_value=mock_redis),):
             result = await _collect_channel_topics_async(
