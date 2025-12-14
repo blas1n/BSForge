@@ -29,6 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     npm \
     postgresql-client \
     locales \
+    ffmpeg \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Generate locale

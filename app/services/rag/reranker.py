@@ -267,8 +267,9 @@ class RAGReranker:
         # Compute similarities
         similarities = dot_products / (vec_norm * matrix_norms + 1e-8)
 
-        # Return as float64 array (numpy type inference limitation)
-        return similarities.astype(np.float64)  # type: ignore[no-any-return]
+        # Return as float64 array
+        result: np.ndarray = np.asarray(similarities, dtype=np.float64)
+        return result
 
 
 __all__ = ["RAGReranker"]

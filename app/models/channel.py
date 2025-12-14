@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from app.models.script import Script
     from app.models.source import Source
     from app.models.topic import Topic
+    from app.models.video import Video
 
 
 class ChannelStatus(str, enum.Enum):
@@ -93,6 +94,9 @@ class Channel(Base, UUIDMixin, TimestampMixin):
     )
     content_chunks: Mapped[list["ContentChunk"]] = relationship(
         "ContentChunk", back_populates="channel", cascade="all, delete-orphan"
+    )
+    videos: Mapped[list["Video"]] = relationship(
+        "Video", back_populates="channel", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:

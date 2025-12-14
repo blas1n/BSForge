@@ -16,6 +16,7 @@ from app.models.content_chunk import ChunkPosition, ContentChunk, ContentType
 from app.models.script import Script, ScriptStatus
 from app.models.source import Source, SourceRegion, SourceType, channel_sources
 from app.models.topic import Topic, TopicStatus
+from app.models.video import Video, VideoStatus
 
 __all__ = [
     "Base",
@@ -38,4 +39,7 @@ __all__ = [
     "ContentChunk",
     "ChunkPosition",
     "ContentType",
+    # Phase 5 Models
+    "Video",
+    "VideoStatus",
 ]

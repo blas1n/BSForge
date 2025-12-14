@@ -388,8 +388,9 @@ class ScriptChunker:
 # Mako template returns Any
 return str(rendered).strip()
 
-# numpy array type inference
-return similarities.astype(np.float64)  # type: ignore[no-any-return]
+# numpy array type inference - use explicit type annotation
+result: np.ndarray = np.asarray(similarities, dtype=np.float64)
+return result
 ```
 
 ### Ruff Rules
@@ -441,8 +442,13 @@ Models are created alongside the features that use them:
   - position: HOOK, BODY, CONCLUSION
   - HNSW 인덱스: `CREATE INDEX USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64)`
 
-**Phase 5: Video Generation**
+**Phase 5: Video Generation** ✅ COMPLETED
 - `videos` - Generated videos
+  - FK: script_id, channel_id
+  - Paths: video_path, thumbnail_path, audio_path, subtitle_path
+  - Metadata: duration_seconds, file_size_bytes, resolution, fps
+  - Generation: tts_service, tts_voice_id, visual_sources (JSONB)
+  - status: GENERATING, GENERATED, REVIEWED, APPROVED, REJECTED, UPLOADED, FAILED, ARCHIVED
 
 **Phase 6: Upload & Analytics**
 - `uploads` - YouTube uploads
@@ -647,6 +653,48 @@ The DevContainer automatically:
 
 ---
 
+## Claude Code: DevContainer 환경 주의사항
+
+### uv 사용 필수
+
+DevContainer 환경에서는 `pip` 대신 반드시 `uv`를 사용해야 합니다.
+
+**경로 설정**: uv는 `/home/vscode/.local/bin/uv`에 설치되어 있습니다.
+
+```bash
+# ❌ WRONG - pip 직접 사용 금지
+pip install package
+python -m pip install package
+
+# ✅ CORRECT - uv 사용
+/home/vscode/.local/bin/uv pip install package
+/home/vscode/.local/bin/uv run ruff check app/
+/home/vscode/.local/bin/uv run mypy app/
+/home/vscode/.local/bin/uv run pytest
+```
+
+### 코드 품질 검증 명령어
+
+```bash
+# Linting (ruff)
+/home/vscode/.local/bin/uv run ruff check app/
+/home/vscode/.local/bin/uv run ruff check app/ --fix  # auto-fix
+
+# Type checking (mypy)
+/home/vscode/.local/bin/uv run mypy app/ --ignore-missing-imports
+
+# Tests
+/home/vscode/.local/bin/uv run pytest tests/
+/home/vscode/.local/bin/uv run pytest tests/ -v  # verbose
+/home/vscode/.local/bin/uv run pytest tests/ --cov=app  # with coverage
+```
+
+### 중요: type: ignore / noqa 사용 금지
+
+코드 품질 이슈를 `# type: ignore`나 `# noqa`로 무시하지 말고, 근본적인 문제를 해결해야 합니다.
+
+---
+
 ## Useful Commands
 
 ```bash
@@ -664,10 +712,10 @@ make migrate msg="Add new feature"  # Create migration
 make upgrade                        # Apply migrations
 
 # Direct commands (if not using Makefile)
-uv pip install -e ".[dev]"                    # Install deps
-uvicorn app.main:app --reload                 # Dev server
-celery -A app.workers.celery_app worker -l info  # Worker
-pytest                                        # Tests
+/home/vscode/.local/bin/uv pip install -e ".[dev]"    # Install deps
+/home/vscode/.local/bin/uv run uvicorn app.main:app --reload  # Dev server
+/home/vscode/.local/bin/uv run celery -A app.workers.celery_app worker -l info  # Worker
+/home/vscode/.local/bin/uv run pytest                 # Tests
 ```
 
 ---
@@ -687,7 +735,7 @@ Detailed designs are in `architecture/`:
 
 ## Current Status & TODO
 
-**Current Phase**: Phase 4 (RAG System) - Completed ✅
+**Current Phase**: Phase 5 (Video Generation) - Completed ✅
 
 ### Phase 1-2: Foundation (Completed)
 - [x] Project scaffolding (FastAPI + SQLAlchemy)
@@ -747,11 +795,39 @@ Detailed designs are in `architecture/`:
 - **Quality Gates**: style_score ≥ 0.7, hook_score ≥ 0.5, max 2 forbidden words
 - **Multi-language Support**: Pattern configs support Korean, English, easily extensible
 
-### Phase 5: Video Generation
-- [ ] 5.1 TTS engine (Edge TTS / ElevenLabs)
-- [ ] 5.2 Subtitle generator
-- [ ] 5.3 Visual selector (stock video/image)
-- [ ] 5.4 Video compositor (FFmpeg)
+### Phase 5: Video Generation (Completed ✅)
+- [x] 5.1 TTS engine (Edge TTS / ElevenLabs)
+  - `BaseTTSEngine` ABC with `WordTimestamp`, `TTSResult`, `VoiceInfo`
+  - `EdgeTTSEngine` - free, word-level timestamps via WordBoundary
+  - `ElevenLabsEngine` - premium, Whisper-based timestamps
+  - `TTSEngineFactory` - singleton caching, provider selection
+- [x] 5.2 Subtitle generator
+  - `SubtitleGenerator` with ASS/SRT export
+  - Word-level karaoke effects from TTS timestamps
+  - Configurable styling (font, colors, position)
+- [x] 5.3 Visual selector (stock video/image)
+  - `PexelsClient` - stock video/image search & download
+  - `AIImageGenerator` - DALL-E 3 image generation
+  - `FallbackGenerator` - solid color/gradient backgrounds
+  - `VisualSourcingManager` - priority-based sourcing orchestrator
+- [x] 5.4 Video compositor (FFmpeg)
+  - `FFmpegCompositor` - video sequence, audio mixing, subtitle burning
+  - 1080x1920 (9:16 Shorts), H.264, 30fps, AAC audio
+- [x] 5.5 Thumbnail generator
+  - `ThumbnailGenerator` - PIL-based, 1280x720
+  - Text overlay with stroke, auto-wrap
+- [x] 5.6 Video pipeline orchestrator
+  - `VideoGenerationPipeline` - complete workflow
+  - Script → TTS → Subtitles → Visuals → FFmpeg → Thumbnail → DB
+- [x] 5.7 Database & DI
+  - `Video` model with `VideoStatus` enum
+  - DI container integration (configs + services)
+
+**Key Features**:
+- **TTS**: Edge TTS (free, Korean/English) + ElevenLabs (premium)
+- **Word Timestamps**: Karaoke-style subtitles from TTS
+- **Visual Priority**: stock_video → stock_image → ai_image → fallback
+- **FFmpeg**: Segment concatenation, subtitle burning, audio mixing
 
 ### Phase 6: Upload & Analytics
 - [ ] 6.1 YouTube API integration

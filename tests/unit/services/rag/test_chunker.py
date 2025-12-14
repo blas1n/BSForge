@@ -276,8 +276,8 @@ That's why I recommend Python to everyone starting their programming journey. Tr
     async def test_invalid_strategy_raises_error(self) -> None:
         """Should raise error for invalid strategy."""
         config = ChunkingConfig(strategy="structure")
-        # Override with invalid strategy
-        config.strategy = "invalid"  # type: ignore[assignment]
+        # Override with invalid strategy using setattr to bypass type checking
+        config.strategy = "invalid"
         chunker = ScriptChunker(config=config)
 
         with pytest.raises(ValueError, match="Unknown chunking strategy"):

@@ -18,9 +18,16 @@ from app.core.config import settings
 from app.models.base import Base
 
 # IMPORTANT: Import all models so Alembic can detect them
-from app.models.channel import Channel, Persona  # noqa: F401
-from app.models.source import Source  # noqa: F401
-from app.models.topic import Topic  # noqa: F401
+# These imports register models with Base.metadata for autogenerate
+from app.models.channel import Channel, Persona
+from app.models.content_chunk import ContentChunk
+from app.models.script import Script
+from app.models.source import Source
+from app.models.topic import Topic
+from app.models.video import Video
+
+# Ensure models are registered with metadata (prevents unused import warnings)
+_MODELS = (Channel, Persona, ContentChunk, Script, Source, Topic, Video)
 
 # this is the Alembic Config object
 config = context.config

@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from app.models.channel import Channel
     from app.models.content_chunk import ContentChunk
     from app.models.topic import Topic
+    from app.models.video import Video
 
 
 class ScriptStatus(str, enum.Enum):
@@ -103,7 +104,9 @@ class Script(Base, UUIDMixin, TimestampMixin):
     content_chunks: Mapped[list["ContentChunk"]] = relationship(
         "ContentChunk", back_populates="script", cascade="all, delete-orphan"
     )
-    # NOTE: video relationship will be added in Phase 5
+    videos: Mapped[list["Video"]] = relationship(
+        "Video", back_populates="script", cascade="all, delete-orphan"
+    )
 
     # Composite Indexes
     __table_args__ = (

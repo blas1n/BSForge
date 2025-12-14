@@ -200,6 +200,34 @@ class ConfigContainer(containers.DeclarativeContainer):
         "app.config.rag.GenerationConfig",
     )
 
+    # ============================================
+    # Video Generation configs
+    # ============================================
+
+    video_generation_config = providers.Singleton(
+        "app.config.video.VideoGenerationConfig",
+    )
+
+    tts_config = providers.Singleton(
+        "app.config.video.TTSConfig",
+    )
+
+    subtitle_config = providers.Singleton(
+        "app.config.video.SubtitleConfig",
+    )
+
+    visual_config = providers.Singleton(
+        "app.config.video.VisualConfig",
+    )
+
+    composition_config = providers.Singleton(
+        "app.config.video.CompositionConfig",
+    )
+
+    thumbnail_config = providers.Singleton(
+        "app.config.video.ThumbnailConfig",
+    )
+
 
 class ServiceContainer(containers.DeclarativeContainer):
     """Service layer dependencies.
@@ -306,6 +334,80 @@ class ServiceContainer(containers.DeclarativeContainer):
         quality_config=configs.quality_check_config,
     )
 
+    # ============================================
+    # Video Generation Services
+    # ============================================
+
+    # TTS Services
+    edge_tts_engine = providers.Singleton(
+        "app.services.generator.tts.edge.EdgeTTSEngine",
+    )
+
+    elevenlabs_engine = providers.Singleton(
+        "app.services.generator.tts.elevenlabs.ElevenLabsEngine",
+        api_key=config.elevenlabs_api_key,
+    )
+
+    tts_factory = providers.Factory(
+        "app.services.generator.tts.factory.TTSEngineFactory",
+        edge_engine=edge_tts_engine,
+        elevenlabs_engine=elevenlabs_engine,
+    )
+
+    # Visual Sourcing Services
+    pexels_client = providers.Singleton(
+        "app.services.generator.visual.pexels.PexelsClient",
+        api_key=config.pexels_api_key,
+    )
+
+    ai_image_generator = providers.Singleton(
+        "app.services.generator.visual.ai_image.AIImageGenerator",
+        api_key=config.openai_api_key,
+        config=configs.visual_config,
+    )
+
+    fallback_generator = providers.Factory(
+        "app.services.generator.visual.fallback.FallbackGenerator",
+    )
+
+    visual_manager = providers.Factory(
+        "app.services.generator.visual.manager.VisualSourcingManager",
+        config=configs.visual_config,
+        pexels_client=pexels_client,
+        ai_generator=ai_image_generator,
+        fallback_generator=fallback_generator,
+    )
+
+    # Subtitle Generator
+    subtitle_generator = providers.Factory(
+        "app.services.generator.subtitle.SubtitleGenerator",
+        config=configs.subtitle_config,
+    )
+
+    # FFmpeg Compositor
+    ffmpeg_compositor = providers.Factory(
+        "app.services.generator.compositor.FFmpegCompositor",
+        config=configs.composition_config,
+    )
+
+    # Thumbnail Generator
+    thumbnail_generator = providers.Factory(
+        "app.services.generator.thumbnail.ThumbnailGenerator",
+        config=configs.thumbnail_config,
+    )
+
+    # Video Pipeline (Orchestrator)
+    video_pipeline = providers.Factory(
+        "app.services.generator.pipeline.VideoGenerationPipeline",
+        tts_factory=tts_factory,
+        visual_manager=visual_manager,
+        subtitle_generator=subtitle_generator,
+        compositor=ffmpeg_compositor,
+        thumbnail_generator=thumbnail_generator,
+        db_session_factory=infrastructure.db_session_factory,
+        config=configs.video_generation_config,
+    )
+
 
 class ApplicationContainer(containers.DeclarativeContainer):
     """Root application container.
@@ -409,6 +511,37 @@ class ApplicationContainer(containers.DeclarativeContainer):
         svc=services.script_generator,
     )
 
+    # Video Generation Services
+    tts_factory = providers.Factory(
+        lambda svc: svc,
+        svc=services.tts_factory,
+    )
+
+    visual_manager = providers.Factory(
+        lambda svc: svc,
+        svc=services.visual_manager,
+    )
+
+    subtitle_generator = providers.Factory(
+        lambda svc: svc,
+        svc=services.subtitle_generator,
+    )
+
+    compositor = providers.Factory(
+        lambda svc: svc,
+        svc=services.ffmpeg_compositor,
+    )
+
+    thumbnail_generator = providers.Factory(
+        lambda svc: svc,
+        svc=services.thumbnail_generator,
+    )
+
+    video_pipeline = providers.Factory(
+        lambda svc: svc,
+        svc=services.video_pipeline,
+    )
+
 
 def create_container() -> ApplicationContainer:
     """Create and configure the application container.
@@ -425,6 +558,10 @@ def create_container() -> ApplicationContainer:
             "database_url": str(settings.database_url),
             "debug": settings.debug,
             "anthropic_api_key": settings.anthropic_api_key,
+            # Video generation API keys
+            "elevenlabs_api_key": settings.elevenlabs_api_key,
+            "pexels_api_key": settings.pexels_api_key,
+            "openai_api_key": settings.openai_api_key,
         }
     )
 
