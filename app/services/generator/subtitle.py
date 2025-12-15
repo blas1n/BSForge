@@ -2,16 +2,22 @@
 
 This module provides subtitle generation from text and timing information,
 with support for ASS (Advanced SubStation Alpha) and SRT formats.
+
+Supports template-based styling via VideoTemplateConfig for consistent
+visual styles across different video types (e.g., Korean viral, minimal).
 """
 
 import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from app.config.video import SubtitleConfig, SubtitleStyleConfig
 from app.services.generator.tts.base import WordTimestamp
+
+if TYPE_CHECKING:
+    from app.config.video_template import VideoTemplateConfig
 
 logger = logging.getLogger(__name__)
 
@@ -75,16 +81,16 @@ class SubtitleGenerator:
     def generate_from_timestamps(
         self,
         word_timestamps: list[WordTimestamp],
-        viral_style: bool = True,
+        template: "VideoTemplateConfig | None" = None,
     ) -> SubtitleFile:
         """Generate subtitles from word-level timestamps.
 
-        Groups words into segments. In viral_style mode, creates shorter
-        segments (2-4 words) for better readability on mobile.
+        Groups words into segments based on template settings or defaults.
+        Shorter segments improve readability on mobile devices.
 
         Args:
             word_timestamps: List of word timestamps
-            viral_style: Use shorter segments for viral/양산형 style
+            template: Video template config for styling (optional)
 
         Returns:
             SubtitleFile with segments
@@ -98,9 +104,14 @@ class SubtitleGenerator:
         current_text = ""
         segment_index = 1
 
-        # 양산형 스타일: 2-4 단어씩 짧게 끊어서 표시
-        max_words_per_segment = 4 if viral_style else 10
-        max_chars = 15 if viral_style else self.config.max_chars_per_line
+        # Get max_chars from template or config
+        if template and template.subtitle:
+            max_chars = template.subtitle.max_chars_per_line
+            # Shorter segments for karaoke-enabled templates
+            max_words_per_segment = 4 if template.subtitle.karaoke_enabled else 10
+        else:
+            max_chars = self.config.max_chars_per_line
+            max_words_per_segment = 10
 
         for word_ts in word_timestamps:
             word = word_ts.word.strip()
@@ -219,7 +230,7 @@ class SubtitleGenerator:
         self,
         subtitle: SubtitleFile,
         output_path: Path,
-        viral_style: bool = True,
+        template: "VideoTemplateConfig | None" = None,
     ) -> Path:
         """Export subtitles to ASS format.
 
@@ -232,7 +243,7 @@ class SubtitleGenerator:
         Args:
             subtitle: Subtitle data
             output_path: Output file path
-            viral_style: Use viral/양산형 style (center, large, bold)
+            template: Video template config for styling (optional)
 
         Returns:
             Path to generated ASS file
@@ -242,19 +253,53 @@ class SubtitleGenerator:
 
         style = subtitle.style
 
-        if viral_style:
-            # 양산형 쇼츠 스타일: 큰 글씨, 하단 1/3, 굵은 아웃라인
-            font_size = 72  # 큰 글씨
-            outline_width = 4  # 굵은 아웃라인
-            alignment = 2  # 하단 중앙 (numpad 2)
-            margin_v = 480  # 하단 1/3 (1920 * 0.25 = 480px from bottom)
-            primary_color = "&H00FFFFFF"  # 흰색
-            outline_color = "&H00000000"  # 검정
-            highlight_color = "&H0000FFFF"  # 노란색 (BGR)
-            bg_color = "&H00000000"  # 투명
-            border_style = 1  # 아웃라인만 (배경 없음)
-            bold = 1  # 볼드체
+        # Get styling from template or fall back to config defaults
+        if template and template.subtitle:
+            tmpl_sub = template.subtitle
+            tmpl_layout = template.layout
+
+            font_name = tmpl_sub.font_name
+            font_size = tmpl_sub.font_size
+            outline_width = tmpl_sub.outline_width
+            bold = 1 if tmpl_sub.bold else 0
+            primary_color = self._hex_to_ass_color(tmpl_sub.primary_color)
+            outline_color = self._hex_to_ass_color(tmpl_sub.outline_color)
+            highlight_color = self._hex_to_ass_color(tmpl_sub.highlight_color)
+
+            # Background
+            if tmpl_sub.background_enabled:
+                bg_color = self._hex_to_ass_color(
+                    tmpl_sub.background_color,
+                    opacity=tmpl_sub.background_opacity,
+                )
+                border_style = 3  # Background box
+            else:
+                bg_color = "&H00000000"  # Transparent
+                border_style = 1  # Outline only
+
+            # Position from layout
+            position = tmpl_layout.subtitle_position if tmpl_layout else "center"
+            margin_ratio = tmpl_layout.subtitle_margin_ratio if tmpl_layout else 0.5
+
+            # Calculate margin_v based on position and ratio
+            # For 1920px height: 0.15 = near bottom, 0.5 = center, 0.85 = near top
+            if position == "bottom":
+                alignment = 2  # Bottom center
+                margin_v = int(1920 * margin_ratio)
+            elif position == "top":
+                alignment = 8  # Top center
+                margin_v = int(1920 * (1 - margin_ratio))
+            else:  # center
+                alignment = 5  # Middle center
+                margin_v = int(1920 * (0.5 - margin_ratio / 2))
+
+            # Animation settings
+            fade_in_ms = tmpl_sub.fade_in_ms
+            fade_out_ms = tmpl_sub.fade_out_ms
+            karaoke_enabled = tmpl_sub.karaoke_enabled
         else:
+            # Fall back to legacy config
+            font_name = style.font_name
             font_size = style.font_size
             outline_width = style.outline_width
             alignment = self._get_ass_alignment()
@@ -268,6 +313,9 @@ class SubtitleGenerator:
             )
             border_style = 3 if style.background_enabled else 1
             bold = 0
+            fade_in_ms = 100
+            fade_out_ms = 50
+            karaoke_enabled = self.config.highlight_current_word
 
         # Build ASS content
         ass_content = f"""[Script Info]
@@ -279,8 +327,8 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{style.font_name},{font_size},{primary_color},&H00000000,{outline_color},{bg_color},{bold},0,0,0,100,100,0,0,{border_style},{outline_width},0,{alignment},{self.config.margin_horizontal},{self.config.margin_horizontal},{margin_v},1
-Style: Highlight,{style.font_name},{font_size},{highlight_color},&H00000000,{outline_color},{bg_color},1,0,0,0,100,100,0,0,{border_style},{outline_width},0,{alignment},{self.config.margin_horizontal},{self.config.margin_horizontal},{margin_v},1
+Style: Default,{font_name},{font_size},{primary_color},&H00000000,{outline_color},{bg_color},{bold},0,0,0,100,100,0,0,{border_style},{outline_width},0,{alignment},{self.config.margin_horizontal},{self.config.margin_horizontal},{margin_v},1
+Style: Highlight,{font_name},{font_size},{highlight_color},&H00000000,{outline_color},{bg_color},1,0,0,0,100,100,0,0,{border_style},{outline_width},0,{alignment},{self.config.margin_horizontal},{self.config.margin_horizontal},{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -292,16 +340,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             end_time = self._seconds_to_ass_time(segment.end)
 
             # Apply karaoke highlighting if enabled and words available
-            if self.config.highlight_current_word and segment.words:
+            if karaoke_enabled and segment.words:
                 text = self._apply_karaoke_effect(segment)
             else:
                 text = segment.text
 
-            # Add slide-in animation for viral style (fade in + slight move)
-            if viral_style:
-                # \fad(fade_in_ms, fade_out_ms) + \move for slide effect
-                # Slide from left (x1=-50) to center (x2=0) with fade
-                text = f"{{\\fad(200,100)}}{{\\t(0,200,\\frz0)}}{text}"
+            # Add fade animation if configured
+            if fade_in_ms > 0 or fade_out_ms > 0:
+                text = f"{{\\fad({fade_in_ms},{fade_out_ms})}}{text}"
 
             ass_content += f"Dialogue: 0,{start_time},{end_time},Default,,0,0,0,,{text}\n"
 
@@ -476,11 +522,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         # Build karaoke text with timing
         parts: list[str] = []
 
-        for word in segment.words:
+        for i, word in enumerate(segment.words):
             # Duration in centiseconds
             word_duration = (word.end - word.start) * 100  # centiseconds
 
             # Use \\k tag for karaoke timing
+            # Add space between words (except for first word)
+            if i > 0:
+                parts.append(" ")
             parts.append(f"{{\\k{int(word_duration)}}}{word.word}")
 
         return "".join(parts)

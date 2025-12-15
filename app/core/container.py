@@ -241,6 +241,14 @@ class ServiceContainer(containers.DeclarativeContainer):
     configs = providers.DependenciesContainer()
 
     # ============================================
+    # Video Template Loader
+    # ============================================
+
+    video_template_loader = providers.Singleton(
+        "app.core.template_loader.VideoTemplateLoader",
+    )
+
+    # ============================================
     # Collector Services
     # ============================================
 
@@ -406,6 +414,7 @@ class ServiceContainer(containers.DeclarativeContainer):
         thumbnail_generator=thumbnail_generator,
         db_session_factory=infrastructure.db_session_factory,
         config=configs.video_generation_config,
+        template_loader=video_template_loader,
     )
 
 
@@ -540,6 +549,11 @@ class ApplicationContainer(containers.DeclarativeContainer):
     video_pipeline = providers.Factory(
         lambda svc: svc,
         svc=services.video_pipeline,
+    )
+
+    video_template_loader = providers.Singleton(
+        lambda svc: svc,
+        svc=services.video_template_loader,
     )
 
 

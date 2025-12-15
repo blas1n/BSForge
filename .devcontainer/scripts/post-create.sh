@@ -50,10 +50,39 @@ else
     echo "[SKIP] pyproject.toml not found - will be created in Phase 1"
 fi
 
-# 7. Make sure scripts are executable
+# 7. Install Korean fonts for video subtitle rendering
+echo ""
+echo "Installing Korean fonts (Noto Sans CJK KR)..."
+FONT_DIR="$HOME/.local/share/fonts"
+mkdir -p "$FONT_DIR"
+
+# Download Noto Sans CJK KR fonts if not already installed
+if [ ! -f "$FONT_DIR/NotoSansCJKkr-Bold.otf" ]; then
+    echo "Downloading Noto Sans CJK KR Bold..."
+    curl -fsSL -o "$FONT_DIR/NotoSansCJKkr-Bold.otf" \
+        "https://raw.githubusercontent.com/googlefonts/noto-cjk/main/Sans/OTF/Korean/NotoSansCJKkr-Bold.otf" || \
+        echo "[WARN] Failed to download NotoSansCJKkr-Bold.otf"
+fi
+
+if [ ! -f "$FONT_DIR/NotoSansCJKkr-Regular.otf" ]; then
+    echo "Downloading Noto Sans CJK KR Regular..."
+    curl -fsSL -o "$FONT_DIR/NotoSansCJKkr-Regular.otf" \
+        "https://raw.githubusercontent.com/googlefonts/noto-cjk/main/Sans/OTF/Korean/NotoSansCJKkr-Regular.otf" || \
+        echo "[WARN] Failed to download NotoSansCJKkr-Regular.otf"
+fi
+
+# Refresh font cache
+if command -v fc-cache &> /dev/null; then
+    fc-cache -fv "$FONT_DIR" > /dev/null 2>&1
+    echo "[OK] Korean fonts installed and cache updated"
+else
+    echo "[WARN] fc-cache not available, fonts may not be recognized"
+fi
+
+# 8. Make sure scripts are executable
 chmod +x .devcontainer/scripts/*.sh 2>/dev/null || true
 
-# 8. Add venv activation to bashrc
+# 9. Add venv activation to bashrc
 if ! grep -q "source /workspace/.venv/bin/activate" ~/.bashrc; then
     echo 'source /workspace/.venv/bin/activate' >> ~/.bashrc
     echo "[OK] Auto-activation added to bashrc"

@@ -269,14 +269,25 @@ OpenAI의 다음 행보가 정말 기대되지 않나요?
 
 
 async def demo_video_generation(
-    script: str, topic_title: str, topic_keywords: list[str] | None = None
+    script: str,
+    topic_title: str,
+    topic_keywords: list[str] | None = None,
+    template_name: str = "korean_viral",
 ) -> Path | None:
-    """Demo video generation from script."""
+    """Demo video generation from script.
+
+    Args:
+        script: Script text
+        topic_title: Topic title for thumbnail
+        topic_keywords: Keywords for image search
+        template_name: Video template name (e.g., "korean_viral", "minimal")
+    """
     print("\n" + "=" * 60)
     print("PHASE 3: Video Generation")
     print("=" * 60)
 
     from app.config.video import CompositionConfig
+    from app.core.template_loader import load_template
     from app.services.generator.compositor import FFmpegCompositor
     from app.services.generator.subtitle import SubtitleGenerator
     from app.services.generator.thumbnail import ThumbnailGenerator
@@ -285,6 +296,23 @@ async def demo_video_generation(
     from app.services.generator.visual.base import VisualAsset
     from app.services.generator.visual.fallback import FallbackGenerator
     from app.services.generator.visual.pexels import PexelsClient
+
+    # Load video template
+    print(f"\n[0/6] Loading video template: {template_name}")
+    try:
+        template = load_template(template_name)
+        print(f"   Template: {template.name}")
+        print(f"   Description: {template.description}")
+        if template.layout.title_overlay and template.layout.title_overlay.enabled:
+            print("   Title overlay: ENABLED")
+        if template.visual_effects.ken_burns_enabled:
+            print("   Ken Burns effect: ENABLED")
+        if template.visual_effects.color_grading_enabled:
+            print("   Color grading: ENABLED")
+    except Exception as e:
+        print(f"   Warning: Failed to load template '{template_name}': {e}")
+        print("   Using default settings")
+        template = None
 
     output_dir = Path("/tmp/bsforge_full_demo")
     output_dir.mkdir(exist_ok=True)
@@ -308,12 +336,15 @@ async def demo_video_generation(
     subtitle_gen = SubtitleGenerator()
 
     if tts_result.word_timestamps:
-        subtitle_file = subtitle_gen.generate_from_timestamps(tts_result.word_timestamps)
+        subtitle_file = subtitle_gen.generate_from_timestamps(
+            tts_result.word_timestamps,
+            template=template,
+        )
     else:
         subtitle_file = subtitle_gen.generate_from_script(script, tts_result.duration_seconds)
 
     subtitle_path = output_dir / "script_subtitles.ass"
-    subtitle_gen.to_ass(subtitle_file, subtitle_path)
+    subtitle_gen.to_ass(subtitle_file, subtitle_path, template=template)
     print(f"   Subtitles: {subtitle_path}")
     print(f"   Segments: {len(subtitle_file.segments)}")
 
@@ -403,7 +434,16 @@ async def demo_video_generation(
         print("   No BGM found, proceeding without background music")
         bgm_path = None
 
-    compositor = FFmpegCompositor(CompositionConfig())
+    compositor = FFmpegCompositor(CompositionConfig(), template=template)
+
+    # Prepare title text for overlay (from topic title)
+    title_text = (
+        topic_title[:50]
+        if template and template.layout.title_overlay and template.layout.title_overlay.enabled
+        else None
+    )
+    if title_text:
+        print(f"   Adding title overlay: {title_text[:30]}...")
 
     final_path = output_dir / "final_shorts.mp4"
     await compositor.compose(
@@ -412,6 +452,7 @@ async def demo_video_generation(
         subtitle_file=subtitle_path,
         output_path=final_path,
         background_music_path=bgm_path,  # BGM 추가
+        title_text=title_text,  # 상단 제목 오버레이
     )
 
     if final_path.exists():
@@ -451,7 +492,9 @@ async def main() -> None:
     script = await demo_script_generation(topic)
 
     # Phase 3: Video Generation (pass topic keywords for image search)
-    video_path = await demo_video_generation(script, topic.title_normalized, topic.keywords)
+    # Use Korean title for overlay (title_translated if available, else title_normalized)
+    title_for_overlay = topic.title_translated or topic.title_normalized
+    video_path = await demo_video_generation(script, title_for_overlay, topic.keywords)
 
     # Summary
     print("\n" + "=" * 60)

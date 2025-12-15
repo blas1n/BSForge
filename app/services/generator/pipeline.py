@@ -1,6 +1,7 @@
 """Video generation pipeline.
 
 Orchestrates the complete video generation process from script to final video.
+Supports template-based styling for consistent visual appearance.
 """
 
 import logging
@@ -10,9 +11,11 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.config.video import VideoGenerationConfig
+from app.config.video_template import VideoTemplateConfig
+from app.core.template_loader import VideoTemplateLoader, get_template_loader
 from app.models.script import Script
 from app.models.video import Video, VideoStatus
 from app.services.generator.compositor import FFmpegCompositor
@@ -21,6 +24,9 @@ from app.services.generator.thumbnail import ThumbnailGenerator
 from app.services.generator.tts.base import TTSConfig
 from app.services.generator.tts.factory import TTSEngineFactory
 from app.services.generator.visual.manager import VisualSourcingManager
+
+if TYPE_CHECKING:
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +95,7 @@ class VideoGenerationPipeline:
         thumbnail_generator: ThumbnailGenerator,
         db_session_factory: Any,
         config: VideoGenerationConfig | None = None,
+        template_loader: VideoTemplateLoader | None = None,
     ) -> None:
         """Initialize VideoGenerationPipeline.
 
@@ -100,6 +107,7 @@ class VideoGenerationPipeline:
             thumbnail_generator: Thumbnail generator
             db_session_factory: Database session factory
             config: Video generation configuration
+            template_loader: Video template loader (optional, uses singleton if not provided)
         """
         self.tts_factory = tts_factory
         self.visual_manager = visual_manager
@@ -108,12 +116,14 @@ class VideoGenerationPipeline:
         self.thumbnail_generator = thumbnail_generator
         self.db_session_factory = db_session_factory
         self.config = config or VideoGenerationConfig()
+        self.template_loader = template_loader or get_template_loader()
 
     async def generate(
         self,
         script: Script,
         voice_id: str | None = None,
         tts_provider: str | None = None,
+        template_name: str | None = None,
     ) -> VideoGenerationResult:
         """Generate video from script.
 
@@ -121,6 +131,7 @@ class VideoGenerationPipeline:
             script: Script model instance
             voice_id: Optional TTS voice override
             tts_provider: Optional TTS provider override
+            template_name: Video template name (e.g., "korean_viral", "minimal")
 
         Returns:
             VideoGenerationResult with file paths and metadata
@@ -134,6 +145,19 @@ class VideoGenerationPipeline:
         # Validate script
         if not script.script_text:
             raise ValueError("Script has no text content")
+
+        # Load template if specified
+        template: VideoTemplateConfig | None = None
+        if template_name:
+            try:
+                template = self.template_loader.load(template_name)
+                logger.info(f"Using video template: {template_name}")
+            except Exception as e:
+                logger.warning(f"Failed to load template '{template_name}': {e}")
+
+        # Update compositor with template
+        if template:
+            self.compositor.template = template
 
         # Determine output directory
         output_dir = Path(self.config.output_dir) / str(script.channel_id) / str(script.id)
@@ -178,7 +202,8 @@ class VideoGenerationPipeline:
 
                 if tts_result.word_timestamps:
                     subtitle_file = self.subtitle_generator.generate_from_timestamps(
-                        tts_result.word_timestamps
+                        tts_result.word_timestamps,
+                        template=template,
                     )
                 else:
                     subtitle_file = self.subtitle_generator.generate_from_script(
@@ -190,6 +215,7 @@ class VideoGenerationPipeline:
                     subtitle_path = self.subtitle_generator.to_ass(
                         subtitle_file,
                         output_dir / "subtitle",
+                        template=template,
                     )
                 else:
                     subtitle_path = self.subtitle_generator.to_srt(
@@ -216,11 +242,15 @@ class VideoGenerationPipeline:
             # Step 5: Compose video
             logger.info("Composing video")
 
+            # Get title text for overlay (if template has title_overlay enabled)
+            title_text = self._get_title_text(script)
+
             composition_result = await self.compositor.compose(
                 audio=tts_result,
                 visuals=visuals,
                 subtitle_file=subtitle_path,
                 output_path=output_dir / "video",
+                title_text=title_text,
             )
 
             logger.info(f"Video composed: {composition_result.duration_seconds:.1f}s")
@@ -407,6 +437,41 @@ class VideoGenerationPipeline:
         # Fallback: first line of script
         first_line = script.script_text.split("\n")[0][:50]
         return first_line if first_line else "Video"
+
+    def _get_title_text(self, script: Script) -> str | None:
+        """Get title text for video overlay.
+
+        Uses script.title_text if set, otherwise falls back to topic title
+        or hook section.
+
+        Args:
+            script: Script model
+
+        Returns:
+            Title text string or None
+        """
+        # First priority: explicit title_text field
+        if hasattr(script, "title_text") and script.title_text:
+            return str(script.title_text)
+
+        # Second priority: topic title
+        if (
+            hasattr(script, "topic")
+            and script.topic
+            and hasattr(script.topic, "title")
+            and script.topic.title
+        ):
+            return str(script.topic.title)
+
+        # Third priority: hook section (first part of script)
+        if hasattr(script, "hook") and script.hook:
+            # Truncate to reasonable length for overlay
+            hook_text = str(script.hook).strip()
+            if len(hook_text) > 50:
+                hook_text = hook_text[:50] + "..."
+            return hook_text
+
+        return None
 
 
 __all__ = [

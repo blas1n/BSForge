@@ -75,6 +75,9 @@ class Script(Base, UUIDMixin, TimestampMixin):
     body: Mapped[str | None] = mapped_column(Text)
     conclusion: Mapped[str | None] = mapped_column(Text)
 
+    # Title for video overlay (상단 고정 제목)
+    title_text: Mapped[str | None] = mapped_column(String(200))
+
     # Metrics
     estimated_duration: Mapped[int] = mapped_column(Integer, nullable=False)  # seconds
     word_count: Mapped[int] = mapped_column(Integer, nullable=False)
