@@ -25,6 +25,7 @@ from app.services.rag.chunker import ScriptChunker
 from app.services.rag.context import ContextBuilder
 from app.services.rag.embedder import ContentEmbedder
 from app.services.rag.prompt import PromptBuilder
+from app.services.rag.quality import ScriptQualityChecker
 
 logger = get_logger(__name__)
 
@@ -98,6 +99,7 @@ class ScriptGenerator:
         self.db_session_factory = db_session_factory
         self.config = config or GenerationConfig()
         self.quality_config = quality_config or QualityCheckConfig()
+        self.quality_checker = ScriptQualityChecker(self.quality_config)
         self.prompt_manager = get_prompt_manager()
 
     def _get_llm_config_from_template(self, prompt_type: PromptType) -> LLMConfig:
@@ -295,177 +297,68 @@ class ScriptGenerator:
         Returns:
             Dict with 'passed' (bool) and quality metrics
         """
-        reasons = []
-
         # Extract hook from script (first few sentences)
         parsed = self._parse_script(script_text)
         hook = parsed["hook"]
 
-        # 1. Duration check
-        duration = self._estimate_duration(script_text)
-        if duration > self.quality_config.max_duration:
-            reasons.append(f"Duration too long: {duration}s > {self.quality_config.max_duration}s")
-        if duration < self.quality_config.min_duration:
-            reasons.append(f"Duration too short: {duration}s < {self.quality_config.min_duration}s")
+        # Use quality checker
+        result = self.quality_checker.check_script(script_text, persona, hook)
 
-        # 2. Style check
-        style_score = self._calculate_style_score(script_text, persona)
-        if style_score < self.quality_config.min_style_score:
+        # Build reasons list for failed checks
+        reasons = []
+        if result.estimated_duration > self.quality_config.max_duration:
             reasons.append(
-                f"Style score too low: {style_score:.2f} < {self.quality_config.min_style_score}"
+                f"Duration too long: {result.estimated_duration}s > "
+                f"{self.quality_config.max_duration}s"
             )
-
-        # 3. Hook check
-        hook_score = self._evaluate_hook(hook)
-        if hook_score < self.quality_config.min_hook_score:
+        if result.estimated_duration < self.quality_config.min_duration:
             reasons.append(
-                f"Hook score too low: {hook_score:.2f} < {self.quality_config.min_hook_score}"
+                f"Duration too short: {result.estimated_duration}s < "
+                f"{self.quality_config.min_duration}s"
             )
-
-        # 4. Forbidden words
-        forbidden_words = self._find_forbidden_words(script_text, persona)
-        if len(forbidden_words) > self.quality_config.max_forbidden_words:
+        if result.style_score < self.quality_config.min_style_score:
             reasons.append(
-                f"Too many forbidden words: {forbidden_words} "
+                f"Style score too low: {result.style_score:.2f} < "
+                f"{self.quality_config.min_style_score}"
+            )
+        if result.hook_score < self.quality_config.min_hook_score:
+            reasons.append(
+                f"Hook score too low: {result.hook_score:.2f} < "
+                f"{self.quality_config.min_hook_score}"
+            )
+        if len(result.forbidden_words) > self.quality_config.max_forbidden_words:
+            reasons.append(
+                f"Too many forbidden words: {result.forbidden_words} "
                 f"(max: {self.quality_config.max_forbidden_words})"
             )
 
+        # Re-evaluate passed considering duration constraints
         passed = len(reasons) == 0
 
         return {
             "passed": passed,
             "reasons": reasons,
-            "duration": duration,
-            "style_score": style_score,
-            "hook_score": hook_score,
-            "forbidden_words": forbidden_words,
+            "duration": result.estimated_duration,
+            "style_score": result.style_score,
+            "hook_score": result.hook_score,
+            "forbidden_words": result.forbidden_words,
         }
 
     def _estimate_duration(self, script_text: str) -> int:
-        """Estimate script duration in seconds.
-
-        Assumes ~150 words per minute for natural speech.
-
-        Args:
-            script_text: Script text
-
-        Returns:
-            Estimated duration in seconds
-        """
-        word_count = len(script_text.split())
-        words_per_minute = 150
-        duration_seconds = int((word_count / words_per_minute) * 60)
-        return duration_seconds
+        """Estimate script duration in seconds. Delegates to quality_checker."""
+        return self.quality_checker.estimate_duration(script_text)
 
     def _calculate_style_score(self, script_text: str, persona: Persona) -> float:
-        """Calculate style consistency score.
-
-        Simple heuristic: check for persona-specific patterns.
-        For production, use LLM-based style classification.
-
-        Args:
-            script_text: Script text
-            persona: Persona DB model
-
-        Returns:
-            Style score (0-1)
-        """
-        score = 0.7  # Base score
-
-        if not persona.communication_style:
-            return score
-
-        text_lower = script_text.lower()
-
-        # Check for preferred connectors
-        if "connectors" in persona.communication_style:
-            connectors = persona.communication_style["connectors"]
-            found_connectors = sum(1 for c in connectors if c.lower() in text_lower)
-            if connectors:
-                score += 0.1 * (found_connectors / len(connectors))
-
-        # Check for sentence endings
-        if "sentence_endings" in persona.communication_style:
-            endings = persona.communication_style["sentence_endings"]
-            found_endings = sum(1 for e in endings if e.lower() in text_lower)
-            if endings:
-                score += 0.1 * (found_endings / len(endings))
-
-        # Check for avoid words (penalize if found)
-        if "avoid_words" in persona.communication_style:
-            avoid_words = persona.communication_style["avoid_words"]
-            found_avoid = sum(1 for w in avoid_words if w.lower() in text_lower)
-            if found_avoid > 0:
-                score -= 0.2 * (found_avoid / max(len(avoid_words), 1))
-
-        return max(0.0, min(1.0, score))
+        """Calculate style consistency score. Delegates to quality_checker."""
+        return self.quality_checker.calculate_style_score(script_text, persona)
 
     def _evaluate_hook(self, hook: str) -> float:
-        """Evaluate hook quality.
-
-        Simple heuristic: check for attention-grabbing patterns.
-        For production, use LLM-based hook classification.
-
-        Args:
-            hook: Hook text
-
-        Returns:
-            Hook score (0-1)
-        """
-        if not hook:
-            return 0.0
-
-        score = 0.5  # Base score
-
-        hook_lower = hook.lower()
-
-        # Question hooks
-        if "?" in hook:
-            score += 0.2
-
-        # Surprising statements
-        surprising_patterns = [
-            "you won't believe",
-            "surprising",
-            "shocking",
-            "what if",
-            "imagine",
-            "놀랍게도",
-            "믿기 힘들지만",
-            "만약",
-        ]
-        if any(pattern in hook_lower for pattern in surprising_patterns):
-            score += 0.15
-
-        # Numbers (concrete facts)
-        if re.search(r"\d+", hook):
-            score += 0.1
-
-        # Short and punchy (3-15 words)
-        word_count = len(hook.split())
-        if 3 <= word_count <= 15:
-            score += 0.15
-
-        return min(1.0, score)
+        """Evaluate hook quality. Delegates to quality_checker."""
+        return self.quality_checker.evaluate_hook(hook)
 
     def _find_forbidden_words(self, script_text: str, persona: Persona) -> list[str]:
-        """Find forbidden words in script.
-
-        Args:
-            script_text: Script text
-            persona: Persona DB model
-
-        Returns:
-            List of forbidden words found
-        """
-        if not persona.communication_style or "avoid_words" not in persona.communication_style:
-            return []
-
-        forbidden = persona.communication_style["avoid_words"]
-        text_lower = script_text.lower()
-
-        found = [word for word in forbidden if word.lower() in text_lower]
-        return found
+        """Find forbidden words in script. Delegates to quality_checker."""
+        return self.quality_checker.find_forbidden_words(script_text, persona)
 
     async def _save_script(
         self,
@@ -833,7 +726,10 @@ class ScriptGenerator:
         for rec in recommendations:
             logger.warning(f"Scene structure recommendation: {rec}")
 
-        # 2. Duration check
+        # 2. Use quality checker for content quality
+        result = self.quality_checker.check_scene_script(scene_script, persona)
+
+        # 3. Duration check (use scene_script's duration, not estimated)
         duration = scene_script.total_estimated_duration
         if duration > self.quality_config.max_duration:
             reasons.append(
@@ -844,28 +740,24 @@ class ScriptGenerator:
                 f"Duration too short: {duration:.1f}s < {self.quality_config.min_duration}s"
             )
 
-        # 3. Style check on full text
-        full_text = scene_script.full_text
-        style_score = self._calculate_style_score(full_text, persona)
-        if style_score < self.quality_config.min_style_score:
+        # 4. Style check
+        if result.style_score < self.quality_config.min_style_score:
             reasons.append(
-                f"Style score too low: {style_score:.2f} < {self.quality_config.min_style_score}"
+                f"Style score too low: {result.style_score:.2f} < "
+                f"{self.quality_config.min_style_score}"
             )
 
-        # 4. Hook check
-        hook_scenes = [s for s in scene_script.scenes if s.scene_type == SceneType.HOOK]
-        hook_text = hook_scenes[0].text if hook_scenes else ""
-        hook_score = self._evaluate_hook(hook_text)
-        if hook_score < self.quality_config.min_hook_score:
+        # 5. Hook check
+        if result.hook_score < self.quality_config.min_hook_score:
             reasons.append(
-                f"Hook score too low: {hook_score:.2f} < {self.quality_config.min_hook_score}"
+                f"Hook score too low: {result.hook_score:.2f} < "
+                f"{self.quality_config.min_hook_score}"
             )
 
-        # 5. Forbidden words
-        forbidden_words = self._find_forbidden_words(full_text, persona)
-        if len(forbidden_words) > self.quality_config.max_forbidden_words:
+        # 6. Forbidden words
+        if len(result.forbidden_words) > self.quality_config.max_forbidden_words:
             reasons.append(
-                f"Too many forbidden words: {forbidden_words} "
+                f"Too many forbidden words: {result.forbidden_words} "
                 f"(max: {self.quality_config.max_forbidden_words})"
             )
 
@@ -875,9 +767,9 @@ class ScriptGenerator:
             "passed": passed,
             "reasons": reasons,
             "duration": int(duration),
-            "style_score": style_score,
-            "hook_score": hook_score,
-            "forbidden_words": forbidden_words,
+            "style_score": result.style_score,
+            "hook_score": result.hook_score,
+            "forbidden_words": result.forbidden_words,
             "scene_count": len(scene_script.scenes),
             "has_commentary": scene_script.has_commentary,
         }

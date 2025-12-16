@@ -48,6 +48,7 @@ dependencies = [
     "elevenlabs>=0.2.27",
     "pysrt>=1.1.2",
     "pillow>=10.2.0",
+    "ffmpeg-python>=0.2.0",
     # YouTube
     "google-api-python-client>=2.115.0",
     "google-auth-oauthlib>=1.2.0",
