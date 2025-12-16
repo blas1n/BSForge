@@ -1,6 +1,8 @@
 """FFmpeg-based video compositor.
 
 Combines audio, visuals, and subtitles into final video output.
+Supports template-based styling for visual effects and overlays.
+Supports scene-based composition with per-scene visual styles.
 """
 
 import asyncio
@@ -9,10 +11,18 @@ import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from app.config.video import CompositionConfig
 from app.services.generator.tts.base import TTSResult
 from app.services.generator.visual.base import VisualAsset
+
+if TYPE_CHECKING:
+    from app.config.persona import PersonaStyleConfig
+    from app.config.video_template import VideoTemplateConfig
+    from app.models.scene import Scene, VisualStyle
+    from app.services.generator.tts.base import SceneTTSResult
+    from app.services.generator.visual.manager import SceneVisualResult
 
 logger = logging.getLogger(__name__)
 
@@ -54,13 +64,19 @@ class FFmpegCompositor:
         ... )
     """
 
-    def __init__(self, config: CompositionConfig | None = None) -> None:
+    def __init__(
+        self,
+        config: CompositionConfig | None = None,
+        template: "VideoTemplateConfig | None" = None,
+    ) -> None:
         """Initialize FFmpegCompositor.
 
         Args:
             config: Composition configuration
+            template: Video template for visual effects and overlays
         """
         self.config = config or CompositionConfig()
+        self.template = template
 
     async def compose(
         self,
@@ -69,6 +85,7 @@ class FFmpegCompositor:
         subtitle_file: Path | None,
         output_path: Path,
         background_music_path: Path | None = None,
+        title_text: str | None = None,
     ) -> CompositionResult:
         """Compose final video from components.
 
@@ -78,6 +95,7 @@ class FFmpegCompositor:
             subtitle_file: Path to subtitle file (ASS format)
             output_path: Output video path
             background_music_path: Optional background music
+            title_text: Optional title text for overlay (상단 고정 제목)
 
         Returns:
             CompositionResult with final video info
@@ -119,7 +137,17 @@ class FFmpegCompositor:
                 )
                 with_audio = with_music
 
-            # Step 4: Burn subtitles
+            # Step 4: Add title overlay if configured
+            if title_text and self._should_add_title_overlay():
+                with_title = temp_path / "with_title.mp4"
+                await self._add_title_overlay(
+                    video_path=with_audio,
+                    title_text=title_text,
+                    output_path=with_title,
+                )
+                with_audio = with_title
+
+            # Step 5: Burn subtitles
             if subtitle_file and subtitle_file.exists():
                 final_video = output_path
                 await self._burn_subtitles(
@@ -147,6 +175,459 @@ class FFmpegCompositor:
             resolution=f"{self.config.width}x{self.config.height}",
             fps=self.config.fps,
         )
+
+    async def compose_scenes(
+        self,
+        scenes: list["Scene"],
+        scene_tts_results: list["SceneTTSResult"],
+        scene_visuals: list["SceneVisualResult"],
+        combined_audio_path: Path,
+        subtitle_file: Path | None,
+        output_path: Path,
+        persona_style: "PersonaStyleConfig | None" = None,
+        background_music_path: Path | None = None,
+        title_text: str | None = None,
+        headline_keyword: str | None = None,
+        headline_hook: str | None = None,
+    ) -> CompositionResult:
+        """Compose video from scene-based components.
+
+        This method handles scene-specific visual treatments:
+        - NEUTRAL scenes: Standard visuals
+        - PERSONA scenes: Accent color overlay, left border
+        - EMPHASIS scenes: Background box effect
+
+        Transitions between scenes are applied based on SceneType transitions
+        (e.g., FLASH for fact→opinion).
+
+        Korean Shorts Standard Layout:
+        ┌──────────────────┐
+        │  headline_keyword │  ← Line 1 (accent color)
+        │  headline_hook    │  ← Line 2 (white)
+        ├──────────────────┤
+        │   visual content  │
+        ├──────────────────┤
+        │     subtitles     │
+        └──────────────────┘
+
+        Args:
+            scenes: List of Scene objects with metadata
+            scene_tts_results: List of SceneTTSResult with timing
+            scene_visuals: List of SceneVisualResult with assets
+            combined_audio_path: Path to concatenated audio file
+            subtitle_file: Path to subtitle file (ASS format)
+            output_path: Output video path
+            persona_style: PersonaStyleConfig for visual styling
+            background_music_path: Optional background music
+            headline_keyword: Line 1 of headline (keyword, colored)
+            headline_hook: Line 2 of headline (hook/description, white)
+
+        Returns:
+            CompositionResult with final video info
+        """
+        output_path = output_path.with_suffix(".mp4")
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with tempfile.TemporaryDirectory(prefix="bsforge_scene_") as temp_dir:
+            temp_path = Path(temp_dir)
+
+            logger.info(f"Composing scene-based video: {len(scenes)} scenes")
+
+            # Step 1: Create video segment for each scene
+            scene_segments: list[Path] = []
+
+            for i, (scene, tts_result, visual_result) in enumerate(
+                zip(scenes, scene_tts_results, scene_visuals, strict=False)
+            ):
+                visual_style = scene.inferred_visual_style
+                duration = tts_result.duration_seconds
+
+                logger.debug(
+                    f"Processing scene {i}: type={scene.scene_type.value}, "
+                    f"style={visual_style.value}, duration={duration:.2f}s"
+                )
+
+                # Create segment with style-appropriate effects
+                segment_path = await self._create_scene_segment(
+                    asset=visual_result.asset,
+                    duration=duration,
+                    segment_index=i,
+                    visual_style=visual_style,
+                    persona_style=persona_style,
+                    temp_dir=temp_path,
+                )
+
+                scene_segments.append(segment_path)
+
+            # Step 2: Apply transitions between scenes
+            video_sequence = await self._concat_scenes_with_transitions(
+                segments=scene_segments,
+                scenes=scenes,
+                temp_dir=temp_path,
+            )
+
+            # Step 3: Add combined audio
+            with_audio = temp_path / "with_audio.mp4"
+            await self._add_audio_file(
+                video_path=video_sequence,
+                audio_path=combined_audio_path,
+                output_path=with_audio,
+            )
+
+            # Step 4: Add background music if provided
+            if background_music_path and background_music_path.exists():
+                with_music = temp_path / "with_music.mp4"
+                await self._add_background_music(
+                    video_path=with_audio,
+                    music_path=background_music_path,
+                    output_path=with_music,
+                )
+                with_audio = with_music
+
+            # Step 5: Add headline overlay (Korean shorts style - 2 lines)
+            if headline_keyword and headline_hook and self._should_add_headline():
+                with_headline = temp_path / "with_headline.mp4"
+                await self._add_headline_overlay(
+                    video_path=with_audio,
+                    line1_text=headline_keyword,
+                    line2_text=headline_hook,
+                    output_path=with_headline,
+                )
+                with_audio = with_headline
+                logger.info(f"Added headline: '{headline_keyword}' / '{headline_hook}'")
+
+            # Step 6: Burn subtitles
+            if subtitle_file and subtitle_file.exists():
+                await self._burn_subtitles(
+                    video_path=with_audio,
+                    subtitle_path=subtitle_file,
+                    output_path=output_path,
+                )
+            else:
+                shutil.copy(with_audio, output_path)
+
+        # Get final video info
+        duration = await self._get_video_duration(output_path)
+        file_size = output_path.stat().st_size
+
+        logger.info(
+            f"Scene composition complete: {output_path}, "
+            f"duration={duration:.2f}s, size={file_size / 1024 / 1024:.1f}MB"
+        )
+
+        return CompositionResult(
+            video_path=output_path,
+            duration_seconds=duration,
+            file_size_bytes=file_size,
+            resolution=f"{self.config.width}x{self.config.height}",
+            fps=self.config.fps,
+        )
+
+    async def _create_scene_segment(
+        self,
+        asset: VisualAsset,
+        duration: float,
+        segment_index: int,
+        visual_style: "VisualStyle",
+        persona_style: "PersonaStyleConfig | None",
+        temp_dir: Path,
+    ) -> Path:
+        """Create a video segment with style-appropriate effects.
+
+        Args:
+            asset: Visual asset for this scene
+            duration: Segment duration
+            segment_index: Segment index
+            visual_style: Visual style (NEUTRAL, PERSONA, EMPHASIS)
+            persona_style: PersonaStyleConfig for persona scenes
+            temp_dir: Temp directory
+
+        Returns:
+            Path to video segment
+        """
+        if not asset.path:
+            raise ValueError("Asset has no local path")
+
+        output_path = temp_dir / f"scene_segment_{segment_index}.mp4"
+
+        # Build style-specific filter
+        vf = self._build_style_filter(
+            duration=duration,
+            segment_index=segment_index,
+            visual_style=visual_style,
+            persona_style=persona_style,
+        )
+
+        if asset.is_video:
+            # Video asset
+            cmd = [
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(asset.path),
+                "-t",
+                str(duration),
+                "-vf",
+                vf,
+                "-c:v",
+                self.config.video_codec,
+                "-crf",
+                str(self.config.crf),
+                "-preset",
+                self.config.preset,
+                "-r",
+                str(self.config.fps),
+                "-pix_fmt",
+                self.config.pixel_format,
+                "-an",
+                str(output_path),
+            ]
+        else:
+            # Image asset - loop and apply Ken Burns
+            cmd = [
+                "ffmpeg",
+                "-y",
+                "-loop",
+                "1",
+                "-i",
+                str(asset.path),
+                "-t",
+                str(duration),
+                "-vf",
+                vf,
+                "-c:v",
+                self.config.video_codec,
+                "-crf",
+                str(self.config.crf),
+                "-preset",
+                self.config.preset,
+                "-r",
+                str(self.config.fps),
+                "-pix_fmt",
+                self.config.pixel_format,
+                str(output_path),
+            ]
+
+        await self._run_ffmpeg(cmd)
+        return output_path
+
+    def _build_style_filter(
+        self,
+        duration: float,
+        segment_index: int,
+        visual_style: "VisualStyle",
+        persona_style: "PersonaStyleConfig | None",
+    ) -> str:
+        """Build FFmpeg filter based on visual style.
+
+        Args:
+            duration: Segment duration
+            segment_index: Index for alternating effects
+            visual_style: Visual style enum
+            persona_style: PersonaStyleConfig for colors
+
+        Returns:
+            FFmpeg filter string
+        """
+        from app.models.scene import VisualStyle
+
+        w = self.config.width
+        h = self.config.height
+        fps = self.config.fps
+        total_frames = int(duration * fps)
+
+        # Get colors from persona style or defaults
+        if persona_style:
+            accent_color = persona_style.accent_color.lstrip("#")
+            overlay_opacity = (
+                persona_style.overlay_opacity_persona
+                if visual_style == VisualStyle.PERSONA
+                else persona_style.overlay_opacity_neutral
+            )
+            border_width = persona_style.border_width if persona_style.use_persona_border else 0
+        else:
+            accent_color = "FF6B6B"
+            overlay_opacity = 0.3
+            border_width = 4
+
+        # Base scale and Ken Burns
+        zoom_speed = 0.0005
+        if segment_index % 2 == 0:
+            zoom_expr = f"zoom+{zoom_speed}"
+        else:
+            zoom_expr = f"if(eq(on,1),1.15,zoom-{zoom_speed})"
+
+        base_filter = (
+            f"scale=8000:-1,"
+            f"zoompan=z='{zoom_expr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+            f"d={total_frames}:s={w}x{h}:fps={fps},"
+            f"setsar=1"
+        )
+
+        # Add overlay based on style
+        if visual_style == VisualStyle.NEUTRAL:
+            # Standard overlay (30% darken)
+            overlay_filter = f",colorchannelmixer=aa={1 - overlay_opacity}"
+
+        elif visual_style == VisualStyle.PERSONA:
+            # Persona style: accent color tint + left border
+            # Convert accent hex to RGB
+            ar = int(accent_color[0:2], 16) / 255
+            ag = int(accent_color[2:4], 16) / 255
+            ab = int(accent_color[4:6], 16) / 255
+
+            # Subtle color tint toward accent
+            tint_strength = 0.1
+            overlay_filter = (
+                f",colorchannelmixer="
+                f"rr={1 - tint_strength}:rg=0:rb=0:ra=0:"
+                f"gr=0:gg={1 - tint_strength}:gb=0:ga=0:"
+                f"br=0:bg=0:bb={1 - tint_strength}:ba=0:"
+                f"ar={ar * tint_strength}:ag={ag * tint_strength}:ab={ab * tint_strength}:aa=1"
+            )
+
+            # Add left border for persona scenes
+            if border_width > 0:
+                overlay_filter += (
+                    f",drawbox=x=0:y=0:w={border_width}:h={h}:" f"color=0x{accent_color}:t=fill"
+                )
+
+        elif visual_style == VisualStyle.EMPHASIS:
+            # Emphasis style: darker overlay, slight vignette
+            overlay_filter = f",colorchannelmixer=aa={1 - overlay_opacity - 0.1}," f"vignette=PI/4"
+
+        else:
+            overlay_filter = ""
+
+        return base_filter + overlay_filter
+
+    async def _concat_scenes_with_transitions(
+        self,
+        segments: list[Path],
+        scenes: list["Scene"],
+        temp_dir: Path,
+    ) -> Path:
+        """Concatenate scene segments with appropriate transitions.
+
+        Args:
+            segments: List of segment paths
+            scenes: List of Scene objects (for transition info)
+            temp_dir: Temp directory
+
+        Returns:
+            Path to concatenated video
+        """
+        from app.models.scene import TransitionType
+
+        if len(segments) == 1:
+            return segments[0]
+
+        # For now, use simple concat with flash transitions for FLASH type
+        # Complex xfade would require knowing exact durations
+        # TODO: Implement proper xfade transitions when timing is reliable
+
+        # Get recommended transitions from scenes
+        transitions: list[TransitionType] = []
+        for i in range(len(scenes) - 1):
+            current = scenes[i]
+            # Use scene's transition_out setting
+            transitions.append(current.transition_out)
+
+        # Check if any transitions need special handling (FLASH)
+        has_flash = any(t == TransitionType.FLASH for t in transitions)
+
+        if not has_flash:
+            # Simple concat without special effects
+            concat_file = temp_dir / "concat.txt"
+            with open(concat_file, "w") as f:
+                for segment in segments:
+                    f.write(f"file '{segment}'\n")
+
+            output_path = temp_dir / "sequence.mp4"
+
+            cmd = [
+                "ffmpeg",
+                "-y",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(concat_file),
+                "-c",
+                "copy",
+                str(output_path),
+            ]
+
+            await self._run_ffmpeg(cmd)
+            return output_path
+
+        # With transitions: re-encode with fade effects
+        # This is a simplified implementation
+        concat_file = temp_dir / "concat.txt"
+        with open(concat_file, "w") as f:
+            for segment in segments:
+                f.write(f"file '{segment}'\n")
+
+        output_path = temp_dir / "sequence.mp4"
+
+        # Add fade in at start for visual polish
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(concat_file),
+            "-vf",
+            "fade=t=in:st=0:d=0.1",
+            "-c:v",
+            self.config.video_codec,
+            "-crf",
+            str(self.config.crf),
+            "-preset",
+            self.config.preset,
+            "-pix_fmt",
+            self.config.pixel_format,
+            str(output_path),
+        ]
+
+        await self._run_ffmpeg(cmd)
+        return output_path
+
+    async def _add_audio_file(
+        self,
+        video_path: Path,
+        audio_path: Path,
+        output_path: Path,
+    ) -> None:
+        """Add audio file to video.
+
+        Args:
+            video_path: Input video path
+            audio_path: Audio file path
+            output_path: Output path
+        """
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(video_path),
+            "-i",
+            str(audio_path),
+            "-c:v",
+            "copy",
+            "-c:a",
+            self.config.audio_codec,
+            "-b:a",
+            self.config.audio_bitrate,
+            "-shortest",
+            str(output_path),
+        ]
+
+        await self._run_ffmpeg(cmd)
 
     async def _create_video_sequence(
         self,
@@ -265,6 +746,16 @@ class FFmpegCompositor:
         await self._run_ffmpeg(cmd)
         return output_path
 
+    def _should_use_frame_layout(self) -> bool:
+        """Check if frame layout should be used.
+
+        Returns:
+            True if frame layout is enabled in template
+        """
+        if not self.template or not self.template.layout:
+            return False
+        return self.template.layout.frame.enabled
+
     async def _image_to_video(
         self,
         asset: VisualAsset,
@@ -274,6 +765,9 @@ class FFmpegCompositor:
         enable_ken_burns: bool = True,
     ) -> Path:
         """Convert image to video segment with Ken Burns effect.
+
+        Ken Burns effect is enabled based on template settings.
+        If frame layout is enabled, image is placed in a centered frame.
 
         Args:
             asset: Image asset
@@ -290,11 +784,214 @@ class FFmpegCompositor:
 
         output_path = temp_dir / f"segment_{segment_index}.mp4"
 
-        # Build filter with Ken Burns effect (zoom in/out)
-        if enable_ken_burns:
-            vf = self._build_ken_burns_filter(duration, segment_index)
+        # Check if frame layout should be used
+        if self._should_use_frame_layout():
+            # Use filter_complex for frame layout
+            vf = self._build_frame_layout_filter(duration, segment_index)
+            cmd = [
+                "ffmpeg",
+                "-y",
+                "-loop",
+                "1",
+                "-i",
+                str(asset.path),
+                "-t",
+                str(duration),
+                "-filter_complex",
+                vf,
+                "-c:v",
+                self.config.video_codec,
+                "-crf",
+                str(self.config.crf),
+                "-preset",
+                self.config.preset,
+                "-r",
+                str(self.config.fps),
+                "-pix_fmt",
+                self.config.pixel_format,
+                str(output_path),
+            ]
         else:
-            vf = self._build_scale_filter()
+            # Check if Ken Burns should be enabled from template
+            enable_ken_burns = True  # Default
+            if self.template and self.template.visual_effects:
+                enable_ken_burns = self.template.visual_effects.ken_burns_enabled
+
+            # Build filter with Ken Burns effect (zoom in/out)
+            if enable_ken_burns:
+                vf = self._build_ken_burns_filter(duration, segment_index)
+            else:
+                vf = self._build_scale_filter()
+
+            cmd = [
+                "ffmpeg",
+                "-y",
+                "-loop",
+                "1",
+                "-i",
+                str(asset.path),
+                "-t",
+                str(duration),
+                "-vf",
+                vf,
+                "-c:v",
+                self.config.video_codec,
+                "-crf",
+                str(self.config.crf),
+                "-preset",
+                self.config.preset,
+                "-r",
+                str(self.config.fps),
+                "-pix_fmt",
+                self.config.pixel_format,
+                str(output_path),
+            ]
+
+        await self._run_ffmpeg(cmd)
+        return output_path
+
+    def _build_frame_layout_filter(
+        self,
+        duration: float,
+        segment_index: int,
+    ) -> str:
+        """Build filter for frame layout (양산형 스타일).
+
+        Creates a video with:
+        - Solid/gradient background
+        - Centered, smaller image with optional border
+        - Ken Burns effect on the image
+
+        Args:
+            duration: Segment duration in seconds
+            segment_index: Index for alternating zoom direction
+
+        Returns:
+            FFmpeg filter string
+        """
+        w = self.config.width
+        h = self.config.height
+        fps = self.config.fps
+        total_frames = int(duration * fps)
+
+        # Get frame layout settings
+        if not self.template or not self.template.layout:
+            raise RuntimeError("Template with layout required for frame filter")
+        frame_cfg = self.template.layout.frame
+        bg_color = frame_cfg.background_color.lstrip("#")
+
+        # Content area dimensions
+        content_w = int(w * frame_cfg.content_width_ratio)
+        content_h = int(h * frame_cfg.content_height_ratio)
+        content_x = (w - content_w) // 2
+        content_y = frame_cfg.content_y_offset
+
+        # Get Ken Burns settings
+        if self.template and self.template.visual_effects:
+            vfx = self.template.visual_effects
+            zoom_speed = vfx.ken_burns_zoom_speed
+            start_scale = vfx.ken_burns_start_scale
+            apply_color_grade = vfx.color_grading_enabled
+            brightness = vfx.brightness
+            contrast = vfx.contrast
+            saturation = vfx.saturation
+            warmth = vfx.warmth
+        else:
+            zoom_speed = 0.0005
+            start_scale = 1.15
+            apply_color_grade = True
+            brightness = 0.05
+            contrast = 1.1
+            saturation = 1.2
+            warmth = 0.1
+
+        # Alternate zoom direction
+        if segment_index % 2 == 0:
+            zoom_expr = f"zoom+{zoom_speed}"
+        else:
+            zoom_expr = f"if(eq(on,1),{start_scale},zoom-{zoom_speed})"
+
+        # Build complex filter:
+        # 1. Scale image up for Ken Burns headroom
+        # 2. Apply Ken Burns (zoompan)
+        # 3. Color grading (optional)
+        # 4. Create background
+        # 5. Overlay image on background
+
+        # Scale image and apply Ken Burns to content size
+        image_filter = (
+            f"scale=8000:-1,"
+            f"zoompan=z='{zoom_expr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+            f"d={total_frames}:s={content_w}x{content_h}:fps={fps},"
+            f"setsar=1"
+        )
+
+        # Add color grading
+        if apply_color_grade:
+            rs = warmth
+            gs = warmth * 0.5
+            bs = -warmth
+            image_filter += (
+                f",eq=brightness={brightness}:contrast={contrast}:saturation={saturation},"
+                f"colorbalance=rs={rs}:gs={gs}:bs={bs}"
+            )
+
+        # Add border if enabled
+        if frame_cfg.content_border_enabled:
+            border_color = frame_cfg.content_border_color.lstrip("#")
+            border_w = frame_cfg.content_border_width
+            # Add padding (border) around image
+            image_filter += f",pad={content_w + border_w * 2}:{content_h + border_w * 2}:{border_w}:{border_w}:color=#{border_color}"
+            # Adjust position for border (center horizontally)
+            content_x = (w - (content_w + border_w * 2)) // 2
+
+        # Build gradient background if enabled
+        if frame_cfg.background_gradient:
+            top_color = frame_cfg.gradient_top_color.lstrip("#")
+            bottom_color = frame_cfg.gradient_bottom_color.lstrip("#")
+            # Create gradient using gradients filter
+            bg_filter = (
+                f"color=c=0x{top_color}:s={w}x{h}:d={duration}:r={fps},"
+                f"format=rgba,"
+                f"geq=r='lerp(0x{top_color[0:2]},0x{bottom_color[0:2]},Y/H)':"
+                f"g='lerp(0x{top_color[2:4]},0x{bottom_color[2:4]},Y/H)':"
+                f"b='lerp(0x{top_color[4:6]},0x{bottom_color[4:6]},Y/H)':a=255"
+            )
+        else:
+            bg_filter = f"color=c=0x{bg_color}:s={w}x{h}:d={duration}:r={fps}"
+
+        # Combine: create background, overlay content
+        full_filter = (
+            f"[0:v]{image_filter}[content];"
+            f"{bg_filter}[bg];"
+            f"[bg][content]overlay={content_x}:{content_y}:format=auto"
+        )
+
+        return full_filter
+
+    async def _image_to_video_with_filter_complex(
+        self,
+        asset: VisualAsset,
+        duration: float,
+        segment_index: int,
+        temp_dir: Path,
+    ) -> Path:
+        """Convert image to video using filter_complex for frame layout.
+
+        Args:
+            asset: Image asset
+            duration: Segment duration
+            segment_index: Segment index
+            temp_dir: Temp directory
+
+        Returns:
+            Path to video segment
+        """
+        if not asset.path:
+            raise ValueError("Asset has no local path")
+
+        output_path = temp_dir / f"segment_{segment_index}.mp4"
+        vf = self._build_frame_layout_filter(duration, segment_index)
 
         cmd = [
             "ffmpeg",
@@ -305,7 +1002,7 @@ class FFmpegCompositor:
             str(asset.path),
             "-t",
             str(duration),
-            "-vf",
+            "-filter_complex",
             vf,
             "-c:v",
             self.config.video_codec,
@@ -327,16 +1024,15 @@ class FFmpegCompositor:
         self,
         duration: float,
         segment_index: int,
-        apply_color_grade: bool = True,
     ) -> str:
         """Build Ken Burns zoom effect filter with optional color grading.
 
         Alternates between zoom-in and zoom-out based on segment index.
+        Settings are read from template if available.
 
         Args:
             duration: Segment duration in seconds
             segment_index: Index to determine zoom direction
-            apply_color_grade: Apply warm/orange color grading for viral style
 
         Returns:
             FFmpeg filter string
@@ -346,8 +1042,31 @@ class FFmpegCompositor:
         fps = self.config.fps
         total_frames = int(duration * fps)
 
+        # Get settings from template or use defaults
+        if self.template and self.template.visual_effects:
+            vfx = self.template.visual_effects
+            zoom_speed = vfx.ken_burns_zoom_speed
+            start_scale = vfx.ken_burns_start_scale
+            apply_color_grade = vfx.color_grading_enabled
+            brightness = vfx.brightness
+            contrast = vfx.contrast
+            saturation = vfx.saturation
+            warmth = vfx.warmth
+        else:
+            # Default values when no template
+            zoom_speed = 0.0005
+            start_scale = 1.15
+            apply_color_grade = True
+            brightness = 0.05
+            contrast = 1.1
+            saturation = 1.2
+            warmth = 0.1
+
         # Alternate between zoom-in (even) and zoom-out (odd)
-        zoom_expr = "zoom+0.0005" if segment_index % 2 == 0 else "if(eq(on,1),1.15,zoom-0.0005)"
+        if segment_index % 2 == 0:
+            zoom_expr = f"zoom+{zoom_speed}"
+        else:
+            zoom_expr = f"if(eq(on,1),{start_scale},zoom-{zoom_speed})"
 
         # Scale up first (to allow room for zooming), then apply zoompan
         base_filter = (
@@ -358,8 +1077,16 @@ class FFmpegCompositor:
         )
 
         if apply_color_grade:
-            # Add warm/orange color grading for viral style
-            color_grade = ",eq=brightness=0.05:contrast=1.1:saturation=1.2,colorbalance=rs=0.1:gs=0.05:bs=-0.1"
+            # Add color grading from template settings
+            # colorbalance: rs=red shadows, gs=green shadows, bs=blue shadows
+            # warmth > 0 means more red, less blue
+            rs = warmth
+            gs = warmth * 0.5
+            bs = -warmth
+            color_grade = (
+                f",eq=brightness={brightness}:contrast={contrast}:saturation={saturation},"
+                f"colorbalance=rs={rs}:gs={gs}:bs={bs}"
+            )
             return base_filter + color_grade
 
         return base_filter
@@ -693,6 +1420,338 @@ class FFmpegCompositor:
             error_msg = stderr.decode()
             logger.error(f"FFmpeg failed: {error_msg}")
             raise RuntimeError(f"FFmpeg failed: {error_msg[:500]}")
+
+    def _should_add_title_overlay(self) -> bool:
+        """Check if title overlay should be added based on template.
+
+        Returns:
+            True if title overlay is enabled in template
+        """
+        if not self.template or not self.template.layout:
+            return False
+
+        title_config = self.template.layout.title_overlay
+        return title_config is not None and title_config.enabled
+
+    def _should_add_headline(self) -> bool:
+        """Check if 2-line headline should be added based on template.
+
+        Returns:
+            True if headline is enabled in template
+        """
+        if not self.template or not self.template.layout:
+            return False
+
+        headline_config = self.template.layout.headline
+        return headline_config is not None and headline_config.enabled
+
+    def _resolve_font_path(self, font_name: str) -> str:
+        """Resolve font name to actual file path.
+
+        Searches for fonts in common locations:
+        - User fonts: ~/.local/share/fonts/
+        - System fonts: /usr/share/fonts/
+
+        Args:
+            font_name: Font name (e.g., "Noto Sans CJK KR")
+
+        Returns:
+            Path to font file, or fallback font if not found
+        """
+        import subprocess
+
+        # Try to find font using fc-match
+        try:
+            result = subprocess.run(
+                ["fc-match", "-f", "%{file}", font_name],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                font_path = result.stdout.strip()
+                if Path(font_path).exists():
+                    logger.debug(f"Resolved font '{font_name}' to {font_path}")
+                    return font_path
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+
+        # Fallback: check common locations directly
+        user_fonts_dir = Path.home() / ".local" / "share" / "fonts"
+        system_fonts_dirs = [
+            Path("/usr/share/fonts"),
+            Path("/usr/local/share/fonts"),
+        ]
+
+        # Map font names to possible file patterns
+        font_patterns = {
+            # Korean fonts
+            "Noto Sans CJK KR": [
+                "NotoSansCJKkr-Bold.otf",
+                "NotoSansCJK-Bold.ttc",
+                "NotoSansCJKkr-Regular.otf",
+            ],
+            "Noto Sans KR": [
+                "NotoSansKR-Bold.otf",
+                "NotoSansCJKkr-Bold.otf",
+            ],
+            # Pretendard
+            "Pretendard-Bold": ["Pretendard-Bold.otf", "Pretendard-Bold.ttf"],
+            "Pretendard": ["Pretendard-Regular.otf", "Pretendard-Regular.ttf"],
+        }
+
+        patterns = font_patterns.get(font_name, [f"{font_name}.otf", f"{font_name}.ttf"])
+
+        # Search in user fonts first
+        for pattern in patterns:
+            candidate = user_fonts_dir / pattern
+            if candidate.exists():
+                logger.debug(f"Found font at {candidate}")
+                return str(candidate)
+
+        # Search in system fonts
+        for fonts_dir in system_fonts_dirs:
+            for pattern in patterns:
+                for found_path in fonts_dir.rglob(pattern):
+                    logger.debug(f"Found font at {found_path}")
+                    return str(found_path)
+
+        # Ultimate fallback
+        fallback = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+        logger.warning(f"Font '{font_name}' not found, using fallback: {fallback}")
+        return fallback
+
+    async def _add_title_overlay(
+        self,
+        video_path: Path,
+        title_text: str,
+        output_path: Path,
+    ) -> None:
+        """Add title text overlay to video.
+
+        Uses FFmpeg drawtext filter to add text at the top of the video.
+
+        Args:
+            video_path: Input video path
+            title_text: Title text to display
+            output_path: Output path
+        """
+        if not self.template or not self.template.layout:
+            return
+
+        title_config = self.template.layout.title_overlay
+        if not title_config:
+            return
+
+        # Get settings from template
+        # Note: font_name is not used yet; using system font path directly
+        font_size = title_config.font_size
+        font_color = title_config.color.lstrip("#")
+        outline_color = title_config.outline_color.lstrip("#")
+        outline_width = title_config.outline_width
+        position_y = title_config.position_y
+
+        # Build drawtext filter
+        # Escape special characters in text
+        escaped_text = title_text.replace("\\", "\\\\").replace("'", "\\'").replace(":", "\\:")
+
+        # Build filter with background box if enabled
+        if title_config.background_enabled:
+            bg_opacity = int(title_config.background_opacity * 255)
+            bg_color = title_config.background_color.lstrip("#")
+            box_filter = f":box=1:boxcolor={bg_color}@{bg_opacity / 255:.2f}:boxborderw=10"
+        else:
+            box_filter = ""
+
+        # Resolve font path from template font_name
+        font_path = self._resolve_font_path(title_config.font_name)
+
+        drawtext_filter = (
+            f"drawtext=text='{escaped_text}':"
+            f"fontfile={font_path}:"
+            f"fontsize={font_size}:"
+            f"fontcolor={font_color}:"
+            f"borderw={outline_width}:"
+            f"bordercolor={outline_color}:"
+            f"x=(w-text_w)/2:"
+            f"y={position_y}"
+            f"{box_filter}"
+        )
+
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(video_path),
+            "-vf",
+            drawtext_filter,
+            "-c:v",
+            self.config.video_codec,
+            "-crf",
+            str(self.config.crf),
+            "-preset",
+            self.config.preset,
+            "-c:a",
+            "copy",
+            str(output_path),
+        ]
+
+        await self._run_ffmpeg(cmd)
+
+    async def _add_headline_overlay(
+        self,
+        video_path: Path,
+        line1_text: str,
+        line2_text: str,
+        output_path: Path,
+    ) -> None:
+        """Add 2-line headline overlay to video (Korean shorts style).
+
+        Creates headline with:
+        - Optional black background area at top
+        - Line 1: Keyword in accent color
+        - Line 2: Description in white
+
+        Layout:
+        ┌──────────────────┐
+        │███ 검은 배경 ████│
+        │   키워드 (핑크)   │
+        │   설명 (흰색)     │
+        └──────────────────┘
+
+        Args:
+            video_path: Input video path
+            line1_text: First line (keyword, colored)
+            line2_text: Second line (description, white)
+            output_path: Output path
+        """
+        if not self.template or not self.template.layout:
+            return
+
+        headline_config = self.template.layout.headline
+        if not headline_config:
+            return
+
+        # Get settings from template
+        font_path = self._resolve_font_path(headline_config.font_name)
+        outline_color = headline_config.outline_color.lstrip("#")
+
+        # Line 1 settings (keyword with accent color)
+        line1_size = headline_config.line1.font_size
+        line1_color = headline_config.line1.color.lstrip("#")
+        line1_outline = headline_config.line1.outline_width
+
+        # Line 2 settings (description in white)
+        line2_size = headline_config.line2.font_size
+        line2_color = headline_config.line2.color.lstrip("#")
+        line2_outline = headline_config.line2.outline_width
+
+        # Escape special characters for FFmpeg
+        def escape_text(text: str) -> str:
+            return (
+                text.replace("\\", "\\\\")
+                .replace("'", "\\'")
+                .replace(":", "\\:")
+                .replace("%", "\\%")
+            )
+
+        escaped_line1 = escape_text(line1_text)
+        escaped_line2 = escape_text(line2_text)
+
+        # Build filter chain
+        filter_parts = []
+
+        # Add black background if enabled
+        if headline_config.background_enabled:
+            bg_height = int(self.config.height * headline_config.background_height_ratio)
+            bg_color = headline_config.background_color.lstrip("#")
+            bg_opacity = headline_config.background_opacity
+
+            # Draw black rectangle at top
+            filter_parts.append(
+                f"drawbox=x=0:y=0:w={self.config.width}:h={bg_height}:"
+                f"color=0x{bg_color}@{bg_opacity}:t=fill"
+            )
+
+            # Position text within the black area (vertically centered)
+            line_spacing = headline_config.line_spacing
+            total_text_height = line1_size + int(line2_size * line_spacing)
+            position_y = (bg_height - total_text_height) // 2 + 20  # Slight offset for balance
+            line2_y = position_y + int(line1_size * line_spacing)
+        else:
+            # Position from config ratio
+            position_y = int(self.config.height * headline_config.position_y_ratio)
+            line_spacing = headline_config.line_spacing
+            line2_y = position_y + int(line1_size * line_spacing)
+
+        # Build shadow filter (if enabled and no background)
+        if headline_config.shadow_enabled and not headline_config.background_enabled:
+            shadow_offset = headline_config.shadow_offset
+            shadow_color = headline_config.shadow_color.lstrip("#")
+            filter_parts.extend(
+                [
+                    f"drawtext=text='{escaped_line1}':"
+                    f"fontfile={font_path}:"
+                    f"fontsize={line1_size}:"
+                    f"fontcolor={shadow_color}@0.7:"
+                    f"x=(w-text_w)/2+{shadow_offset}:"
+                    f"y={position_y}+{shadow_offset}",
+                    f"drawtext=text='{escaped_line2}':"
+                    f"fontfile={font_path}:"
+                    f"fontsize={line2_size}:"
+                    f"fontcolor={shadow_color}@0.7:"
+                    f"x=(w-text_w)/2+{shadow_offset}:"
+                    f"y={line2_y}+{shadow_offset}",
+                ]
+            )
+
+        # Add main text (Line 1 - keyword, accent color)
+        filter_parts.append(
+            f"drawtext=text='{escaped_line1}':"
+            f"fontfile={font_path}:"
+            f"fontsize={line1_size}:"
+            f"fontcolor={line1_color}:"
+            f"borderw={line1_outline}:"
+            f"bordercolor={outline_color}:"
+            f"x=(w-text_w)/2:"
+            f"y={position_y}"
+        )
+
+        # Add main text (Line 2 - description, white)
+        filter_parts.append(
+            f"drawtext=text='{escaped_line2}':"
+            f"fontfile={font_path}:"
+            f"fontsize={line2_size}:"
+            f"fontcolor={line2_color}:"
+            f"borderw={line2_outline}:"
+            f"bordercolor={outline_color}:"
+            f"x=(w-text_w)/2:"
+            f"y={line2_y}"
+        )
+
+        # Join all filter parts
+        drawtext_filter = ",".join(filter_parts)
+
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(video_path),
+            "-vf",
+            drawtext_filter,
+            "-c:v",
+            self.config.video_codec,
+            "-crf",
+            str(self.config.crf),
+            "-preset",
+            self.config.preset,
+            "-c:a",
+            "copy",
+            str(output_path),
+        ]
+
+        await self._run_ffmpeg(cmd)
+        logger.debug(f"Added headline overlay: '{line1_text}' / '{line2_text}'")
 
 
 __all__ = ["FFmpegCompositor", "CompositionResult"]

@@ -2,8 +2,11 @@
 
 This module provides the main ScriptGenerator that orchestrates the complete
 RAG pipeline from topic to generated script with quality checks.
+
+Uses scene-based scripts (generate_scene_script method) - BSForge differentiator.
 """
 
+import json
 import re
 import uuid
 from typing import Any
@@ -14,6 +17,7 @@ from app.core.logging import get_logger
 from app.infrastructure.llm import LLMClient, LLMConfig, get_llm_client
 from app.infrastructure.pgvector_db import PgVectorDB
 from app.models.content_chunk import ContentType
+from app.models.scene import Scene, SceneScript, SceneType, VisualHintType
 from app.models.script import Script, ScriptStatus
 from app.services.rag.chunker import ScriptChunker
 from app.services.rag.context import ContextBuilder
@@ -213,15 +217,10 @@ class ScriptGenerator:
         script_text = response.content.strip()
         logger.info(f"Generated {len(script_text)} characters")
 
-        # 5. Post-process
-        logger.info("Post-processing script")
-        parsed = self._parse_script(script_text)
-
-        # 6. Quality check
+        # 5. Quality check
         logger.info("Running quality checks")
         quality_result = await self._check_quality(
             script_text=script_text,
-            hook=parsed["hook"],
             persona=context.persona,
         )
 
@@ -234,9 +233,6 @@ class ScriptGenerator:
             channel_id=channel_id,
             topic_id=topic_id,
             script_text=script_text,
-            hook=parsed["hook"],
-            body=parsed["body"],
-            conclusion=parsed["conclusion"],
             quality_result=quality_result,
             config=config,
             model_used=model,
@@ -290,20 +286,22 @@ class ScriptGenerator:
     async def _check_quality(
         self,
         script_text: str,
-        hook: str,
         persona: Any,
     ) -> dict[str, Any]:
         """Check script quality against gates.
 
         Args:
             script_text: Full script text
-            hook: Hook section
             persona: Persona object
 
         Returns:
             Dict with 'passed' (bool) and quality metrics
         """
         reasons = []
+
+        # Extract hook from script (first few sentences)
+        parsed = self._parse_script(script_text)
+        hook = parsed["hook"]
 
         # 1. Duration check
         duration = self._estimate_duration(script_text)
@@ -476,9 +474,6 @@ class ScriptGenerator:
         channel_id: uuid.UUID,
         topic_id: uuid.UUID,
         script_text: str,
-        hook: str,
-        body: str,
-        conclusion: str,
         quality_result: dict[str, Any],
         config: GenerationConfig,
         model_used: str,
@@ -490,9 +485,6 @@ class ScriptGenerator:
             channel_id: Channel UUID
             topic_id: Topic UUID
             script_text: Full script text
-            hook: Hook section
-            body: Body section
-            conclusion: Conclusion section
             quality_result: Quality check result
             config: Generation config
             model_used: Actual model used (LiteLLM format)
@@ -507,9 +499,6 @@ class ScriptGenerator:
             channel_id=channel_id,
             topic_id=topic_id,
             script_text=script_text,
-            hook=hook,
-            body=body,
-            conclusion=conclusion,
             estimated_duration=quality_result["duration"],
             word_count=word_count,
             style_score=quality_result["style_score"],
@@ -569,6 +558,367 @@ class ScriptGenerator:
             await session.commit()
 
         logger.info(f"Saved {len(chunks)} chunks to database with embeddings")
+
+    # =========================================================================
+    # Scene-Based Script Generation (BSForge Differentiator)
+    # =========================================================================
+
+    async def generate_scene_script(
+        self,
+        topic_id: uuid.UUID,
+        channel_id: uuid.UUID,
+        config: GenerationConfig | None = None,
+    ) -> Script:
+        """Generate scene-based script from topic.
+
+        This method generates scripts with explicit scene structure,
+        including COMMENTARY/REACTION scenes for persona opinions.
+
+        Args:
+            topic_id: Topic UUID
+            channel_id: Channel UUID
+            config: Optional generation config
+
+        Returns:
+            Script object with scenes (saved to database)
+
+        Raises:
+            ScriptGenerationError: If generation fails
+            QualityCheckFailedError: If quality checks fail after max retries
+        """
+        if config is None:
+            config = self.config
+
+        model = self._get_model_name(config)
+
+        logger.info(
+            f"Generating scene-based script for topic {topic_id}",
+            extra={"channel_id": str(channel_id), "model": model},
+        )
+
+        # Retry loop
+        for attempt in range(config.max_retries + 1):
+            try:
+                script = await self._generate_scene_attempt(topic_id, channel_id, config, attempt)
+                logger.info(
+                    f"Scene script generated successfully on attempt {attempt + 1}",
+                    extra={
+                        "script_id": str(script.id),
+                        "quality_passed": script.quality_passed,
+                        "scene_count": len(script.scenes) if script.scenes else 0,
+                    },
+                )
+                return script
+
+            except QualityCheckFailedError as e:
+                logger.warning(
+                    f"Scene quality check failed on attempt {attempt + 1}/{config.max_retries + 1}: {e}"
+                )
+
+                if attempt >= config.max_retries or not config.retry_on_failure:
+                    raise
+
+                logger.info(f"Retrying scene generation (attempt {attempt + 2})")
+
+        raise ScriptGenerationError("Max retries exceeded for scene generation")
+
+    async def _generate_scene_attempt(
+        self,
+        topic_id: uuid.UUID,
+        channel_id: uuid.UUID,
+        config: GenerationConfig,
+        attempt: int,
+    ) -> Script:
+        """Single scene generation attempt.
+
+        Args:
+            topic_id: Topic UUID
+            channel_id: Channel UUID
+            config: Generation config
+            attempt: Attempt number (0-indexed)
+
+        Returns:
+            Generated Script object with scenes
+
+        Raises:
+            QualityCheckFailedError: If quality checks fail
+        """
+        # 1. Build context
+        logger.info("Building generation context for scene script")
+        context = await self.context_builder.build_context(topic_id, channel_id, config)
+
+        # 2. Build scene-aware prompt
+        logger.info("Building scene prompt")
+        prompt = await self.prompt_builder.build_scene_prompt(context)
+
+        # 3. Get model name
+        model = self._get_model_name(config)
+
+        # 4. Generate via LLM
+        logger.info(f"Calling LLM API for scene script ({model})")
+        llm_config = LLMConfig(
+            model=model,
+            max_tokens=config.max_tokens,
+            temperature=config.temperature,
+        )
+
+        response = await self.llm_client.complete(
+            config=llm_config,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        raw_response = response.content.strip()
+        logger.info(f"Generated scene response: {len(raw_response)} characters")
+
+        # 5. Parse JSON scenes
+        logger.info("Parsing scene response")
+        scene_script = self._parse_scene_response(raw_response)
+
+        # Apply recommended transitions
+        scene_script.apply_recommended_transitions()
+
+        # 6. Quality check
+        logger.info("Running scene quality checks")
+        quality_result = await self._check_scene_quality(
+            scene_script=scene_script,
+            persona=context.persona,
+        )
+
+        if not quality_result["passed"]:
+            raise QualityCheckFailedError(
+                f"Scene quality check failed: {quality_result['reasons']}"
+            )
+
+        # 7. Save to database
+        logger.info("Saving scene script to database")
+        script = await self._save_scene_script(
+            channel_id=channel_id,
+            topic_id=topic_id,
+            scene_script=scene_script,
+            quality_result=quality_result,
+            config=config,
+            model_used=model,
+            context_chunks_used=len(context.retrieved.similar),
+        )
+
+        # 8. Chunk and embed
+        logger.info("Chunking and embedding scene script")
+        await self._chunk_and_embed(script)
+
+        return script
+
+    def _parse_scene_response(self, response: str) -> SceneScript:
+        """Parse LLM response into SceneScript.
+
+        Args:
+            response: Raw LLM response (should be JSON array)
+
+        Returns:
+            SceneScript object
+
+        Raises:
+            ScriptGenerationError: If parsing fails
+        """
+        # Try to extract JSON array from response
+        # Handle cases where LLM adds markdown code blocks
+        json_match = re.search(r"\[[\s\S]*\]", response)
+        if not json_match:
+            raise ScriptGenerationError(
+                f"No valid JSON array in scene response. Got: {response[:200]}..."
+            )
+
+        try:
+            raw_scenes = json.loads(json_match.group())
+        except json.JSONDecodeError as e:
+            raise ScriptGenerationError(f"Invalid JSON in scene response: {e}") from e
+
+        if not isinstance(raw_scenes, list) or len(raw_scenes) == 0:
+            raise ScriptGenerationError("Scene response must be a non-empty array")
+
+        scenes: list[Scene] = []
+        for i, raw in enumerate(raw_scenes):
+            try:
+                # Parse scene_type
+                scene_type_str = raw.get("scene_type", "content")
+                try:
+                    scene_type = SceneType(scene_type_str)
+                except ValueError:
+                    logger.warning(
+                        f"Unknown scene_type '{scene_type_str}' at index {i}, using 'content'"
+                    )
+                    scene_type = SceneType.CONTENT
+
+                # Parse visual_hint
+                visual_hint_str = raw.get("visual_hint", "stock_image")
+                try:
+                    visual_hint = VisualHintType(visual_hint_str)
+                except ValueError:
+                    visual_hint = VisualHintType.STOCK_IMAGE
+
+                scenes.append(
+                    Scene(
+                        scene_type=scene_type,
+                        text=raw.get("text", ""),
+                        keyword=raw.get("keyword"),
+                        visual_hint=visual_hint,
+                        emphasis_words=raw.get("emphasis_words", []),
+                    )
+                )
+            except Exception as e:
+                logger.warning(f"Failed to parse scene at index {i}: {e}")
+                # Try to create a basic scene from text
+                if "text" in raw:
+                    scenes.append(
+                        Scene(
+                            scene_type=SceneType.CONTENT,
+                            text=raw["text"],
+                        )
+                    )
+
+        if not scenes:
+            raise ScriptGenerationError("No valid scenes parsed from response")
+
+        return SceneScript(scenes=scenes)
+
+    async def _check_scene_quality(
+        self,
+        scene_script: SceneScript,
+        persona: Any,
+    ) -> dict[str, Any]:
+        """Check scene script quality.
+
+        Args:
+            scene_script: SceneScript object
+            persona: Persona object
+
+        Returns:
+            Dict with 'passed' (bool) and quality metrics
+        """
+        reasons: list[str] = []
+
+        # 1. Structure validation
+        structure_errors = scene_script.validate_structure()
+        # Filter out recommendations (not hard failures)
+        hard_errors = [e for e in structure_errors if "Recommend" not in e]
+        reasons.extend(hard_errors)
+
+        # Log recommendations
+        recommendations = [e for e in structure_errors if "Recommend" in e]
+        for rec in recommendations:
+            logger.warning(f"Scene structure recommendation: {rec}")
+
+        # 2. Duration check
+        duration = scene_script.total_estimated_duration
+        if duration > self.quality_config.max_duration:
+            reasons.append(
+                f"Duration too long: {duration:.1f}s > {self.quality_config.max_duration}s"
+            )
+        if duration < self.quality_config.min_duration:
+            reasons.append(
+                f"Duration too short: {duration:.1f}s < {self.quality_config.min_duration}s"
+            )
+
+        # 3. Style check on full text
+        full_text = scene_script.full_text
+        style_score = self._calculate_style_score(full_text, persona)
+        if style_score < self.quality_config.min_style_score:
+            reasons.append(
+                f"Style score too low: {style_score:.2f} < {self.quality_config.min_style_score}"
+            )
+
+        # 4. Hook check
+        hook_scenes = [s for s in scene_script.scenes if s.scene_type == SceneType.HOOK]
+        hook_text = hook_scenes[0].text if hook_scenes else ""
+        hook_score = self._evaluate_hook(hook_text)
+        if hook_score < self.quality_config.min_hook_score:
+            reasons.append(
+                f"Hook score too low: {hook_score:.2f} < {self.quality_config.min_hook_score}"
+            )
+
+        # 5. Forbidden words
+        forbidden_words = self._find_forbidden_words(full_text, persona)
+        if len(forbidden_words) > self.quality_config.max_forbidden_words:
+            reasons.append(
+                f"Too many forbidden words: {forbidden_words} "
+                f"(max: {self.quality_config.max_forbidden_words})"
+            )
+
+        passed = len(reasons) == 0
+
+        return {
+            "passed": passed,
+            "reasons": reasons,
+            "duration": int(duration),
+            "style_score": style_score,
+            "hook_score": hook_score,
+            "forbidden_words": forbidden_words,
+            "scene_count": len(scene_script.scenes),
+            "has_commentary": scene_script.has_commentary,
+        }
+
+    async def _save_scene_script(
+        self,
+        channel_id: uuid.UUID,
+        topic_id: uuid.UUID,
+        scene_script: SceneScript,
+        quality_result: dict[str, Any],
+        config: GenerationConfig,
+        model_used: str,
+        context_chunks_used: int,
+    ) -> Script:
+        """Save scene-based script to database.
+
+        Args:
+            channel_id: Channel UUID
+            topic_id: Topic UUID
+            scene_script: SceneScript object
+            quality_result: Quality check result
+            config: Generation config
+            model_used: Actual model used
+            context_chunks_used: Number of chunks used
+
+        Returns:
+            Saved Script object
+        """
+        full_text = scene_script.full_text
+        word_count = len(full_text.split())
+
+        # Serialize scenes for JSONB storage
+        scenes_data = [scene.model_dump(mode="json") for scene in scene_script.scenes]
+
+        script = Script(
+            channel_id=channel_id,
+            topic_id=topic_id,
+            script_text=full_text,
+            title_text=scene_script.title_text,
+            scenes=scenes_data,
+            estimated_duration=quality_result["duration"],
+            word_count=word_count,
+            style_score=quality_result["style_score"],
+            hook_score=quality_result["hook_score"],
+            forbidden_words=quality_result["forbidden_words"],
+            quality_passed=quality_result["passed"],
+            generation_model=model_used,
+            context_chunks_used=context_chunks_used,
+            generation_metadata={
+                "temperature": config.temperature,
+                "max_tokens": config.max_tokens,
+                "target_duration": config.target_duration,
+                "style": config.style,
+                "format": config.format,
+                "scene_based": True,
+                "scene_count": quality_result["scene_count"],
+                "has_commentary": quality_result["has_commentary"],
+            },
+            status=ScriptStatus.GENERATED,
+        )
+
+        async with self.db_session_factory() as session:
+            session.add(script)
+            await session.commit()
+            await session.refresh(script)
+
+        return script
 
 
 __all__ = [

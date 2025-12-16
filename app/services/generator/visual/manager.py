@@ -1,11 +1,13 @@
 """Visual sourcing manager.
 
 Orchestrates visual asset sourcing from multiple sources with priority-based fallback.
+Supports scene-based visual sourcing for BSForge's scene architecture.
 """
 
 import logging
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from app.config.video import VisualConfig
 from app.services.generator.visual.ai_image import AIImageGenerator
@@ -13,7 +15,30 @@ from app.services.generator.visual.base import VisualAsset
 from app.services.generator.visual.fallback import FallbackGenerator
 from app.services.generator.visual.pexels import PexelsClient
 
+if TYPE_CHECKING:
+    from app.models.scene import Scene, VisualHintType
+    from app.services.generator.tts.base import SceneTTSResult
+
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class SceneVisualResult:
+    """Visual sourcing result for a single scene.
+
+    Attributes:
+        scene_index: Index of the scene
+        scene_type: Type of the scene (hook, content, commentary, etc.)
+        asset: Visual asset for this scene
+        duration: Duration this visual should be displayed
+        start_offset: Global start time in final video
+    """
+
+    scene_index: int
+    scene_type: str
+    asset: VisualAsset
+    duration: float
+    start_offset: float
 
 
 class VisualSourcingManager:
@@ -260,10 +285,203 @@ class VisualSourcingManager:
 
         return prompt
 
+    async def source_visuals_for_scenes(
+        self,
+        scenes: list["Scene"],
+        scene_results: list["SceneTTSResult"],
+        output_dir: Path,
+        orientation: Literal["portrait", "landscape", "square"] = "portrait",
+    ) -> list[SceneVisualResult]:
+        """Source visual assets for each scene individually.
+
+        This method sources one visual per scene, using the scene's keyword
+        and visual_hint to determine the best source strategy. This enables
+        scene-specific visual treatment (e.g., different visuals for
+        COMMENTARY vs CONTENT scenes).
+
+        Args:
+            scenes: List of Scene objects with keywords and hints
+            scene_results: List of SceneTTSResult with timing info
+            output_dir: Directory to download assets
+            orientation: Visual orientation
+
+        Returns:
+            List of SceneVisualResult, one per scene
+        """
+        output_dir.mkdir(parents=True, exist_ok=True)
+        results: list[SceneVisualResult] = []
+
+        logger.info(f"Sourcing visuals for {len(scenes)} scenes")
+
+        for i, (scene, tts_result) in enumerate(zip(scenes, scene_results, strict=False)):
+            # Get scene-specific parameters
+            keyword = scene.keyword or scene.text[:50]  # Fallback to text
+            hint = scene.visual_hint
+            duration = tts_result.duration_seconds
+            start_offset = tts_result.start_offset
+
+            logger.debug(
+                f"Scene {i}: type={scene.scene_type.value}, "
+                f"hint={hint.value}, keyword={keyword[:30]}"
+            )
+
+            try:
+                asset = await self._source_for_scene(
+                    keyword=keyword,
+                    visual_hint=hint,
+                    duration=duration,
+                    output_dir=output_dir / f"scene_{i:03d}",
+                    orientation=orientation,
+                )
+
+                # Ensure asset has correct duration
+                asset.duration = duration
+
+                results.append(
+                    SceneVisualResult(
+                        scene_index=i,
+                        scene_type=scene.scene_type.value,
+                        asset=asset,
+                        duration=duration,
+                        start_offset=start_offset,
+                    )
+                )
+
+            except Exception as e:
+                logger.warning(f"Failed to source visual for scene {i}: {e}")
+
+                # Use fallback
+                fallback_asset = await self._create_fallback_for_scene(
+                    output_dir=output_dir / f"scene_{i:03d}",
+                    duration=duration,
+                    orientation=orientation,
+                )
+
+                results.append(
+                    SceneVisualResult(
+                        scene_index=i,
+                        scene_type=scene.scene_type.value,
+                        asset=fallback_asset,
+                        duration=duration,
+                        start_offset=start_offset,
+                    )
+                )
+
+        logger.info(f"Sourced {len(results)} scene visuals")
+        return results
+
+    async def _source_for_scene(
+        self,
+        keyword: str,
+        visual_hint: "VisualHintType",
+        duration: float,
+        output_dir: Path,
+        orientation: Literal["portrait", "landscape", "square"],
+    ) -> VisualAsset:
+        """Source a single visual asset for a scene.
+
+        Uses the visual_hint to determine which source to try first.
+
+        Args:
+            keyword: Search keyword
+            visual_hint: Hint for preferred source type
+            duration: Duration needed
+            output_dir: Output directory
+            orientation: Visual orientation
+
+        Returns:
+            Downloaded visual asset
+        """
+        from app.models.scene import VisualHintType
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Map visual hint to source type
+        hint_to_source = {
+            VisualHintType.STOCK_VIDEO: "stock_video",
+            VisualHintType.STOCK_IMAGE: "stock_image",
+            VisualHintType.AI_GENERATED: "ai_image",
+            VisualHintType.TEXT_OVERLAY: "solid_color",
+            VisualHintType.SOLID_COLOR: "solid_color",
+        }
+
+        preferred_source = hint_to_source.get(visual_hint, "stock_image")
+
+        # Build source priority based on hint
+        # Preferred source first, then fallback through others
+        source_order = [preferred_source]
+        for src in ["stock_image", "stock_video", "ai_image", "solid_color"]:
+            if src not in source_order:
+                source_order.append(src)
+
+        # Try each source in order
+        for source_type in source_order:
+            try:
+                assets = await self._source_from_type(
+                    source_type=source_type,
+                    keywords=[keyword],
+                    duration_needed=duration,
+                    output_dir=output_dir,
+                    orientation=orientation,
+                    image_duration=duration,
+                )
+
+                if assets:
+                    asset = assets[0]
+
+                    # Download if needed
+                    if not asset.is_downloaded:
+                        asset = await self._download_asset(asset, output_dir)
+
+                    return asset
+
+            except Exception as e:
+                logger.debug(f"Source {source_type} failed for keyword '{keyword}': {e}")
+                continue
+
+        # Final fallback
+        return await self._create_fallback_for_scene(
+            output_dir=output_dir,
+            duration=duration,
+            orientation=orientation,
+        )
+
+    async def _create_fallback_for_scene(
+        self,
+        output_dir: Path,
+        duration: float,
+        orientation: Literal["portrait", "landscape", "square"],
+    ) -> VisualAsset:
+        """Create a fallback visual for a scene.
+
+        Args:
+            output_dir: Output directory
+            duration: Duration for the visual
+            orientation: Visual orientation
+
+        Returns:
+            Fallback visual asset
+        """
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        fallback_assets = await self._fallback.search(
+            query="",
+            max_results=1,
+            orientation=orientation,
+        )
+
+        if fallback_assets:
+            asset = await self._fallback.download(fallback_assets[0], output_dir)
+            asset.duration = duration
+            return asset
+
+        # Absolute fallback - should never reach here
+        raise RuntimeError("Failed to create fallback visual")
+
     async def close(self) -> None:
         """Close all clients."""
         await self._pexels.close()
         await self._ai_generator.close()
 
 
-__all__ = ["VisualSourcingManager"]
+__all__ = ["VisualSourcingManager", "SceneVisualResult"]

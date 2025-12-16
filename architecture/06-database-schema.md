@@ -315,7 +315,7 @@ class ScriptStatus(str, Enum):
 
 
 class Script(Base, UUIDMixin, TimestampMixin):
-    """생성된 스크립트"""
+    """생성된 스크립트 (Scene 기반)"""
     __tablename__ = "scripts"
 
     # 연결
@@ -327,42 +327,71 @@ class Script(Base, UUIDMixin, TimestampMixin):
     )
 
     # 스크립트 내용
-    script_text: Mapped[str] = mapped_column(Text, nullable=False)
-    script_version: Mapped[int] = mapped_column(Integer, default=1)
+    script_text: Mapped[str] = mapped_column(Text, nullable=False)  # 전체 텍스트
+    title_text: Mapped[str] = mapped_column(String(200), nullable=True)  # 영상 오버레이 제목
+    scenes: Mapped[dict] = mapped_column(JSONB, nullable=True)  # Scene 기반 구조
 
     # 생성 메타
-    generation_model: Mapped[str] = mapped_column(String(50), nullable=True)
-    generation_config: Mapped[dict] = mapped_column(JSONB, default=dict)
+    generation_model: Mapped[str] = mapped_column(String(100), nullable=True)
+    generation_metadata: Mapped[dict] = mapped_column(JSONB, default=dict)
     context_chunks_used: Mapped[int] = mapped_column(Integer, default=0)
 
     # 품질 체크
-    quality_score_style: Mapped[float] = mapped_column(Float, nullable=True)
-    quality_score_hook: Mapped[float] = mapped_column(Float, nullable=True)
-    quality_issues: Mapped[list] = mapped_column(ARRAY(String), default=list)
+    style_score: Mapped[float] = mapped_column(Float, default=0.0)
+    hook_score: Mapped[float] = mapped_column(Float, default=0.0)
+    forbidden_words: Mapped[list] = mapped_column(ARRAY(String), default=list)
+    quality_passed: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # 예상 길이
-    estimated_duration: Mapped[float] = mapped_column(Float, nullable=True)  # 초
-    word_count: Mapped[int] = mapped_column(Integer, nullable=True)
+    estimated_duration: Mapped[int] = mapped_column(Integer, nullable=False)  # 초
+    word_count: Mapped[int] = mapped_column(Integer, nullable=False)
 
     # 상태
     status: Mapped[ScriptStatus] = mapped_column(
         SQLEnum(ScriptStatus), default=ScriptStatus.GENERATED
     )
 
-    # 검수
-    reviewed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
-    reviewed_by: Mapped[str] = mapped_column(String(100), nullable=True)
-    review_notes: Mapped[str] = mapped_column(Text, nullable=True)
-
     # 관계
     channel: Mapped["Channel"] = relationship(back_populates="scripts")
     topic: Mapped["Topic"] = relationship(back_populates="scripts")
     videos: Mapped[list["Video"]] = relationship(back_populates="script")
+    content_chunks: Mapped[list["ContentChunk"]] = relationship(back_populates="script")
 
     # 인덱스
     __table_args__ = (
         Index("idx_script_channel_status", "channel_id", "status"),
+        Index("idx_script_quality", "channel_id", "quality_passed"),
     )
+```
+
+#### Scene 구조 (JSONB)
+```python
+# scenes 필드 예시:
+[
+    {
+        "scene_type": "hook",
+        "text": "여러분, 이 사실을 알고 계셨나요?",
+        "visual_style": "neutral",
+        "keyword": "놀라움",
+        "visual_hint": "surprised expression",
+        "transition_in": "none",
+        "duration_hint": 3.0
+    },
+    {
+        "scene_type": "content",
+        "text": "최근 연구에 따르면...",
+        "visual_style": "neutral",
+        "keyword": "연구",
+        "visual_hint": "science laboratory"
+    },
+    {
+        "scene_type": "commentary",
+        "text": "제 생각에는 이게 정말 중요한 포인트인데요.",
+        "visual_style": "persona",
+        "keyword": "의견",
+        "transition_in": "flash"  # 사실→의견 전환 시 플래시
+    }
+]
 ```
 
 ### 2.7 영상 (Video)

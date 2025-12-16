@@ -7,7 +7,10 @@ common data structures used across all TTS implementations.
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from app.models.scene import Scene
 
 
 @dataclass
@@ -49,6 +52,30 @@ class TTSResult:
     word_timestamps: list[WordTimestamp] | None = None
     sample_rate: int = 24000
     format: Literal["mp3", "wav", "ogg"] = "mp3"
+
+
+@dataclass
+class SceneTTSResult:
+    """TTS result for a single scene.
+
+    Used in scene-based video generation where each scene
+    is synthesized separately.
+
+    Attributes:
+        scene_index: Index of the scene in the script
+        scene_type: Scene type (hook, content, commentary, etc.)
+        audio_path: Path to the scene audio file
+        duration_seconds: Actual audio duration
+        word_timestamps: Word-level timing within this scene
+        start_offset: Global start time in final video (computed after concatenation)
+    """
+
+    scene_index: int
+    scene_type: str
+    audio_path: Path
+    duration_seconds: float
+    word_timestamps: list[WordTimestamp] | None = None
+    start_offset: float = 0.0
 
 
 @dataclass
@@ -241,10 +268,60 @@ class BaseTTSEngine(ABC):
         """
         pass
 
+    async def synthesize_scenes(
+        self,
+        scenes: list["Scene"],
+        config: TTSConfig,
+        output_dir: Path,
+    ) -> list[SceneTTSResult]:
+        """Synthesize audio for each scene separately.
+
+        This method generates individual audio files for each scene,
+        enabling scene-level control over timing and visual sync.
+
+        Args:
+            scenes: List of Scene objects with text to synthesize
+            config: TTS configuration
+            output_dir: Directory for output files
+
+        Returns:
+            List of SceneTTSResult, one per scene
+        """
+        output_dir.mkdir(parents=True, exist_ok=True)
+        results: list[SceneTTSResult] = []
+        current_offset = 0.0
+
+        for i, scene in enumerate(scenes):
+            # Generate unique output path for each scene
+            scene_output = output_dir / f"scene_{i:03d}"
+
+            # Synthesize this scene
+            tts_result = await self.synthesize(
+                text=scene.text,
+                config=config,
+                output_path=scene_output,
+            )
+
+            results.append(
+                SceneTTSResult(
+                    scene_index=i,
+                    scene_type=scene.scene_type.value,
+                    audio_path=tts_result.audio_path,
+                    duration_seconds=tts_result.duration_seconds,
+                    word_timestamps=tts_result.word_timestamps,
+                    start_offset=current_offset,
+                )
+            )
+
+            current_offset += tts_result.duration_seconds
+
+        return results
+
 
 __all__ = [
     "WordTimestamp",
     "TTSResult",
+    "SceneTTSResult",
     "TTSConfig",
     "VoiceInfo",
     "BaseTTSEngine",

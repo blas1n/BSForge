@@ -1,6 +1,8 @@
 """Video generation pipeline.
 
 Orchestrates the complete video generation process from script to final video.
+Supports template-based styling for consistent visual appearance.
+Supports scene-based generation for BSForge's scene architecture.
 """
 
 import logging
@@ -10,9 +12,11 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.config.video import VideoGenerationConfig
+from app.config.video_template import VideoTemplateConfig
+from app.core.template_loader import VideoTemplateLoader, get_template_loader
 from app.models.script import Script
 from app.models.video import Video, VideoStatus
 from app.services.generator.compositor import FFmpegCompositor
@@ -20,7 +24,12 @@ from app.services.generator.subtitle import SubtitleGenerator
 from app.services.generator.thumbnail import ThumbnailGenerator
 from app.services.generator.tts.base import TTSConfig
 from app.services.generator.tts.factory import TTSEngineFactory
+from app.services.generator.tts.utils import concatenate_scene_audio
 from app.services.generator.visual.manager import VisualSourcingManager
+
+if TYPE_CHECKING:
+    from app.config.persona import PersonaStyleConfig
+    from app.models.scene import SceneScript
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +98,7 @@ class VideoGenerationPipeline:
         thumbnail_generator: ThumbnailGenerator,
         db_session_factory: Any,
         config: VideoGenerationConfig | None = None,
+        template_loader: VideoTemplateLoader | None = None,
     ) -> None:
         """Initialize VideoGenerationPipeline.
 
@@ -100,6 +110,7 @@ class VideoGenerationPipeline:
             thumbnail_generator: Thumbnail generator
             db_session_factory: Database session factory
             config: Video generation configuration
+            template_loader: Video template loader (optional, uses singleton if not provided)
         """
         self.tts_factory = tts_factory
         self.visual_manager = visual_manager
@@ -108,12 +119,14 @@ class VideoGenerationPipeline:
         self.thumbnail_generator = thumbnail_generator
         self.db_session_factory = db_session_factory
         self.config = config or VideoGenerationConfig()
+        self.template_loader = template_loader or get_template_loader()
 
     async def generate(
         self,
         script: Script,
         voice_id: str | None = None,
         tts_provider: str | None = None,
+        template_name: str | None = None,
     ) -> VideoGenerationResult:
         """Generate video from script.
 
@@ -121,6 +134,7 @@ class VideoGenerationPipeline:
             script: Script model instance
             voice_id: Optional TTS voice override
             tts_provider: Optional TTS provider override
+            template_name: Video template name (e.g., "korean_viral", "minimal")
 
         Returns:
             VideoGenerationResult with file paths and metadata
@@ -134,6 +148,19 @@ class VideoGenerationPipeline:
         # Validate script
         if not script.script_text:
             raise ValueError("Script has no text content")
+
+        # Load template if specified
+        template: VideoTemplateConfig | None = None
+        if template_name:
+            try:
+                template = self.template_loader.load(template_name)
+                logger.info(f"Using video template: {template_name}")
+            except Exception as e:
+                logger.warning(f"Failed to load template '{template_name}': {e}")
+
+        # Update compositor with template
+        if template:
+            self.compositor.template = template
 
         # Determine output directory
         output_dir = Path(self.config.output_dir) / str(script.channel_id) / str(script.id)
@@ -178,7 +205,8 @@ class VideoGenerationPipeline:
 
                 if tts_result.word_timestamps:
                     subtitle_file = self.subtitle_generator.generate_from_timestamps(
-                        tts_result.word_timestamps
+                        tts_result.word_timestamps,
+                        template=template,
                     )
                 else:
                     subtitle_file = self.subtitle_generator.generate_from_script(
@@ -190,6 +218,7 @@ class VideoGenerationPipeline:
                     subtitle_path = self.subtitle_generator.to_ass(
                         subtitle_file,
                         output_dir / "subtitle",
+                        template=template,
                     )
                 else:
                     subtitle_path = self.subtitle_generator.to_srt(
@@ -216,11 +245,15 @@ class VideoGenerationPipeline:
             # Step 5: Compose video
             logger.info("Composing video")
 
+            # Get title text for overlay (if template has title_overlay enabled)
+            title_text = self._get_title_text(script)
+
             composition_result = await self.compositor.compose(
                 audio=tts_result,
                 visuals=visuals,
                 subtitle_file=subtitle_path,
                 output_path=output_dir / "video",
+                title_text=title_text,
             )
 
             logger.info(f"Video composed: {composition_result.duration_seconds:.1f}s")
@@ -331,6 +364,254 @@ class VideoGenerationPipeline:
         logger.info(f"Video saved to database: {video.id}")
         return video
 
+    async def generate_from_scenes(
+        self,
+        script: Script,
+        scene_script: "SceneScript",
+        voice_id: str | None = None,
+        tts_provider: str | None = None,
+        template_name: str | None = None,
+        persona_style: "PersonaStyleConfig | None" = None,
+    ) -> VideoGenerationResult:
+        """Generate video from scene-based script.
+
+        This method uses the scene-based generation flow:
+        1. Per-scene TTS generation
+        2. Audio concatenation
+        3. Scene-aware subtitles
+        4. Per-scene visual sourcing
+        5. Scene-based composition with transitions
+        6. Thumbnail generation
+
+        Args:
+            script: Script model instance
+            scene_script: SceneScript with list of Scene objects
+            voice_id: Optional TTS voice override
+            tts_provider: Optional TTS provider override
+            template_name: Video template name
+            persona_style: PersonaStyleConfig for visual styling
+
+        Returns:
+            VideoGenerationResult with file paths and metadata
+        """
+        start_time = time.time()
+
+        if not scene_script.scenes:
+            raise ValueError("SceneScript has no scenes")
+
+        # Load template if specified
+        template: VideoTemplateConfig | None = None
+        if template_name:
+            try:
+                template = self.template_loader.load(template_name)
+                logger.info(f"Using video template: {template_name}")
+            except Exception as e:
+                logger.warning(f"Failed to load template '{template_name}': {e}")
+
+        # Update compositor with template
+        if template:
+            self.compositor.template = template
+
+        # Determine output directory
+        output_dir = Path(self.config.output_dir) / str(script.channel_id) / str(script.id)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create temp directory
+        temp_dir = Path(self.config.temp_dir) / str(script.id)
+        temp_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            logger.info(
+                f"Starting scene-based video generation for script {script.id}, "
+                f"{len(scene_script.scenes)} scenes"
+            )
+
+            # Step 1: Get TTS engine
+            provider = tts_provider or self.config.tts.provider
+            engine = self.tts_factory.get_engine(provider)
+            final_voice_id = voice_id or self._get_voice_for_script(script)
+
+            tts_config = TTSConfig(
+                voice_id=final_voice_id,
+                speed=self.config.tts.speed,
+                pitch=self.config.tts.pitch,
+                volume=self.config.tts.volume,
+            )
+
+            # Step 2: Per-scene TTS generation
+            logger.info(f"Generating audio for {len(scene_script.scenes)} scenes")
+
+            scene_tts_results = await engine.synthesize_scenes(
+                scenes=scene_script.scenes,
+                config=tts_config,
+                output_dir=temp_dir / "audio_scenes",
+            )
+
+            total_duration = sum(r.duration_seconds for r in scene_tts_results)
+            logger.info(f"Scene audio generated: {total_duration:.1f}s total")
+
+            # Step 3: Concatenate audio
+            logger.info("Concatenating scene audio")
+
+            combined_tts = await concatenate_scene_audio(
+                scene_results=scene_tts_results,
+                output_path=output_dir / "audio",
+            )
+
+            logger.info(f"Combined audio: {combined_tts.duration_seconds:.1f}s")
+
+            # Step 4: Generate scene-aware subtitles
+            subtitle_path = None
+            if self.config.subtitle.enabled:
+                logger.info("Generating scene-aware subtitles")
+
+                subtitle_file = self.subtitle_generator.generate_from_scene_results(
+                    scene_results=scene_tts_results,
+                    scenes=scene_script.scenes,
+                    persona_style=persona_style,
+                    template=template,
+                )
+
+                if self.config.subtitle.format == "ass":
+                    subtitle_path = self.subtitle_generator.to_ass_with_scene_styles(
+                        subtitle=subtitle_file,
+                        output_path=output_dir / "subtitle",
+                        scenes=scene_script.scenes,
+                        scene_results=scene_tts_results,
+                        persona_style=persona_style,
+                        template=template,
+                    )
+                else:
+                    subtitle_path = self.subtitle_generator.to_srt(
+                        subtitle_file,
+                        output_dir / "subtitle",
+                    )
+
+                logger.info(f"Subtitles generated: {len(subtitle_file.segments)} segments")
+
+            # Step 5: Per-scene visual sourcing
+            logger.info("Sourcing visuals for each scene")
+
+            scene_visuals = await self.visual_manager.source_visuals_for_scenes(
+                scenes=scene_script.scenes,
+                scene_results=scene_tts_results,
+                output_dir=temp_dir / "visuals",
+            )
+
+            visual_sources = list({v.asset.source or "unknown" for v in scene_visuals})
+            logger.info(f"Sourced {len(scene_visuals)} scene visuals from: {visual_sources}")
+
+            # Step 6: Scene-based composition
+            logger.info("Composing scene-based video")
+
+            title_text = self._get_title_text(script) or scene_script.title_text
+
+            composition_result = await self.compositor.compose_scenes(
+                scenes=scene_script.scenes,
+                scene_tts_results=scene_tts_results,
+                scene_visuals=scene_visuals,
+                combined_audio_path=combined_tts.audio_path,
+                subtitle_file=subtitle_path,
+                output_path=output_dir / "video",
+                persona_style=persona_style,
+                title_text=title_text,
+            )
+
+            logger.info(f"Video composed: {composition_result.duration_seconds:.1f}s")
+
+            # Step 7: Generate thumbnail
+            logger.info("Generating thumbnail")
+
+            thumbnail_background = scene_visuals[0].asset if scene_visuals else None
+            title = self._get_thumbnail_title(script)
+
+            thumbnail_path = await self.thumbnail_generator.generate(
+                title=title,
+                output_path=output_dir / "thumbnail",
+                background=thumbnail_background,
+            )
+
+            logger.info(f"Thumbnail generated: {thumbnail_path}")
+
+            # Calculate generation time
+            generation_time = int(time.time() - start_time)
+
+            result = VideoGenerationResult(
+                video_path=composition_result.video_path,
+                thumbnail_path=thumbnail_path,
+                audio_path=combined_tts.audio_path,
+                subtitle_path=subtitle_path,
+                duration_seconds=composition_result.duration_seconds,
+                file_size_bytes=composition_result.file_size_bytes,
+                tts_service=provider,
+                tts_voice_id=final_voice_id,
+                visual_sources=visual_sources,
+                generation_time_seconds=generation_time,
+            )
+
+            logger.info(
+                f"Scene-based video generation complete: {result.video_path}, "
+                f"duration={result.duration_seconds:.1f}s, "
+                f"scenes={len(scene_script.scenes)}, "
+                f"time={generation_time}s"
+            )
+
+            return result
+
+        finally:
+            # Cleanup temp directory
+            if self.config.cleanup_temp and temp_dir.exists():
+                try:
+                    shutil.rmtree(temp_dir)
+                except Exception as e:
+                    logger.warning(f"Failed to cleanup temp dir: {e}")
+
+    async def generate_from_script_with_scenes(
+        self,
+        script: Script,
+        voice_id: str | None = None,
+        tts_provider: str | None = None,
+        template_name: str | None = None,
+        persona_style: "PersonaStyleConfig | None" = None,
+    ) -> VideoGenerationResult:
+        """Generate video from script, auto-detecting scene vs linear mode.
+
+        If the script has scenes (script.scenes is not None), uses scene-based
+        generation. Otherwise, falls back to linear generation.
+
+        Args:
+            script: Script model instance
+            voice_id: Optional TTS voice override
+            tts_provider: Optional TTS provider override
+            template_name: Video template name
+            persona_style: PersonaStyleConfig for visual styling
+
+        Returns:
+            VideoGenerationResult with file paths and metadata
+        """
+        # Check if script has scene data
+        if script.has_scenes:
+            scene_script = script.get_scene_script()
+            if scene_script:
+                logger.info("Using scene-based generation")
+                return await self.generate_from_scenes(
+                    script=script,
+                    scene_script=scene_script,
+                    voice_id=voice_id,
+                    tts_provider=tts_provider,
+                    template_name=template_name,
+                    persona_style=persona_style,
+                )
+
+        # Fallback to linear generation
+        logger.info("Using linear generation (no scenes)")
+        return await self.generate(
+            script=script,
+            voice_id=voice_id,
+            tts_provider=tts_provider,
+            template_name=template_name,
+        )
+
     def _get_voice_for_script(self, script: Script) -> str:
         """Determine voice ID for script.
 
@@ -407,6 +688,33 @@ class VideoGenerationPipeline:
         # Fallback: first line of script
         first_line = script.script_text.split("\n")[0][:50]
         return first_line if first_line else "Video"
+
+    def _get_title_text(self, script: Script) -> str | None:
+        """Get title text for video overlay.
+
+        Uses script.title_text if set, otherwise falls back to topic title
+        or hook section.
+
+        Args:
+            script: Script model
+
+        Returns:
+            Title text string or None
+        """
+        # First priority: explicit title_text field
+        if hasattr(script, "title_text") and script.title_text:
+            return str(script.title_text)
+
+        # Second priority: topic title
+        if (
+            hasattr(script, "topic")
+            and script.topic
+            and hasattr(script.topic, "title")
+            and script.topic.title
+        ):
+            return str(script.topic.title)
+
+        return None
 
 
 __all__ = [

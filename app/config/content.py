@@ -217,12 +217,17 @@ class ContentConfig(BaseModel):
         target_duration: Target duration in seconds
         visual: Visual settings
         subtitle: Subtitle settings
+        video_template: Video template name for styling (e.g., "korean_viral", "minimal")
     """
 
     format: Literal["shorts", "long"] = Field(default="shorts")
     target_duration: int = Field(..., ge=10, le=600, description="Duration in seconds")
     visual: VisualConfig
     subtitle: SubtitleConfig = Field(default_factory=SubtitleConfig)
+    video_template: str = Field(
+        default="minimal",
+        description="Video template name (e.g., 'korean_viral', 'minimal')",
+    )
 
 
 class ScheduleConfig(BaseModel):

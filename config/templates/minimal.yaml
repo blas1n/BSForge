@@ -1,0 +1,46 @@
+# Minimal Video Template
+# Base template with conservative defaults, suitable for inheritance
+
+name: minimal
+description: 기본 스타일 (상속용 베이스 템플릿)
+
+layout:
+  title_overlay:
+    enabled: false
+  subtitle_position: bottom
+  subtitle_margin_ratio: 0.15
+
+subtitle:
+  font_name: Pretendard
+  font_size: 48
+  bold: false
+  primary_color: "#FFFFFF"
+  outline_color: "#000000"
+  outline_width: 2
+  highlight_color: "#FFFF00"
+  background_enabled: true
+  background_color: "#000000"
+  background_opacity: 0.5
+  fade_in_ms: 100
+  fade_out_ms: 50
+  karaoke_enabled: false
+  max_chars_per_line: 25
+  max_lines: 2
+
+visual_effects:
+  ken_burns_enabled: false
+  ken_burns_zoom_speed: 0.0003
+  ken_burns_start_scale: 1.1
+  transition_type: fade
+  transition_duration: 0.3
+  segment_duration: 5.0
+  color_grading_enabled: false
+  brightness: 0.0
+  contrast: 1.0
+  saturation: 1.0
+  warmth: 0.0
+
+audio:
+  bgm_volume: 0.05
+  tts_speed: 1.0
+  normalize_audio: true
