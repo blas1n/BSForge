@@ -141,7 +141,7 @@ class PexelsClient(BaseVisualSource):
             response.raise_for_status()
             data = response.json()
         except httpx.HTTPError as e:
-            logger.error(f"Pexels video search failed: {e}")
+            logger.error(f"Pexels video search failed: {e}", exc_info=True)
             return []
 
         assets: list[VisualAsset] = []
@@ -222,7 +222,7 @@ class PexelsClient(BaseVisualSource):
             response.raise_for_status()
             data = response.json()
         except httpx.HTTPError as e:
-            logger.error(f"Pexels image search failed: {e}")
+            logger.error(f"Pexels image search failed: {e}", exc_info=True)
             return []
 
         assets: list[VisualAsset] = []

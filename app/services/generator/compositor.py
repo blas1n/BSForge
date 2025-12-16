@@ -1408,7 +1408,7 @@ class FFmpegCompositor:
 
         if process.returncode != 0:
             error_msg = stderr.decode()
-            logger.error(f"FFmpeg failed: {error_msg}")
+            logger.error(f"FFmpeg failed: {error_msg}", exc_info=True)
             raise RuntimeError(f"FFmpeg failed: {error_msg[:500]}")
 
     def _should_add_headline(self) -> bool:
