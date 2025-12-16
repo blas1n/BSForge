@@ -233,7 +233,7 @@ class YouTubeTrendingSource(BaseSource[YouTubeTrendingConfig]):
         try:
             async with httpx.AsyncClient(timeout=self._config.request_timeout) as client:
                 url = f"{YOUTUBE_API_BASE}/videos"
-                params = {
+                params: dict[str, str | int] = {
                     "part": "snippet",
                     "chart": "mostPopular",
                     "regionCode": "US",

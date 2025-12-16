@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urljoin
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from pydantic import HttpUrl
 
 from app.config.sources import DCInsideConfig
@@ -108,11 +108,11 @@ class DCInsideSource(WebScraperSource, BaseSource[DCInsideConfig]):
 
         return items
 
-    def _parse_post_item(self, post: BeautifulSoup, list_url: str) -> dict[str, Any] | None:
+    def _parse_post_item(self, post: Tag, list_url: str) -> dict[str, Any] | None:
         """Parse single post item from list.
 
         Args:
-            post: BeautifulSoup element for post
+            post: BeautifulSoup Tag element for post
             list_url: URL of the list page
 
         Returns:
@@ -141,11 +141,12 @@ class DCInsideSource(WebScraperSource, BaseSource[DCInsideConfig]):
         if not title:
             return None
 
-        href = title_elem.get("href", "")
+        href_attr = title_elem.get("href", "")
+        href = href_attr if isinstance(href_attr, str) else ""
         if not href:
             return None
 
-        post_url = urljoin(self._config.base_url, href)
+        post_url = urljoin(str(self._config.base_url), href)
 
         # Get recommendation count (score)
         recommend_elem = post.select_one(".gall_recommend")
@@ -177,7 +178,10 @@ class DCInsideSource(WebScraperSource, BaseSource[DCInsideConfig]):
         date_elem = post.select_one(".gall_date")
         published_at = None
         if date_elem:
-            date_text = date_elem.get("title", "") or date_elem.get_text(strip=True)
+            title_attr = date_elem.get("title", "")
+            date_text = (
+                title_attr if isinstance(title_attr, str) else date_elem.get_text(strip=True)
+            )
             published_at = self._parse_date(date_text)
 
         # Extract gallery from URL

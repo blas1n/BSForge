@@ -47,8 +47,8 @@ class RedisManager:
     """
 
     _instance: "RedisManager | None" = None
-    _async_client: AsyncRedis | None = None
-    _sync_client: Redis | None = None
+    _async_client: "AsyncRedis[Any] | None" = None
+    _sync_client: "Redis[Any] | None" = None
 
     def __new__(cls) -> "RedisManager":
         """Singleton pattern."""
@@ -57,7 +57,7 @@ class RedisManager:
         return cls._instance
 
     @property
-    def async_client(self) -> AsyncRedis:
+    def async_client(self) -> "AsyncRedis[Any]":
         """Get async Redis client (lazy initialization).
 
         Returns:
@@ -75,7 +75,7 @@ class RedisManager:
         return self._async_client
 
     @property
-    def sync_client(self) -> Redis:
+    def sync_client(self) -> "Redis[Any]":
         """Get sync Redis client (lazy initialization).
 
         Returns:
@@ -127,7 +127,7 @@ redis_manager = RedisManager()
 # ============================================
 
 
-async def get_redis() -> AsyncRedis:
+async def get_redis() -> "AsyncRedis[Any]":
     """Get async Redis client as FastAPI dependency.
 
     Returns:
@@ -141,7 +141,7 @@ async def get_redis() -> AsyncRedis:
     return redis_manager.async_client
 
 
-def get_redis_sync() -> Redis:
+def get_redis_sync() -> "Redis[Any]":
     """Get sync Redis client.
 
     Returns:

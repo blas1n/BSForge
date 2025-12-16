@@ -172,7 +172,8 @@ async def _collect_source_topics(
         config = config_class(**(source_config or {}))
         source = source_class(config=config, source_id=uuid.uuid4())
 
-        return await source.collect(params or {})
+        topics: list[RawTopic] = await source.collect(params or {})
+        return topics
 
     except Exception as e:
         logger.error(f"Collection failed for {source_type}: {e}", exc_info=True)
@@ -326,7 +327,9 @@ async def _collect_channel_topics_async(
         try:
             # Use cache for scoped sources
             # Capture config in default argument to avoid closure issue
-            async def collector(st: str, p: dict, cfg: dict = config) -> list[RawTopic]:
+            async def collector(
+                st: str, p: dict[str, Any], cfg: dict[str, Any] = config
+            ) -> list[RawTopic]:
                 return await _collect_source_topics(st, cfg, p)
 
             topics = await scoped_cache.get_or_collect(

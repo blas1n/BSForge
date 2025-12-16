@@ -198,7 +198,9 @@ class RSSSource(BaseSource[RSSConfig]):
             if parsed:
                 try:
                     # feedparser returns time.struct_time
-                    return datetime(*parsed[:6], tzinfo=UTC)
+                    return datetime(
+                        parsed[0], parsed[1], parsed[2], parsed[3], parsed[4], parsed[5], tzinfo=UTC
+                    )
                 except Exception:
                     continue
 
@@ -206,9 +208,10 @@ class RSSSource(BaseSource[RSSConfig]):
         date_str_fields = ["published", "updated", "created"]
         for field in date_str_fields:
             date_str = entry.get(field)
-            if date_str:
+            if date_str and isinstance(date_str, str):
                 try:
-                    return parsedate_to_datetime(date_str)
+                    result: datetime = parsedate_to_datetime(date_str)
+                    return result
                 except Exception:
                     continue
 

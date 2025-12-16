@@ -36,20 +36,29 @@ layout:
     content_border_width: 4
     content_border_radius: 12
 
-  title_overlay:
+  # 2-line headline at top (HeadlineConfig)
+  headline:
     enabled: true
+    position_y_ratio: 0.05
     font_name: "Noto Sans CJK KR"
-    font_size: 44
-    color: "#FFFFFF"
     outline_color: "#000000"
-    outline_width: 3
+    line_spacing: 1.2
+    max_width_ratio: 0.9
+    # Line 1: Keyword (accent color)
+    line1:
+      color: "#FF69B4"
+      font_size: 54
+      bold: true
+      outline_width: 3
+    # Line 2: Description (white)
+    line2:
+      color: "#FFFFFF"
+      font_size: 44
+      bold: true
+      outline_width: 3
     background_enabled: true
     background_color: "#000000"
     background_opacity: 0.7
-    # 상단 영역 (15% = 288px 내)
-    position_y: 100
-    max_width_ratio: 0.9
-    line_spacing: 1.2
 
   subtitle_position: bottom
   # 하단 35% 영역 내 자막 (UI 버튼 위)

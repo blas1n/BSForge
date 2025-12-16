@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urljoin
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from pydantic import HttpUrl
 
 from app.config.sources import ClienConfig
@@ -95,11 +95,11 @@ class ClienSource(WebScraperSource, BaseSource[ClienConfig]):
 
         return items
 
-    def _parse_post_item(self, post: BeautifulSoup, list_url: str) -> dict[str, Any] | None:
+    def _parse_post_item(self, post: Tag, list_url: str) -> dict[str, Any] | None:
         """Parse single post item from list.
 
         Args:
-            post: BeautifulSoup element for post
+            post: BeautifulSoup Tag element for post
             list_url: URL of the list page
 
         Returns:
@@ -119,11 +119,14 @@ class ClienSource(WebScraperSource, BaseSource[ClienConfig]):
         if not link_elem:
             link_elem = post.select_one("a.list_subject")
 
-        href = link_elem.get("href", "") if link_elem else ""
+        href = ""
+        if link_elem and isinstance(link_elem, Tag):
+            href_attr = link_elem.get("href", "")
+            href = href_attr if isinstance(href_attr, str) else ""
         if not href:
             return None
 
-        post_url = urljoin(self._config.base_url, href)
+        post_url = urljoin(str(self._config.base_url), href)
 
         # Get view count (score)
         view_elem = post.select_one(".view_count, .hit")
@@ -212,18 +215,24 @@ class ClienSource(WebScraperSource, BaseSource[ClienConfig]):
             return datetime.now(UTC)
         if "분 전" in text:
             try:
-                minutes = int(re.search(r"(\d+)", text).group(1))
-                from datetime import timedelta
+                match = re.search(r"(\d+)", text)
+                if match:
+                    minutes = int(match.group(1))
+                    from datetime import timedelta
 
-                return datetime.now(UTC) - timedelta(minutes=minutes)
+                    return datetime.now(UTC) - timedelta(minutes=minutes)
+                return datetime.now(UTC)
             except (AttributeError, ValueError):
                 return datetime.now(UTC)
         if "시간 전" in text:
             try:
-                hours = int(re.search(r"(\d+)", text).group(1))
-                from datetime import timedelta
+                match = re.search(r"(\d+)", text)
+                if match:
+                    hours = int(match.group(1))
+                    from datetime import timedelta
 
-                return datetime.now(UTC) - timedelta(hours=hours)
+                    return datetime.now(UTC) - timedelta(hours=hours)
+                return datetime.now(UTC)
             except (AttributeError, ValueError):
                 return datetime.now(UTC)
 

@@ -8,6 +8,7 @@ All channels share this pool and filter topics based on their config.
 
 import json
 from enum import Enum
+from typing import Any
 
 from redis.asyncio import Redis as AsyncRedis
 
@@ -77,7 +78,7 @@ class GlobalTopicPool:
     META_KEY_SUFFIX = ":meta"
     DEFAULT_TTL_HOURS = 4  # Topics expire after 4 hours
 
-    def __init__(self, redis: AsyncRedis):
+    def __init__(self, redis: "AsyncRedis[Any]"):
         """Initialize the global pool.
 
         Args:
@@ -187,7 +188,7 @@ class GlobalTopicPool:
         key = f"{self.POOL_KEY_PREFIX}{source_type}"
         return await self.redis.exists(key) > 0
 
-    async def get_metadata(self, source_type: str) -> dict | None:
+    async def get_metadata(self, source_type: str) -> dict[str, Any] | None:
         """Get metadata for a source's pool data.
 
         Args:
@@ -202,8 +203,9 @@ class GlobalTopicPool:
         if not data:
             return None
 
-        json_str = data.decode() if isinstance(data, bytes) else data
-        return json.loads(json_str)
+        json_str = data.decode() if isinstance(data, bytes) else str(data)
+        result: dict[str, Any] = json.loads(json_str)
+        return result
 
     async def get_all_source_types(self) -> list[str]:
         """Get all source types currently in the pool.
@@ -256,7 +258,7 @@ class ScopedSourceCache:
     CACHE_KEY_PREFIX = "scoped_cache:"
     DEFAULT_TTL_MINUTES = 30  # Short TTL for scoped sources
 
-    def __init__(self, redis: AsyncRedis):
+    def __init__(self, redis: "AsyncRedis[Any]"):
         """Initialize the scoped cache.
 
         Args:
@@ -264,7 +266,7 @@ class ScopedSourceCache:
         """
         self.redis = redis
 
-    def _make_key(self, source_type: str, params: dict) -> str:
+    def _make_key(self, source_type: str, params: dict[str, Any]) -> str:
         """Generate cache key from source type and params.
 
         Args:
@@ -285,7 +287,7 @@ class ScopedSourceCache:
 
         return f"{self.CACHE_KEY_PREFIX}{source_type}:{param_str}"
 
-    async def get(self, source_type: str, params: dict) -> list[RawTopic] | None:
+    async def get(self, source_type: str, params: dict[str, Any]) -> list[RawTopic] | None:
         """Get cached topics if available.
 
         Args:
@@ -322,7 +324,7 @@ class ScopedSourceCache:
     async def set(
         self,
         source_type: str,
-        params: dict,
+        params: dict[str, Any],
         topics: list[RawTopic],
         ttl_minutes: int | None = None,
     ) -> None:
@@ -348,8 +350,8 @@ class ScopedSourceCache:
     async def get_or_collect(
         self,
         source_type: str,
-        params: dict,
-        collector_func,
+        params: dict[str, Any],
+        collector_func: Any,
         ttl_minutes: int | None = None,
     ) -> list[RawTopic]:
         """Get from cache or collect and cache.
@@ -369,14 +371,14 @@ class ScopedSourceCache:
             return cached
 
         # Collect
-        topics = await collector_func(source_type, params)
+        topics: list[RawTopic] = await collector_func(source_type, params)
 
         # Cache
         await self.set(source_type, params, topics, ttl_minutes)
 
         return topics
 
-    async def invalidate(self, source_type: str, params: dict) -> bool:
+    async def invalidate(self, source_type: str, params: dict[str, Any]) -> bool:
         """Invalidate cached data.
 
         Args:

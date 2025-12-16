@@ -128,7 +128,7 @@ class RedditSource(BaseSource[RedditConfig]):
             List of post data
         """
         url = f"{REDDIT_BASE}/r/{subreddit}/{sort}.json"
-        params = {"limit": limit, "raw_json": 1}
+        params: dict[str, str | int] = {"limit": limit, "raw_json": 1}
 
         if sort == "top":
             params["t"] = time_filter
@@ -137,7 +137,8 @@ class RedditSource(BaseSource[RedditConfig]):
         response.raise_for_status()
         data = response.json()
 
-        return data.get("data", {}).get("children", [])
+        children: list[dict[str, Any]] = data.get("data", {}).get("children", [])
+        return children
 
     def _to_raw_topic(self, post: dict[str, Any], subreddit: str) -> RawTopic | None:
         """Convert Reddit post to RawTopic.
