@@ -166,7 +166,7 @@ class AIImageGenerator(BaseVisualSource):
                         )
 
             except httpx.HTTPError as e:
-                logger.error(f"DALL-E generation failed: {e}")
+                logger.error(f"DALL-E generation failed: {e}", exc_info=True)
                 continue
 
         logger.info(f"Generated {len(assets)} AI images for prompt: {prompt[:50]}...")
