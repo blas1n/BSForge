@@ -891,6 +891,11 @@ Detailed designs are in `architecture/`:
   - `test_content_collection.py`: Normalization, dedup, filter, score (8 tests)
   - `test_full_pipeline.py`: Persona-based, batch generation, RAG integration (6 tests)
 
+- [x] 5.8 E2E Tests (✅ 24 tests passing)
+  - `test_video_generation.py`: TTS, subtitles, visuals, thumbnails, full pipeline (10 tests)
+  - `test_content_collection.py`: Normalization, dedup, filter, score (8 tests)
+  - `test_full_pipeline.py`: Persona-based, batch generation, RAG integration (6 tests)
+
 ### Phase 6: Upload & Analytics
 - [ ] 6.1 YouTube API integration
 - [ ] 6.2 Metadata generator

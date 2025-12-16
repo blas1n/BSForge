@@ -762,6 +762,7 @@ class FFmpegCompositor:
         duration: float,
         segment_index: int,
         temp_dir: Path,
+        enable_ken_burns: bool = True,
     ) -> Path:
         """Convert image to video segment with Ken Burns effect.
 
@@ -773,6 +774,7 @@ class FFmpegCompositor:
             duration: Segment duration
             segment_index: Segment index
             temp_dir: Temp directory
+            enable_ken_burns: Enable zoom in/out effect
 
         Returns:
             Path to video segment
