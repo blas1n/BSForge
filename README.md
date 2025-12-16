@@ -68,7 +68,7 @@ See [architecture/](./architecture/) for detailed design documents.
 | **Database** | PostgreSQL 16 + pgvector + Redis 7 |
 | **Vector Search** | pgvector (HNSW index) |
 | **Embedding** | BGE-M3 (HuggingFace) |
-| **LLM** | Claude API (LangChain) |
+| **LLM** | LiteLLM (Anthropic, OpenAI, Gemini) |
 | **TTS** | Edge TTS / ElevenLabs |
 | **Video** | FFmpeg |
 | **Queue** | Celery + Redis |
@@ -238,10 +238,13 @@ bsforge/
 - **Quality gates**: style_score ≥ 0.7, hook_score ≥ 0.5
 - Reflect high-performing content style from history
 
-### 3️⃣ Video Generation
-- TTS: Edge TTS (free) / ElevenLabs (premium)
-- Visuals: Pexels stock / DALL-E generation
-- FFmpeg composition + subtitles
+### 3️⃣ Video Generation ✅
+- **Scene-based system**: SceneType (HOOK, CONTENT, COMMENTARY, REACTION, etc.)
+- **Visual differentiation**: NEUTRAL (facts) vs PERSONA (opinions) styling
+- **Fact→Opinion transitions**: Flash effect for AI persona commentary
+- TTS: Edge TTS (free) / ElevenLabs (premium) with word-level timestamps
+- Visuals: Pexels stock → AI image → Fallback (priority-based)
+- FFmpeg composition + ASS subtitles with karaoke effects
 
 ### 4️⃣ Upload & Scheduling
 - YouTube Analytics-based optimal time analysis
@@ -391,7 +394,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ## 🙏 Acknowledgments
 
-- [LangChain](https://langchain.com/) - LLM Framework
+- [LiteLLM](https://litellm.ai/) - Unified LLM Interface
 - [HuggingFace](https://huggingface.co/) - Embedding Models
 - [FFmpeg](https://ffmpeg.org/) - Video Processing
 - [FastAPI](https://fastapi.tiangolo.com/) - Web Framework

@@ -1229,7 +1229,88 @@ class VideoGenerationPipeline:
 
 ---
 
-## 8. 기술 스택 정리
+## 8. Scene 기반 영상 생성 시스템 (BSForge 차별화)
+
+### 8.1 개요
+BSForge의 핵심 차별화 요소는 **AI 페르소나가 사실(Fact)과 의견(Opinion)을 구분하여 표현**하는 것입니다. Scene 기반 시스템은 이를 시각적으로 구현합니다.
+
+### 8.2 SceneType (장면 유형)
+```python
+class SceneType(str, Enum):
+    HOOK = "hook"              # 오프닝 훅 (시선 끌기)
+    INTRO = "intro"            # 주제 소개
+    CONTENT = "content"        # 본론 (사실 전달)
+    EXAMPLE = "example"        # 예시/사례
+    COMMENTARY = "commentary"  # AI 페르소나 의견/해석
+    REACTION = "reaction"      # 감정적 반응
+    CONCLUSION = "conclusion"  # 결론/요약
+    CTA = "cta"               # Call to Action
+```
+
+### 8.3 VisualStyle (시각적 스타일)
+```python
+class VisualStyle(str, Enum):
+    NEUTRAL = "neutral"    # 사실 전달 (기본 스타일)
+    PERSONA = "persona"    # AI 의견 (강조 스타일: 테두리, 악센트 컬러)
+    EMPHASIS = "emphasis"  # 핵심 결론 (화면 가득 텍스트)
+```
+
+### 8.4 TransitionType (전환 효과)
+```python
+class TransitionType(str, Enum):
+    NONE = "none"
+    FADE = "fade"          # 페이드 인/아웃
+    CROSSFADE = "crossfade"
+    ZOOM = "zoom"
+    FLASH = "flash"        # 사실→의견 전환 시 플래시 효과
+    SLIDE = "slide"
+```
+
+### 8.5 Scene 기반 파이프라인
+```
+SceneScript 생성 (LLM)
+    ↓
+Scene별 TTS 생성
+    ↓
+Scene별 자막 생성 (스타일 분기)
+    ↓
+Scene별 비주얼 소싱
+    ↓
+Scene별 트랜지션 적용
+    ↓
+FFmpeg 합성
+```
+
+### 8.6 시각적 차별화 예시
+| Scene Type | Visual Style | 특징 |
+|------------|--------------|------|
+| CONTENT | NEUTRAL | 기본 배경, 흰색 자막 |
+| COMMENTARY/REACTION | PERSONA | 악센트 컬러 테두리, 강조 효과 |
+| CONCLUSION | EMPHASIS | 화면 중앙 큰 텍스트 |
+
+### 8.7 자동 트랜지션 추천
+```python
+def apply_recommended_transitions(scenes: list[Scene]) -> list[Scene]:
+    """연속된 Scene 간 적절한 트랜지션 자동 적용"""
+    for i, scene in enumerate(scenes[1:], 1):
+        prev = scenes[i-1]
+
+        # 사실 → 의견: 플래시 효과
+        if prev.visual_style == VisualStyle.NEUTRAL and scene.visual_style == VisualStyle.PERSONA:
+            scene.transition_in = TransitionType.FLASH
+
+        # 의견 → 사실: 페이드
+        elif prev.visual_style == VisualStyle.PERSONA and scene.visual_style == VisualStyle.NEUTRAL:
+            scene.transition_in = TransitionType.FADE
+
+        # HOOK → 본론: 줌
+        elif prev.scene_type == SceneType.HOOK:
+            scene.transition_in = TransitionType.ZOOM
+```
+
+---
+
+## 9. 기술 스택 정리
 
 | 컴포넌트 | 라이브러리 | 비고 |
 |----------|------------|------|

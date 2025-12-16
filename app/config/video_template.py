@@ -12,6 +12,17 @@ Example usage:
       title_overlay:
         enabled: true
     ```
+
+Korean Shorts Standard Layout (양산형 쇼츠):
+    ┌──────────────────┐
+    │  상단 헤드라인    │  ← 10~20% (키워드 컬러 + 흰색 설명)
+    ├──────────────────┤
+    │                  │
+    │   메인 이미지     │  ← 60~70% (꽉 채움)
+    │                  │
+    ├──────────────────┤
+    │  하단 자막        │  ← 15~25% (흰색, 외곽선)
+    └──────────────────┘
 """
 
 from typing import Literal
@@ -19,25 +30,92 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
-class TitleOverlayConfig(BaseModel):
-    """Configuration for the title overlay at the top of the video.
+class HeadlineLineConfig(BaseModel):
+    """Configuration for a single headline line.
 
-    This is commonly used in "viral shorts" style videos where
-    a hook/title is displayed prominently at the top.
+    Used in the 2-line headline structure common in Korean shorts:
+    - Line 1: Keyword with accent color
+    - Line 2: Description in white
+    """
+
+    color: str = Field(default="#FFFFFF", description="Text color (hex)")
+    font_size: int = Field(default=72, ge=24, le=144)
+    bold: bool = True
+    outline_width: int = Field(default=4, ge=0, le=10)
+
+
+class HeadlineConfig(BaseModel):
+    """Configuration for 2-line headline at top of video.
+
+    Korean shorts style - NO BACKGROUND, text directly on image:
+    ┌──────────────────┐
+    │  키워드 (컬러)    │  ← Line 1: accent color, bold
+    │  설명 (흰색)      │  ← Line 2: white
+    └──────────────────┘
+
+    Key characteristics:
+    - No background (배경 없이 이미지 위에 바로 텍스트)
+    - Bold font with tight letter spacing (자간 좁게)
+    - Line 1: 1-4 words, single accent color
+    - Line 2: Hook/description in white
     """
 
     enabled: bool = True
+    position_y_ratio: float = Field(
+        default=0.10,
+        ge=0.02,
+        le=0.25,
+        description="Y position as ratio of screen height (0.10 = 10% from top)",
+    )
+
+    # Line 1: Keyword (accent color) - e.g., "모아이 석상", "이집트 피라미드"
+    line1: HeadlineLineConfig = Field(
+        default_factory=lambda: HeadlineLineConfig(
+            color="#FF69B4",  # Hot pink (like analysis examples)
+            font_size=72,
+            bold=True,
+            outline_width=4,
+        )
+    )
+
+    # Line 2: Description (white) - e.g., "어떻게 움직였을까?", "반짝반짝 눈이 부셔"
+    line2: HeadlineLineConfig = Field(
+        default_factory=lambda: HeadlineLineConfig(
+            color="#FFFFFF",
+            font_size=56,
+            bold=True,
+            outline_width=3,
+        )
+    )
+
     font_name: str = "Pretendard-Bold"
-    font_size: int = Field(default=56, ge=12, le=144)
-    color: str = "#FFFFFF"
     outline_color: str = "#000000"
-    outline_width: int = Field(default=2, ge=0, le=10)
-    background_enabled: bool = True
-    background_color: str = "#000000"
-    background_opacity: float = Field(default=0.7, ge=0.0, le=1.0)
-    position_y: int = Field(default=100, ge=0, le=500)
+    line_spacing: float = Field(default=1.3, ge=1.0, le=2.0)
+    letter_spacing: float = Field(
+        default=-0.02,
+        ge=-0.1,
+        le=0.1,
+        description="Letter spacing ratio (negative = tighter, 쇼츠 감성)",
+    )
     max_width_ratio: float = Field(default=0.9, ge=0.5, le=1.0)
-    line_spacing: float = Field(default=1.2, ge=1.0, le=2.0)
+
+    # Shadow for better visibility on any background
+    shadow_enabled: bool = True
+    shadow_color: str = "#000000"
+    shadow_offset: int = Field(default=3, ge=0, le=10)
+
+    # Background for headline area (검은 배경)
+    background_enabled: bool = False
+    background_color: str = "#000000"
+    background_opacity: float = Field(default=1.0, ge=0.0, le=1.0)
+    background_padding_x: int = Field(default=40, ge=0, le=100)
+    background_padding_y: int = Field(default=30, ge=0, le=100)
+    background_height_ratio: float = Field(
+        default=0.18,
+        ge=0.1,
+        le=0.4,
+        description="Height of background area as ratio of screen (0.18 = 18%)",
+    )
 
 
 class FrameLayoutConfig(BaseModel):
@@ -81,22 +159,81 @@ class FrameLayoutConfig(BaseModel):
     content_border_radius: int = Field(default=20, ge=0, le=50)
 
 
+class CaptionConfig(BaseModel):
+    """Configuration for bottom caption (하단 자막).
+
+    Korean shorts style:
+    - Position: Center to bottom area
+    - White text with black outline
+    - Optional word emphasis (yellow/green highlight)
+    - Short, declarative sentences
+    """
+
+    enabled: bool = True
+    position_y_ratio: float = Field(
+        default=0.82,
+        ge=0.3,
+        le=0.95,
+        description="Y position as ratio (0.55 = center, 0.82 = bottom 18%)",
+    )
+    font_name: str = "Pretendard-Bold"
+    font_size: int = Field(default=48, ge=24, le=200)
+    primary_color: str = "#FFFFFF"
+    outline_color: str = "#000000"
+    outline_width: int = Field(default=3, ge=0, le=10)
+
+    # Emphasis for keywords (노랑/초록 강조)
+    emphasis_enabled: bool = True
+    emphasis_color: str = "#FFFF00"  # Yellow default
+
+    # Text wrapping
+    max_chars_per_line: int = Field(default=18, ge=5, le=30)
+    max_lines: int = Field(default=2, ge=1, le=3)
+
+    # Animation
+    fade_in_ms: int = Field(default=100, ge=0, le=500)
+    fade_out_ms: int = Field(default=80, ge=0, le=500)
+
+
 class LayoutConfig(BaseModel):
     """Layout configuration for video elements.
 
-    Controls the positioning of title overlay, subtitles, and frame layout.
+    Korean Shorts Standard Layout (양산형 쇼츠):
+    ┌──────────────────┐
+    │  상단 헤드라인    │  ← headline (10~20%)
+    ├──────────────────┤
+    │                  │
+    │   메인 이미지     │  ← fullscreen image (60~70%)
+    │                  │
+    ├──────────────────┤
+    │  하단 자막        │  ← caption (15~25%)
+    └──────────────────┘
+
+    Controls the positioning of headline and caption overlays.
     """
 
-    title_overlay: TitleOverlayConfig | None = None
-    subtitle_position: Literal["top", "center", "bottom"] = "center"
+    # 2-line headline at top (Korean shorts standard)
+    headline: HeadlineConfig | None = None
+
+    # Bottom caption for explanatory text
+    caption: CaptionConfig | None = None
+
+    subtitle_position: Literal["top", "center", "bottom"] = "bottom"
     subtitle_margin_ratio: float = Field(
-        default=0.5,
+        default=0.18,
         ge=0.1,
         le=0.9,
-        description="Vertical position ratio (0.15=bottom, 0.5=center, 0.85=top)",
+        description="Vertical position ratio (0.18=bottom 18%, for UI safe zone)",
     )
-    # Frame layout for "양산형" style
+
+    # Frame layout for "양산형" style (optional, for framed content)
     frame: FrameLayoutConfig = Field(default_factory=FrameLayoutConfig)
+
+    # Image fills entire screen (no frame) by default
+    fullscreen_image: bool = Field(
+        default=True,
+        description="Image fills entire screen (이미지 꽉 채움)",
+    )
 
 
 class SubtitleTemplateConfig(BaseModel):
@@ -106,7 +243,7 @@ class SubtitleTemplateConfig(BaseModel):
     """
 
     font_name: str = "Pretendard"
-    font_size: int = Field(default=72, ge=12, le=144)
+    font_size: int = Field(default=72, ge=12, le=200)
     bold: bool = True
 
     # Colors (hex format)
@@ -126,7 +263,7 @@ class SubtitleTemplateConfig(BaseModel):
     karaoke_enabled: bool = True
 
     # Text layout
-    max_chars_per_line: int = Field(default=20, ge=10, le=50)
+    max_chars_per_line: int = Field(default=20, ge=5, le=50)
     max_lines: int = Field(default=2, ge=1, le=4)
 
 
@@ -184,6 +321,65 @@ class AudioTemplateConfig(BaseModel):
     normalize_audio: bool = True
 
 
+class VisualPromptConfig(BaseModel):
+    """Visual/image generation prompt guidelines.
+
+    Used to guide AI image generation (DALL-E, etc.) and stock image search
+    for optimal Korean shorts style visuals.
+    """
+
+    # Keywords to include in prompts
+    include_keywords: list[str] = Field(
+        default=[
+            "vertical 9:16 composition",
+            "cinematic lighting",
+            "simple background",
+            "center-focused subject",
+            "high contrast",
+            "realistic or semi-realistic style",
+            "empty space at top and bottom for subtitles",
+            "viral short-form video thumbnail style",
+            "dramatic but clean",
+            "clear silhouette",
+            "slightly exaggerated lighting",
+            "social media short video aesthetic",
+            "easy to understand at a glance",
+        ],
+        description="Keywords to include in image generation prompts",
+    )
+
+    # Keywords to exclude (negative prompt)
+    exclude_keywords: list[str] = Field(
+        default=[
+            "text",
+            "subtitle",
+            "logo",
+            "watermark",
+            "busy background",
+            "cluttered composition",
+            "multiple focal points",
+            "low contrast",
+            "blurry subject",
+            "horizontal layout",
+        ],
+        description="Keywords for negative prompt / exclusion",
+    )
+
+    # Style presets
+    style: Literal["realistic", "semi-realistic", "stylized", "anime"] = Field(
+        default="realistic",
+        description="Overall visual style",
+    )
+
+    def build_prompt_suffix(self) -> str:
+        """Build suffix to append to image generation prompts."""
+        return ", ".join(self.include_keywords)
+
+    def build_negative_prompt(self) -> str:
+        """Build negative prompt for AI image generation."""
+        return ", ".join(self.exclude_keywords)
+
+
 class VideoTemplateConfig(BaseModel):
     """Complete video style template configuration.
 
@@ -208,3 +404,18 @@ class VideoTemplateConfig(BaseModel):
     subtitle: SubtitleTemplateConfig = Field(default_factory=SubtitleTemplateConfig)
     visual_effects: VisualEffectsConfig = Field(default_factory=VisualEffectsConfig)
     audio: AudioTemplateConfig = Field(default_factory=AudioTemplateConfig)
+    visual_prompt: VisualPromptConfig = Field(default_factory=VisualPromptConfig)
+
+
+__all__ = [
+    "VideoTemplateConfig",
+    "LayoutConfig",
+    "HeadlineConfig",
+    "HeadlineLineConfig",
+    "CaptionConfig",
+    "FrameLayoutConfig",
+    "SubtitleTemplateConfig",
+    "VisualEffectsConfig",
+    "AudioTemplateConfig",
+    "VisualPromptConfig",
+]

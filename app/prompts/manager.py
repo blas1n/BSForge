@@ -23,6 +23,7 @@ class PromptType(str, Enum):
     CLASSIFICATION = "classification"
     CONTENT_CLASSIFICATION = "content_classification"
     SCRIPT_GENERATION = "script_generation"
+    SCENE_SCRIPT_GENERATION = "scene_script_generation"
 
 
 class PromptTemplate(BaseModel):

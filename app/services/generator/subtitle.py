@@ -5,6 +5,10 @@ with support for ASS (Advanced SubStation Alpha) and SRT formats.
 
 Supports template-based styling via VideoTemplateConfig for consistent
 visual styles across different video types (e.g., Korean viral, minimal).
+
+Scene-based generation:
+- generate_from_scene_results() respects scene boundaries
+- Different visual styles for NEUTRAL vs PERSONA scenes
 """
 
 import logging
@@ -14,10 +18,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from app.config.video import SubtitleConfig, SubtitleStyleConfig
-from app.services.generator.tts.base import WordTimestamp
+from app.services.generator.tts.base import SceneTTSResult, WordTimestamp
 
 if TYPE_CHECKING:
+    from app.config.persona import PersonaStyleConfig
     from app.config.video_template import VideoTemplateConfig
+    from app.models.scene import Scene, VisualStyle
 
 logger = logging.getLogger(__name__)
 
@@ -298,7 +304,7 @@ class SubtitleGenerator:
             fade_out_ms = tmpl_sub.fade_out_ms
             karaoke_enabled = tmpl_sub.karaoke_enabled
         else:
-            # Fall back to legacy config
+            # Fall back to default config (no template)
             font_name = style.font_name
             font_size = style.font_size
             outline_width = style.outline_width
@@ -533,6 +539,479 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             parts.append(f"{{\\k{int(word_duration)}}}{word.word}")
 
         return "".join(parts)
+
+    def generate_from_scene_results(
+        self,
+        scene_results: list[SceneTTSResult],
+        scenes: list["Scene"],
+        persona_style: "PersonaStyleConfig | None" = None,
+        template: "VideoTemplateConfig | None" = None,
+    ) -> SubtitleFile:
+        """Generate subtitles from scene-based TTS results.
+
+        This method respects scene boundaries when grouping subtitles,
+        ensuring that subtitle segments don't cross scene transitions.
+        Each scene type gets appropriate visual styling.
+
+        Priority:
+        1. If scene.subtitle_segments is defined, use those segments (문맥에 맞게 끊기)
+        2. Otherwise, auto-split based on TTS word boundaries and max_chars
+
+        Args:
+            scene_results: List of SceneTTSResult from synthesize_scenes()
+            scenes: List of Scene objects with scene metadata
+            persona_style: Optional PersonaStyleConfig for persona scene styling
+            template: Optional VideoTemplateConfig for base styling
+
+        Returns:
+            SubtitleFile with scene-aware segments
+        """
+        from app.models.scene import VisualStyle
+
+        if not scene_results:
+            logger.warning("No scene results provided")
+            return SubtitleFile(segments=[], style=self.config.style)
+
+        if len(scene_results) != len(scenes):
+            logger.warning(f"Mismatch: {len(scene_results)} TTS results, {len(scenes)} scenes")
+
+        all_segments: list[SubtitleSegment] = []
+        segment_index = 1
+
+        # Get max_chars from template or config
+        if template and template.subtitle:
+            max_chars = template.subtitle.max_chars_per_line
+            max_words_per_segment = 4 if template.subtitle.karaoke_enabled else 10
+        else:
+            max_chars = self.config.max_chars_per_line
+            max_words_per_segment = 10
+
+        for i, scene_result in enumerate(scene_results):
+            # Get corresponding scene (if available)
+            scene = scenes[i] if i < len(scenes) else None
+            visual_style = scene.inferred_visual_style if scene else VisualStyle.NEUTRAL
+            emphasis_words = scene.emphasis_words if scene else []
+
+            # Get word timestamps for this scene
+            word_timestamps = scene_result.word_timestamps or []
+
+            # Priority 1: Use manual subtitle_segments if defined
+            if scene and scene.subtitle_segments:
+                segments_from_manual = self._create_segments_from_manual(
+                    subtitle_segments=scene.subtitle_segments,
+                    word_timestamps=word_timestamps,
+                    scene_result=scene_result,
+                    visual_style=visual_style,
+                    emphasis_words=emphasis_words,
+                    persona_style=persona_style,
+                    start_index=segment_index,
+                )
+                all_segments.extend(segments_from_manual)
+                segment_index += len(segments_from_manual)
+                continue
+
+            # Priority 2: Auto-split from word timestamps
+            if not word_timestamps:
+                # Fallback: create a single segment for the entire scene
+                if scene:
+                    all_segments.append(
+                        SubtitleSegment(
+                            index=segment_index,
+                            start=scene_result.start_offset,
+                            end=scene_result.start_offset + scene_result.duration_seconds,
+                            text=scene.text,
+                            words=None,
+                        )
+                    )
+                    segment_index += 1
+                continue
+
+            # Group words into segments within this scene's boundaries
+            current_words: list[WordTimestamp] = []
+            current_text = ""
+
+            for word_ts in word_timestamps:
+                word = word_ts.word.strip()
+                if not word:
+                    continue
+
+                potential_text = f"{current_text} {word}".strip() if current_text else word
+                word_count = len(current_words) + 1
+
+                # Check if we should create a new segment
+                should_break = (
+                    (len(potential_text) > max_chars and current_words)
+                    or (word_count > max_words_per_segment and current_words)
+                    or (current_text and current_text[-1] in ".!?。！？")
+                )
+
+                if should_break:
+                    # Create segment from current words
+                    styled_text = self._apply_scene_styling(
+                        current_text,
+                        visual_style,
+                        emphasis_words,
+                        persona_style,
+                    )
+                    all_segments.append(
+                        SubtitleSegment(
+                            index=segment_index,
+                            start=current_words[0].start + scene_result.start_offset,
+                            end=current_words[-1].end + scene_result.start_offset,
+                            text=styled_text,
+                            words=current_words.copy(),
+                        )
+                    )
+                    segment_index += 1
+                    current_words = []
+                    current_text = ""
+
+                current_words.append(word_ts)
+                current_text = f"{current_text} {word}".strip() if current_text else word
+
+            # Add remaining words as final segment for this scene
+            if current_words:
+                styled_text = self._apply_scene_styling(
+                    current_text,
+                    visual_style,
+                    emphasis_words,
+                    persona_style,
+                )
+                all_segments.append(
+                    SubtitleSegment(
+                        index=segment_index,
+                        start=current_words[0].start + scene_result.start_offset,
+                        end=current_words[-1].end + scene_result.start_offset,
+                        text=styled_text,
+                        words=current_words.copy(),
+                    )
+                )
+                segment_index += 1
+
+        logger.info(
+            f"Generated {len(all_segments)} scene-aware subtitle segments "
+            f"from {len(scene_results)} scenes"
+        )
+
+        return SubtitleFile(
+            segments=all_segments,
+            style=self.config.style,
+            format=self.config.format,
+        )
+
+    def _create_segments_from_manual(
+        self,
+        subtitle_segments: list[str],
+        word_timestamps: list[WordTimestamp],
+        scene_result: SceneTTSResult,
+        visual_style: "VisualStyle",
+        emphasis_words: list[str],
+        persona_style: "PersonaStyleConfig | None",
+        start_index: int,
+    ) -> list[SubtitleSegment]:
+        """Create subtitle segments from manually defined breaks.
+
+        Matches manual segment text to TTS word timestamps to get accurate timing.
+        Falls back to proportional timing if word timestamps don't match.
+
+        Args:
+            subtitle_segments: List of manually defined segment texts
+            word_timestamps: Word-level timestamps from TTS
+            scene_result: Scene TTS result for timing info
+            visual_style: Visual style for this scene
+            emphasis_words: Words to emphasize
+            persona_style: Persona style config
+            start_index: Starting segment index
+
+        Returns:
+            List of SubtitleSegment with proper timing
+        """
+        segments: list[SubtitleSegment] = []
+        segment_index = start_index
+
+        if not word_timestamps:
+            # No word timestamps - distribute time proportionally
+            total_chars = sum(len(seg) for seg in subtitle_segments)
+            current_time = scene_result.start_offset
+
+            for seg_text in subtitle_segments:
+                seg_duration = (
+                    (len(seg_text) / total_chars) * scene_result.duration_seconds
+                    if total_chars > 0
+                    else scene_result.duration_seconds / len(subtitle_segments)
+                )
+                styled_text = self._apply_scene_styling(
+                    seg_text, visual_style, emphasis_words, persona_style
+                )
+                segments.append(
+                    SubtitleSegment(
+                        index=segment_index,
+                        start=current_time,
+                        end=current_time + seg_duration,
+                        text=styled_text,
+                        words=None,
+                    )
+                )
+                segment_index += 1
+                current_time += seg_duration
+
+            return segments
+
+        # Build a mapping of words to their timestamps
+        # Normalize words for matching (remove spaces, punctuation variations)
+        word_ts_idx = 0
+        total_words = len(word_timestamps)
+
+        for seg_text in subtitle_segments:
+            # Find words in this segment
+            seg_words = seg_text.split()
+            matched_timestamps: list[WordTimestamp] = []
+
+            for seg_word in seg_words:
+                # Try to find matching word timestamp
+                # Allow some flexibility in matching (strip punctuation)
+                seg_word_clean = seg_word.strip(".,!?。！？")
+
+                while word_ts_idx < total_words:
+                    ts_word = word_timestamps[word_ts_idx]
+                    ts_word_clean = ts_word.word.strip().strip(".,!?。！？")
+
+                    if seg_word_clean == ts_word_clean or seg_word_clean in ts_word_clean:
+                        matched_timestamps.append(ts_word)
+                        word_ts_idx += 1
+                        break
+                    elif ts_word_clean in seg_word_clean:
+                        # Partial match (e.g., compound words)
+                        matched_timestamps.append(ts_word)
+                        word_ts_idx += 1
+                        # Don't break - continue looking for more parts
+                    else:
+                        # No match - might be a timing gap, skip this timestamp
+                        word_ts_idx += 1
+
+            # Create segment with matched timing
+            if matched_timestamps:
+                start_time = matched_timestamps[0].start + scene_result.start_offset
+                end_time = matched_timestamps[-1].end + scene_result.start_offset
+            else:
+                # Fallback: estimate based on position in scene
+                seg_idx = subtitle_segments.index(seg_text)
+                seg_duration = scene_result.duration_seconds / len(subtitle_segments)
+                start_time = scene_result.start_offset + (seg_idx * seg_duration)
+                end_time = start_time + seg_duration
+
+            styled_text = self._apply_scene_styling(
+                seg_text, visual_style, emphasis_words, persona_style
+            )
+            segments.append(
+                SubtitleSegment(
+                    index=segment_index,
+                    start=start_time,
+                    end=end_time,
+                    text=styled_text,
+                    words=matched_timestamps if matched_timestamps else None,
+                )
+            )
+            segment_index += 1
+
+        return segments
+
+    def _apply_scene_styling(
+        self,
+        text: str,
+        visual_style: "VisualStyle",
+        emphasis_words: list[str],
+        persona_style: "PersonaStyleConfig | None" = None,
+    ) -> str:
+        """Apply styling based on scene visual style.
+
+        Args:
+            text: Original text
+            visual_style: Scene's visual style (NEUTRAL, PERSONA, EMPHASIS)
+            emphasis_words: Words to highlight
+            persona_style: Optional PersonaStyleConfig
+
+        Returns:
+            Styled text (may include ASS tags for special styling)
+        """
+        result = text
+
+        # Highlight emphasis words (wrap with secondary color tag)
+        # Note: This creates inline ASS override tags
+        if emphasis_words and persona_style:
+            for word in emphasis_words:
+                if word in result:
+                    # ASS inline color override: {\c&HBBGGRR&}text{\c}
+                    hex_color = persona_style.secondary_color.lstrip("#")
+                    # Convert RGB to BGR for ASS
+                    r, g, b = hex_color[0:2], hex_color[2:4], hex_color[4:6]
+                    ass_color = f"&H{b}{g}{r}&"
+                    highlighted = f"{{\\c{ass_color}}}{word}{{\\c}}"
+                    result = result.replace(word, highlighted, 1)
+
+        return result
+
+    def to_ass_with_scene_styles(
+        self,
+        subtitle: SubtitleFile,
+        output_path: Path,
+        scenes: list["Scene"],
+        scene_results: list[SceneTTSResult],
+        persona_style: "PersonaStyleConfig | None" = None,
+        template: "VideoTemplateConfig | None" = None,
+    ) -> Path:
+        """Export subtitles to ASS format with scene-specific styles.
+
+        Creates multiple ASS styles for different visual styles (NEUTRAL, PERSONA, EMPHASIS)
+        and applies them based on which scene each subtitle segment belongs to.
+
+        Args:
+            subtitle: Subtitle data
+            output_path: Output file path
+            scenes: List of Scene objects
+            scene_results: List of SceneTTSResult for timing lookup
+            persona_style: Optional PersonaStyleConfig
+            template: Video template config for base styling
+
+        Returns:
+            Path to generated ASS file
+        """
+        from app.models.scene import VisualStyle
+
+        output_path = output_path.with_suffix(".ass")
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        style = subtitle.style
+
+        # Base styling from template or config
+        if template and template.subtitle:
+            tmpl_sub = template.subtitle
+            tmpl_layout = template.layout
+
+            font_name = tmpl_sub.font_name
+            font_size = tmpl_sub.font_size
+            outline_width = tmpl_sub.outline_width
+            bold = 1 if tmpl_sub.bold else 0
+            primary_color = self._hex_to_ass_color(tmpl_sub.primary_color)
+            outline_color = self._hex_to_ass_color(tmpl_sub.outline_color)
+
+            position = tmpl_layout.subtitle_position if tmpl_layout else "center"
+            margin_ratio = tmpl_layout.subtitle_margin_ratio if tmpl_layout else 0.5
+
+            if position == "bottom":
+                alignment = 2
+                margin_v = int(1920 * margin_ratio)
+            elif position == "top":
+                alignment = 8
+                margin_v = int(1920 * (1 - margin_ratio))
+            else:
+                alignment = 5
+                margin_v = int(1920 * (0.5 - margin_ratio / 2))
+
+            fade_in_ms = tmpl_sub.fade_in_ms
+            fade_out_ms = tmpl_sub.fade_out_ms
+            karaoke_enabled = tmpl_sub.karaoke_enabled
+            bg_color = (
+                self._hex_to_ass_color(
+                    tmpl_sub.background_color, opacity=tmpl_sub.background_opacity
+                )
+                if tmpl_sub.background_enabled
+                else "&H00000000"
+            )
+            border_style = 3 if tmpl_sub.background_enabled else 1
+        else:
+            font_name = style.font_name
+            font_size = style.font_size
+            outline_width = style.outline_width
+            alignment = self._get_ass_alignment()
+            margin_v = self.config.margin_bottom
+            primary_color = self._hex_to_ass_color(style.primary_color)
+            outline_color = self._hex_to_ass_color(style.outline_color)
+            bg_color = self._hex_to_ass_color(
+                style.background_color,
+                opacity=style.background_opacity if style.background_enabled else 0.0,
+            )
+            border_style = 3 if style.background_enabled else 1
+            bold = 0
+            fade_in_ms = 100
+            fade_out_ms = 50
+            karaoke_enabled = self.config.highlight_current_word
+
+        # Build ASS with multiple styles
+        ass_content = f"""[Script Info]
+Title: BSForge Scene-Based Subtitles
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+WrapStyle: 0
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Neutral,{font_name},{font_size},{primary_color},&H00000000,{outline_color},{bg_color},{bold},0,0,0,100,100,0,0,{border_style},{outline_width},0,{alignment},{self.config.margin_horizontal},{self.config.margin_horizontal},{margin_v},1
+Style: Persona,{font_name},{font_size},{primary_color},&H00000000,{outline_color},{bg_color},{bold},0,0,0,100,100,0,0,{border_style},{outline_width},0,{alignment},{self.config.margin_horizontal},{self.config.margin_horizontal},{margin_v},1
+Style: Emphasis,{font_name},{font_size},{primary_color},&H00000000,{outline_color},{bg_color},{bold},0,0,0,100,100,0,0,{border_style},{outline_width},0,{alignment},{self.config.margin_horizontal},{self.config.margin_horizontal},{margin_v},1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+
+        # Build scene timing lookup: scene_index -> (start, end)
+        scene_timings: list[tuple[float, float]] = []
+        for sr in scene_results:
+            scene_timings.append((sr.start_offset, sr.start_offset + sr.duration_seconds))
+
+        # Add dialogue lines with appropriate style
+        for segment in subtitle.segments:
+            start_time = self._seconds_to_ass_time(segment.start)
+            end_time = self._seconds_to_ass_time(segment.end)
+
+            # Determine which scene this segment belongs to
+            scene_idx = self._find_scene_index(segment.start, scene_timings)
+            scene = scenes[scene_idx] if 0 <= scene_idx < len(scenes) else None
+            visual_style = scene.inferred_visual_style if scene else VisualStyle.NEUTRAL
+
+            # Map visual style to ASS style name
+            style_name = {
+                VisualStyle.NEUTRAL: "Neutral",
+                VisualStyle.PERSONA: "Persona",
+                VisualStyle.EMPHASIS: "Emphasis",
+            }.get(visual_style, "Neutral")
+
+            # Apply karaoke if enabled and words available
+            if karaoke_enabled and segment.words:
+                text = self._apply_karaoke_effect(segment)
+            else:
+                text = segment.text
+
+            # Add fade animation
+            if fade_in_ms > 0 or fade_out_ms > 0:
+                text = f"{{\\fad({fade_in_ms},{fade_out_ms})}}{text}"
+
+            ass_content += f"Dialogue: 0,{start_time},{end_time},{style_name},,0,0,0,,{text}\n"
+
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(ass_content)
+
+        logger.info(f"Generated scene-styled ASS subtitle: {output_path}")
+        return output_path
+
+    def _find_scene_index(self, timestamp: float, scene_timings: list[tuple[float, float]]) -> int:
+        """Find which scene a timestamp belongs to.
+
+        Args:
+            timestamp: Time in seconds
+            scene_timings: List of (start, end) tuples for each scene
+
+        Returns:
+            Scene index (0-based), or -1 if not found
+        """
+        for i, (start, end) in enumerate(scene_timings):
+            if start <= timestamp < end:
+                return i
+        # If timestamp is exactly at the end of the last scene, return last index
+        if scene_timings and timestamp >= scene_timings[-1][1] - 0.01:
+            return len(scene_timings) - 1
+        return -1
 
 
 __all__ = [

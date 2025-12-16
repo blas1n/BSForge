@@ -44,6 +44,30 @@ class PromptBuilder:
         logger.debug(f"Built prompt: {len(prompt)} characters")
         return prompt
 
+    async def build_scene_prompt(self, context: GenerationContext) -> str:
+        """Build scene-based generation prompt.
+
+        This prompt instructs the LLM to output a JSON array of scenes
+        with explicit scene types including COMMENTARY/REACTION for
+        persona opinions (BSForge differentiator).
+
+        Args:
+            context: Generation context with topic, persona, and retrieved content
+
+        Returns:
+            Formatted prompt string for scene-based script generation
+        """
+        logger.info("Building scene-based generation prompt")
+
+        # Extract variables for template rendering
+        variables = self._build_template_variables(context)
+
+        # Render using PromptManager with scene template
+        prompt = self.prompt_manager.render(PromptType.SCENE_SCRIPT_GENERATION, **variables)
+
+        logger.debug(f"Built scene prompt: {len(prompt)} characters")
+        return prompt
+
     def _build_template_variables(
         self, context: GenerationContext
     ) -> dict[str, str | int | list[Any] | None | bool]:

@@ -92,11 +92,12 @@ bsforge/
 │   ├── infrastructure/       # External service clients
 │   │   ├── llm.py            # LiteLLM unified client
 │   │   └── pgvector_db.py    # pgvector implementation
-│   ├── models/               # SQLAlchemy ORM models
+│   ├── models/               # SQLAlchemy ORM models + Pydantic models
 │   │   ├── base.py           # UUIDMixin, TimestampMixin
 │   │   ├── channel.py
 │   │   ├── topic.py
 │   │   ├── script.py
+│   │   ├── scene.py          # Scene, SceneScript, SceneType, VisualStyle
 │   │   ├── video.py
 │   │   ├── upload.py
 │   │   └── ...
@@ -114,10 +115,12 @@ bsforge/
 │   │   │   ├── reranker.py
 │   │   │   └── generator.py
 │   │   ├── generator/        # Video generation
-│   │   │   ├── tts.py
-│   │   │   ├── subtitle.py
-│   │   │   ├── visual.py
-│   │   │   └── compositor.py
+│   │   │   ├── tts/          # TTS engines (Edge TTS, ElevenLabs)
+│   │   │   ├── visual/       # Visual sourcing (Pexels, AI, fallback)
+│   │   │   ├── subtitle.py   # Subtitle generation (ASS/SRT, scene-aware)
+│   │   │   ├── compositor.py # FFmpeg video composition
+│   │   │   ├── pipeline.py   # Video generation pipeline orchestrator
+│   │   │   └── thumbnail.py  # Thumbnail generation
 │   │   ├── uploader/         # YouTube upload
 │   │   │   ├── youtube.py
 │   │   │   ├── metadata.py
@@ -137,7 +140,8 @@ bsforge/
 ├── config/
 │   ├── examples/             # Example configs (public)
 │   ├── channels/             # Channel configs (gitignored)
-│   └── sources/              # Source configs (gitignored)
+│   ├── sources/              # Source configs (gitignored)
+│   └── templates/            # Video templates (korean_shorts_standard.yaml)
 ├── dashboard/                # React frontend
 ├── architecture/             # Design documents
 ├── alembic/                  # DB migrations
@@ -842,31 +846,47 @@ Detailed designs are in `architecture/`:
   - `SubtitleGenerator` with ASS/SRT export
   - Word-level karaoke effects from TTS timestamps
   - Configurable styling (font, colors, position)
+  - Scene-aware styling (different styles for PERSONA vs NEUTRAL scenes)
 - [x] 5.3 Visual selector (stock video/image)
   - `PexelsClient` - stock video/image search & download
   - `AIImageGenerator` - DALL-E 3 image generation
   - `FallbackGenerator` - solid color/gradient backgrounds
   - `VisualSourcingManager` - priority-based sourcing orchestrator
+  - Scene-aware visual sourcing with per-scene keywords
 - [x] 5.4 Video compositor (FFmpeg)
   - `FFmpegCompositor` - video sequence, audio mixing, subtitle burning
   - 1080x1920 (9:16 Shorts), H.264, 30fps, AAC audio
+  - Scene-based composition with transitions (fade, flash, crossfade)
 - [x] 5.5 Thumbnail generator
   - `ThumbnailGenerator` - PIL-based, 1280x720
   - Text overlay with stroke, auto-wrap
 - [x] 5.6 Video pipeline orchestrator
   - `VideoGenerationPipeline` - complete workflow
   - Script → TTS → Subtitles → Visuals → FFmpeg → Thumbnail → DB
+  - Scene-based pipeline with `SceneScript` support
 - [x] 5.7 Database & DI
   - `Video` model with `VideoStatus` enum
+  - `Script` model extended with `scenes` JSON field
   - DI container integration (configs + services)
+- [x] 5.8 Scene-based video generation system
+  - `Scene`, `SceneScript` models (`app/models/scene.py`)
+  - `SceneType` enum: HOOK, INTRO, CONTENT, EXAMPLE, COMMENTARY, REACTION, CONCLUSION, CTA
+  - `VisualStyle` enum: NEUTRAL (facts), PERSONA (opinions), EMPHASIS (conclusions)
+  - `TransitionType` enum: NONE, FADE, CROSSFADE, ZOOM, FLASH, SLIDE
+  - Fact→Opinion transition with visual flash effect (BSForge differentiator)
+  - Scene-aware subtitle styling with accent colors for persona scenes
+  - Video template system (`app/config/video_template.py`)
+  - Scene script generation prompts (`app/prompts/templates/scene_script_generation.yaml`)
 
 **Key Features**:
 - **TTS**: Edge TTS (free, Korean/English) + ElevenLabs (premium)
 - **Word Timestamps**: Karaoke-style subtitles from TTS
 - **Visual Priority**: stock_video → stock_image → ai_image → fallback
 - **FFmpeg**: Segment concatenation, subtitle burning, audio mixing
+- **Scene System**: BSForge differentiator - AI persona expresses opinions via COMMENTARY/REACTION scenes
+- **Visual Differentiation**: Different styling for facts (neutral) vs opinions (accent color, border)
 
-- [x] 5.8 E2E Tests (✅ 24 tests passing)
+- [x] 5.9 E2E Tests (✅ 24 tests passing)
   - `test_video_generation.py`: TTS, subtitles, visuals, thumbnails, full pipeline (10 tests)
   - `test_content_collection.py`: Normalization, dedup, filter, score (8 tests)
   - `test_full_pipeline.py`: Persona-based, batch generation, RAG integration (6 tests)
@@ -881,6 +901,14 @@ Detailed designs are in `architecture/`:
   - Requires 3+ videos with >5% engagement rate
   - Creates `SeriesConfig` suggestions for user confirmation
   - Location: `app/services/analyzer/series_detector.py`
+
+### Phase 5.x: Video Generation Enhancements (TODO)
+- [ ] 5.x.1 BGM (Background Music) system
+  - URL-based BGM sourcing (Freesound API or similar)
+  - Channel-specific BGM pool (3-5 tracks for branding)
+  - BPM filtering (70-95 for calm/neutral mood)
+  - Audio mixing with configurable volume
+  - License-aware selection (CC0, CC-BY for YouTube monetization)
 
 ### Phase 7-11: Later Phases
 - [ ] Phase 7: A/B Testing system
