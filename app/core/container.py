@@ -114,6 +114,11 @@ class InfrastructureContainer(containers.DeclarativeContainer):
         api_key=config.anthropic_api_key,
     )
 
+    # Unified LLM client (LiteLLM-based, provider-agnostic)
+    llm_client = providers.Singleton(
+        "app.infrastructure.llm.LLMClient",
+    )
+
 
 class ConfigContainer(containers.DeclarativeContainer):
     """Configuration models container.
@@ -309,8 +314,8 @@ class ServiceContainer(containers.DeclarativeContainer):
 
     content_classifier = providers.Factory(
         "app.services.rag.classifier.ContentClassifier",
-        llm_client=infrastructure.anthropic_client,
-        model="claude-3-5-haiku-20241022",
+        llm_client=infrastructure.llm_client,
+        model="anthropic/claude-3-5-haiku-20241022",
     )
 
     script_chunker = providers.Factory(
@@ -336,7 +341,7 @@ class ServiceContainer(containers.DeclarativeContainer):
         chunker=script_chunker,
         embedder=content_embedder,
         vector_db=infrastructure.vector_db,
-        llm_client=infrastructure.anthropic_client,
+        llm_client=infrastructure.llm_client,
         db_session_factory=infrastructure.db_session_factory,
         config=configs.generation_config,
         quality_config=configs.quality_check_config,
@@ -358,8 +363,8 @@ class ServiceContainer(containers.DeclarativeContainer):
 
     tts_factory = providers.Factory(
         "app.services.generator.tts.factory.TTSEngineFactory",
-        edge_engine=edge_tts_engine,
-        elevenlabs_engine=elevenlabs_engine,
+        config=configs.tts_config,
+        elevenlabs_api_key=config.elevenlabs_api_key,
     )
 
     # Visual Sourcing Services

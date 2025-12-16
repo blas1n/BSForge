@@ -1,6 +1,7 @@
 """Prompt template manager.
 
 Loads and renders prompts from YAML files with Mako templating.
+Each template can specify its own LLM settings (model, max_tokens, temperature).
 """
 
 from enum import Enum
@@ -26,13 +27,31 @@ class PromptType(str, Enum):
     SCENE_SCRIPT_GENERATION = "scene_script_generation"
 
 
+class LLMSettings(BaseModel):
+    """LLM settings for a prompt template.
+
+    These settings are specified in each prompt YAML file and determine
+    which model and parameters to use for that specific task.
+    """
+
+    model: str = "anthropic/claude-3-5-haiku-20241022"
+    max_tokens: int = 500
+    temperature: float = 0.3
+
+    class Config:
+        """Pydantic config."""
+
+        frozen = True
+
+
 class PromptTemplate(BaseModel):
-    """Prompt template metadata."""
+    """Prompt template metadata with LLM settings."""
 
     name: str
     version: str
     description: str
     template: str
+    llm_settings: LLMSettings = LLMSettings()
     example_variables: dict[str, Any] = {}
 
     class Config:
@@ -101,11 +120,19 @@ class PromptManager:
             with open(yaml_file, encoding="utf-8") as f:
                 data = yaml.safe_load(f)
 
+            # Parse LLM settings from template
+            llm_settings = LLMSettings(
+                model=data.get("model", "anthropic/claude-3-5-haiku-20241022"),
+                max_tokens=data.get("max_tokens", 500),
+                temperature=data.get("temperature", 0.3),
+            )
+
             template = PromptTemplate(
                 name=data["name"],
                 version=data["version"],
                 description=data["description"],
                 template=data["template"],
+                llm_settings=llm_settings,
                 example_variables=data.get("example_variables", {}),
             )
 
@@ -116,6 +143,7 @@ class PromptManager:
                 "Loaded prompt template",
                 type=prompt_type.value,
                 version=template.version,
+                model=llm_settings.model,
             )
 
             return template
@@ -157,6 +185,18 @@ class PromptManager:
         except Exception as e:
             raise ValueError(f"Failed to render {prompt_type.value} template: {e}") from e
 
+    def get_llm_settings(self, prompt_type: PromptType) -> LLMSettings:
+        """Get LLM settings for a prompt type.
+
+        Args:
+            prompt_type: Type of prompt
+
+        Returns:
+            LLMSettings with model, max_tokens, temperature
+        """
+        template = self.load(prompt_type)
+        return template.llm_settings
+
     def clear_cache(self) -> None:
         """Clear template cache.
 
@@ -182,4 +222,10 @@ def get_prompt_manager() -> PromptManager:
     return _prompt_manager
 
 
-__all__ = ["PromptManager", "PromptTemplate", "PromptType", "get_prompt_manager"]
+__all__ = [
+    "LLMSettings",
+    "PromptManager",
+    "PromptTemplate",
+    "PromptType",
+    "get_prompt_manager",
+]

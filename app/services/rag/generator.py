@@ -12,13 +12,13 @@ import uuid
 from typing import Any
 
 from app.config.rag import GenerationConfig, QualityCheckConfig
-from app.core.config import settings
 from app.core.logging import get_logger
 from app.infrastructure.llm import LLMClient, LLMConfig, get_llm_client
 from app.infrastructure.pgvector_db import PgVectorDB
 from app.models.content_chunk import ContentType
 from app.models.scene import Scene, SceneScript, SceneType, VisualHintType
 from app.models.script import Script, ScriptStatus
+from app.prompts.manager import PromptType, get_prompt_manager
 from app.services.rag.chunker import ScriptChunker
 from app.services.rag.context import ContextBuilder
 from app.services.rag.embedder import ContentEmbedder
@@ -96,22 +96,22 @@ class ScriptGenerator:
         self.db_session_factory = db_session_factory
         self.config = config or GenerationConfig()
         self.quality_config = quality_config or QualityCheckConfig()
+        self.prompt_manager = get_prompt_manager()
 
-    def _get_model_name(self, config: GenerationConfig) -> str:
-        """Get LiteLLM-format model name.
+    def _get_llm_config_from_template(self, prompt_type: PromptType) -> LLMConfig:
+        """Get LLMConfig from prompt template settings.
+
+        Each prompt template specifies its own model, max_tokens, and temperature.
+        This allows per-task model selection (e.g., OpenAI for script generation).
 
         Args:
-            config: Generation config
+            prompt_type: Type of prompt to get settings for
 
         Returns:
-            Model name in LiteLLM format (provider/model)
+            LLMConfig from prompt template
         """
-        model = config.model
-        # If already in LiteLLM format, return as-is
-        if model.startswith(("anthropic/", "openai/", "gemini/")):
-            return model
-        # Otherwise, use settings default
-        return settings.llm_model_heavy
+        llm_settings = self.prompt_manager.get_llm_settings(prompt_type)
+        return LLMConfig.from_prompt_settings(llm_settings)
 
     async def generate(
         self,
@@ -136,11 +136,12 @@ class ScriptGenerator:
         if config is None:
             config = self.config
 
-        model = self._get_model_name(config)
+        # Get LLM config from prompt template
+        llm_config = self._get_llm_config_from_template(PromptType.SCRIPT_GENERATION)
 
         logger.info(
             f"Generating script for topic {topic_id}",
-            extra={"channel_id": str(channel_id), "model": model},
+            extra={"channel_id": str(channel_id), "model": llm_config.model},
         )
 
         # Retry loop
@@ -198,16 +199,11 @@ class ScriptGenerator:
         logger.info("Building prompt")
         prompt = await self.prompt_builder.build_prompt(context)
 
-        # 3. Get model name
-        model = self._get_model_name(config)
+        # 3. Get LLM config from prompt template
+        llm_config = self._get_llm_config_from_template(PromptType.SCRIPT_GENERATION)
 
         # 4. Generate via LLM
-        logger.info(f"Calling LLM API ({model})")
-        llm_config = LLMConfig(
-            model=model,
-            max_tokens=config.max_tokens,
-            temperature=config.temperature,
-        )
+        logger.info(f"Calling LLM API ({llm_config.model})")
 
         response = await self.llm_client.complete(
             config=llm_config,
@@ -235,7 +231,7 @@ class ScriptGenerator:
             script_text=script_text,
             quality_result=quality_result,
             config=config,
-            model_used=model,
+            model_used=llm_config.model,
             context_chunks_used=len(context.retrieved.similar),
         )
 
@@ -589,11 +585,12 @@ class ScriptGenerator:
         if config is None:
             config = self.config
 
-        model = self._get_model_name(config)
+        # Get LLM config from prompt template (scene-based)
+        llm_config = self._get_llm_config_from_template(PromptType.SCENE_SCRIPT_GENERATION)
 
         logger.info(
             f"Generating scene-based script for topic {topic_id}",
-            extra={"channel_id": str(channel_id), "model": model},
+            extra={"channel_id": str(channel_id), "model": llm_config.model},
         )
 
         # Retry loop
@@ -651,16 +648,11 @@ class ScriptGenerator:
         logger.info("Building scene prompt")
         prompt = await self.prompt_builder.build_scene_prompt(context)
 
-        # 3. Get model name
-        model = self._get_model_name(config)
+        # 3. Get LLM config from prompt template (scene-based)
+        llm_config = self._get_llm_config_from_template(PromptType.SCENE_SCRIPT_GENERATION)
 
         # 4. Generate via LLM
-        logger.info(f"Calling LLM API for scene script ({model})")
-        llm_config = LLMConfig(
-            model=model,
-            max_tokens=config.max_tokens,
-            temperature=config.temperature,
-        )
+        logger.info(f"Calling LLM API for scene script ({llm_config.model})")
 
         response = await self.llm_client.complete(
             config=llm_config,
@@ -697,7 +689,7 @@ class ScriptGenerator:
             scene_script=scene_script,
             quality_result=quality_result,
             config=config,
-            model_used=model,
+            model_used=llm_config.model,
             context_chunks_used=len(context.retrieved.similar),
         )
 
@@ -711,7 +703,7 @@ class ScriptGenerator:
         """Parse LLM response into SceneScript.
 
         Args:
-            response: Raw LLM response (should be JSON array)
+            response: Raw LLM response (JSON object with headline + scenes, or JSON array)
 
         Returns:
             SceneScript object
@@ -719,18 +711,40 @@ class ScriptGenerator:
         Raises:
             ScriptGenerationError: If parsing fails
         """
-        # Try to extract JSON array from response
-        # Handle cases where LLM adds markdown code blocks
-        json_match = re.search(r"\[[\s\S]*\]", response)
-        if not json_match:
-            raise ScriptGenerationError(
-                f"No valid JSON array in scene response. Got: {response[:200]}..."
-            )
+        headline_keyword: str | None = None
+        headline_hook: str | None = None
 
-        try:
-            raw_scenes = json.loads(json_match.group())
-        except json.JSONDecodeError as e:
-            raise ScriptGenerationError(f"Invalid JSON in scene response: {e}") from e
+        # Try to extract JSON object first (new format with headline)
+        json_obj_match = re.search(r"\{[\s\S]*\}", response)
+        if json_obj_match:
+            try:
+                parsed = json.loads(json_obj_match.group())
+                if isinstance(parsed, dict) and "scenes" in parsed:
+                    # New format: {headline_keyword, headline_hook, scenes: [...]}
+                    headline_keyword = parsed.get("headline_keyword")
+                    headline_hook = parsed.get("headline_hook")
+                    raw_scenes = parsed["scenes"]
+                elif isinstance(parsed, dict):
+                    # Single scene object, wrap in array
+                    raw_scenes = [parsed]
+                else:
+                    raw_scenes = None
+            except json.JSONDecodeError:
+                raw_scenes = None
+        else:
+            raw_scenes = None
+
+        # Fallback: try to extract JSON array (legacy format)
+        if raw_scenes is None:
+            json_arr_match = re.search(r"\[[\s\S]*\]", response)
+            if not json_arr_match:
+                raise ScriptGenerationError(
+                    f"No valid JSON in scene response. Got: {response[:200]}..."
+                )
+            try:
+                raw_scenes = json.loads(json_arr_match.group())
+            except json.JSONDecodeError as e:
+                raise ScriptGenerationError(f"Invalid JSON in scene response: {e}") from e
 
         if not isinstance(raw_scenes, list) or len(raw_scenes) == 0:
             raise ScriptGenerationError("Scene response must be a non-empty array")
@@ -778,7 +792,11 @@ class ScriptGenerator:
         if not scenes:
             raise ScriptGenerationError("No valid scenes parsed from response")
 
-        return SceneScript(scenes=scenes)
+        return SceneScript(
+            scenes=scenes,
+            headline_keyword=headline_keyword,
+            headline_hook=headline_hook,
+        )
 
     async def _check_scene_quality(
         self,

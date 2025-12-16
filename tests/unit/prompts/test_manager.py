@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.prompts.manager import (
+    LLMSettings,
     PromptManager,
     PromptTemplate,
     PromptType,
@@ -21,10 +22,14 @@ class TestPromptManager:
 
         assert isinstance(template, PromptTemplate)
         assert template.name == "Translation Prompt"
-        assert template.version == "1.0.0"
+        assert template.version == "1.1.0"
         assert "${source_name}" in template.template
         assert "${target_name}" in template.template
         assert "${text}" in template.template
+        # Check LLM settings are loaded
+        assert template.llm_settings.model == "anthropic/claude-3-5-haiku-20241022"
+        assert template.llm_settings.max_tokens == 500
+        assert template.llm_settings.temperature == 0.2
 
     def test_load_classification_prompt(self):
         """Should load classification prompt template."""
@@ -33,8 +38,34 @@ class TestPromptManager:
 
         assert isinstance(template, PromptTemplate)
         assert template.name == "Classification Prompt"
-        assert template.version == "1.0.0"
+        assert template.version == "1.1.0"
         assert "${text_to_analyze}" in template.template
+        # Check LLM settings are loaded
+        assert template.llm_settings.model == "anthropic/claude-3-5-haiku-20241022"
+        assert template.llm_settings.max_tokens == 500
+        assert template.llm_settings.temperature == 0.3
+
+    def test_load_scene_script_prompt_openai(self):
+        """Should load scene script generation prompt with OpenAI model."""
+        manager = PromptManager()
+        template = manager.load(PromptType.SCENE_SCRIPT_GENERATION)
+
+        assert isinstance(template, PromptTemplate)
+        assert template.name == "Scene Script Generation Prompt"
+        # Check OpenAI model is used for script generation
+        assert template.llm_settings.model == "openai/gpt-4o-mini"
+        assert template.llm_settings.max_tokens == 2000
+        assert template.llm_settings.temperature == 0.8
+
+    def test_get_llm_settings(self):
+        """Should return LLMSettings from prompt template."""
+        manager = PromptManager()
+        settings = manager.get_llm_settings(PromptType.SCENE_SCRIPT_GENERATION)
+
+        assert isinstance(settings, LLMSettings)
+        assert settings.model == "openai/gpt-4o-mini"
+        assert settings.max_tokens == 2000
+        assert settings.temperature == 0.8
 
     def test_render_translation_prompt(self):
         """Should render translation prompt with variables."""
@@ -166,3 +197,34 @@ class TestPromptTemplate:
 
         with pytest.raises(ValidationError):
             template.name = "Modified"
+
+
+class TestLLMSettings:
+    """Test LLMSettings model."""
+
+    def test_create_llm_settings(self):
+        """Should create LLMSettings with custom values."""
+        settings = LLMSettings(
+            model="openai/gpt-4o",
+            max_tokens=1000,
+            temperature=0.7,
+        )
+
+        assert settings.model == "openai/gpt-4o"
+        assert settings.max_tokens == 1000
+        assert settings.temperature == 0.7
+
+    def test_default_llm_settings(self):
+        """Should use default values."""
+        settings = LLMSettings()
+
+        assert settings.model == "anthropic/claude-3-5-haiku-20241022"
+        assert settings.max_tokens == 500
+        assert settings.temperature == 0.3
+
+    def test_llm_settings_frozen(self):
+        """Should be immutable (frozen)."""
+        settings = LLMSettings()
+
+        with pytest.raises(ValidationError):
+            settings.model = "different/model"

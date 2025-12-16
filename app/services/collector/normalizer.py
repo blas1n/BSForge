@@ -10,8 +10,10 @@ This module handles:
 """
 
 import hashlib
+import json
 import re
 import uuid
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -269,8 +271,6 @@ class TopicNormalizer:
             )
 
             # Parse JSON response
-            import json
-
             response_text = response.content.strip()
 
             # Extract JSON from response (handle markdown code blocks)
@@ -283,7 +283,8 @@ class TopicNormalizer:
                 json_end = response_text.find("```", json_start)
                 response_text = response_text[json_start:json_end].strip()
 
-            result_dict = json.loads(response_text)
+            # Extract first JSON object (handle extra text after JSON)
+            result_dict = self._extract_first_json_object(response_text)
 
             # Lowercase categories and keywords for consistent matching
             categories = [c.lower() for c in result_dict.get("categories", [])]
@@ -312,6 +313,64 @@ class TopicNormalizer:
                 entities={},
                 summary=title[:200],
             )
+
+    def _extract_first_json_object(self, text: str) -> dict[str, Any]:
+        """Extract the first valid JSON object from text.
+
+        Handles cases where LLM outputs extra text after the JSON.
+
+        Args:
+            text: Text potentially containing JSON
+
+        Returns:
+            Parsed JSON object
+
+        Raises:
+            json.JSONDecodeError: If no valid JSON found
+        """
+        # Try parsing the whole text first
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+
+        # Find the first { and try to find matching }
+        start = text.find("{")
+        if start == -1:
+            raise json.JSONDecodeError("No JSON object found", text, 0)
+
+        # Track brace nesting to find the complete object
+        depth = 0
+        in_string = False
+        escape_next = False
+
+        for i, char in enumerate(text[start:], start):
+            if escape_next:
+                escape_next = False
+                continue
+
+            if char == "\\":
+                escape_next = True
+                continue
+
+            if char == '"' and not escape_next:
+                in_string = not in_string
+                continue
+
+            if in_string:
+                continue
+
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    # Found complete JSON object
+                    json_str = text[start : i + 1]
+                    return json.loads(json_str)
+
+        # If we get here, no complete object was found
+        raise json.JSONDecodeError("Incomplete JSON object", text, len(text))
 
     def _generate_hash(self, title: str, keywords: list[str]) -> str:
         """Generate SHA-256 hash for deduplication.
