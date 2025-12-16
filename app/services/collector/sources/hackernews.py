@@ -122,7 +122,8 @@ class HackerNewsSource(BaseSource[HackerNewsConfig]):
 
             # Skip non-story items (comments, jobs, etc.)
             if data and data.get("type") == "story":
-                return data
+                story_data: dict[str, Any] = data
+                return story_data
             return None
 
         except httpx.HTTPError as e:

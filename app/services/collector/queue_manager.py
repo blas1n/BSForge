@@ -6,6 +6,7 @@ having higher priority (retrieved first).
 """
 
 import uuid
+from typing import Any
 
 from pydantic import BaseModel
 from redis.asyncio import Redis as AsyncRedis
@@ -45,7 +46,7 @@ class TopicQueueManager:
 
     def __init__(
         self,
-        redis: AsyncRedis,
+        redis: "AsyncRedis[Any]",
         config: QueueConfig | None = None,
     ):
         """Initialize queue manager.

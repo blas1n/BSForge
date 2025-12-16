@@ -14,6 +14,7 @@ Design Decision (Hash Only):
 
 from datetime import timedelta
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel
 from redis.asyncio import Redis as AsyncRedis
@@ -62,7 +63,7 @@ class TopicDeduplicator:
 
     def __init__(
         self,
-        redis: AsyncRedis,
+        redis: "AsyncRedis[Any]",
         config: DedupConfig | None = None,
     ):
         """Initialize deduplicator.

@@ -49,7 +49,7 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> type:
     """Lazy import for source collectors to avoid loading heavy dependencies."""
     if name == "HackerNewsSource":
         from app.services.collector.sources.hackernews import HackerNewsSource

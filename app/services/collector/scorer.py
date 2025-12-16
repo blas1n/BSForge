@@ -229,7 +229,7 @@ class TopicScorer:
         half_life = self.config.freshness_half_life_hours
         freshness = 2.0 ** (-age_hours / half_life)
 
-        return max(self.config.freshness_min, freshness)
+        return float(max(self.config.freshness_min, freshness))
 
     def _calc_trend_momentum(self, keywords: list[str], trend_data: dict[str, Any]) -> float:
         """Calculate trend momentum based on keyword trends.
@@ -339,7 +339,7 @@ class TopicScorer:
             return 0.5  # Neutral if no targets defined
 
         # Flatten entity names
-        all_entities = set()
+        all_entities: set[str] = set()
         for entity_list in entities.values():
             all_entities.update(e.lower() for e in entity_list)
 

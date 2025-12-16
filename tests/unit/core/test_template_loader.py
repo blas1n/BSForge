@@ -24,7 +24,8 @@ class TestVideoTemplateLoader:
         template = loader.load("minimal")
 
         assert template.name == "minimal"
-        assert template.layout.title_overlay is None or not template.layout.title_overlay.enabled
+        # headline replaces title_overlay in the new design
+        assert template.layout.headline is None or not template.layout.headline.enabled
         assert template.subtitle.font_name == "Pretendard"
         assert not template.visual_effects.ken_burns_enabled
 
@@ -34,14 +35,14 @@ class TestVideoTemplateLoader:
         template = loader.load("korean_viral")
 
         assert template.name == "korean_viral"
-        # Should have title overlay enabled (from korean_viral.yaml)
-        assert template.layout.title_overlay is not None
-        assert template.layout.title_overlay.enabled is True
+        # Should have headline enabled (replaces title_overlay)
+        assert template.layout.headline is not None
+        assert template.layout.headline.enabled is True
         # Should have Ken Burns enabled
         assert template.visual_effects.ken_burns_enabled is True
-        # Should inherit base font from minimal and override size
-        assert template.subtitle.font_name == "Pretendard"
-        assert template.subtitle.font_size == 72
+        # korean_viral overrides font to Noto Sans CJK KR
+        assert template.subtitle.font_name == "Noto Sans CJK KR"
+        assert template.subtitle.font_size == 48
 
     def test_template_inheritance(self) -> None:
         """Test that template inheritance works correctly."""

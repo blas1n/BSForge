@@ -363,9 +363,8 @@ Closing statement here."""
         """Should pass quality check for good script."""
         # Script with enough words for duration check (at least 38 words for 15s at 150 wpm)
         script_text = " ".join(["word"] * 45) + " This is a great script about Python."
-        hook = "Have you ever wondered about Python?"
 
-        result = await generator._check_quality(script_text, hook, mock_persona)
+        result = await generator._check_quality(script_text, mock_persona)
 
         assert result["passed"] is True
 
@@ -379,9 +378,8 @@ Closing statement here."""
         generator.quality_config.max_forbidden_words = 0
         # Script with enough words for duration check (at least 38 words for 15s at 150 wpm)
         script_text = " ".join(["word"] * 45) + " This is terrible and I hate everything about it."
-        hook = "Did you know?"
 
-        result = await generator._check_quality(script_text, hook, mock_persona)
+        result = await generator._check_quality(script_text, mock_persona)
 
         assert result["passed"] is False
         assert len(result["forbidden_words"]) > 0
