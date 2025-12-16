@@ -29,6 +29,8 @@ def mock_script() -> MagicMock:
     script.hook = "Hook section"
     script.body = "Body section"
     script.conclusion = "Conclusion section"
+    script.topic = None  # Explicitly set to None for fallback behavior
+    script.channel = None  # Explicitly set to None
     return script
 
 

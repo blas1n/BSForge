@@ -10,6 +10,7 @@ from sentence_transformers import SentenceTransformer
 from sqlalchemy import select
 
 from app.core.logging import get_logger
+from app.core.types import SessionFactory
 from app.models.content_chunk import ContentChunk
 
 logger = get_logger(__name__)
@@ -30,7 +31,7 @@ class PgVectorDB:
 
     def __init__(
         self,
-        db_session_factory: Any,
+        db_session_factory: SessionFactory,
         model_name: str = "BAAI/bge-m3",
         device: str = "cpu",
     ):

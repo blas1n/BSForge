@@ -165,8 +165,8 @@ class GlobalTopicPool:
                 # Handle both bytes and str
                 json_str = item.decode() if isinstance(item, bytes) else item
                 topics.append(RawTopic.model_validate_json(json_str))
-            except Exception as e:
-                logger.warning(f"Failed to parse topic from pool: {e}")
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Failed to parse topic from pool: {e}", exc_info=True)
                 continue
 
         logger.debug(
@@ -310,8 +310,8 @@ class ScopedSourceCache:
         for item in topic_jsons:
             try:
                 topics.append(RawTopic.model_validate_json(item))
-            except Exception as e:
-                logger.warning(f"Failed to parse cached topic: {e}")
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Failed to parse cached topic: {e}", exc_info=True)
                 continue
 
         logger.debug(

@@ -512,9 +512,13 @@ class FFmpegCompositor:
         if len(segments) == 1:
             return segments[0]
 
-        # For now, use simple concat with flash transitions for FLASH type
-        # Complex xfade would require knowing exact durations
-        # TODO: Implement proper xfade transitions when timing is reliable
+        # NOTE: FFmpeg xfade requires exact segment durations.
+        # Current implementation uses simple concat with fade-in at start.
+        # For proper crossfade transitions:
+        # 1. Pass segment durations alongside segment paths
+        # 2. Build ffmpeg filter chain: xfade=transition=fade:duration=0.5:offset=<duration-0.5>
+        # 3. Chain multiple xfade filters for multiple segments
+        # This is deferred as it requires structural changes to pass duration info.
 
         # Get recommended transitions from scenes
         transitions: list[TransitionType] = []

@@ -184,5 +184,5 @@ async def check_db_connection() -> bool:
             await conn.execute(text("SELECT 1"))
         return True
     except Exception as e:
-        logger.error("Database health check failed", error=str(e))
+        logger.error("Database health check failed", error=str(e), exc_info=True)
         return False

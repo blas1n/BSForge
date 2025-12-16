@@ -6,13 +6,13 @@ and specialized retrievers for opinions, examples, and hooks.
 
 import uuid
 from datetime import datetime
-from typing import Any
 
 from anthropic import AsyncAnthropic
 from sqlalchemy import and_, select
 
 from app.config.rag import QueryExpansionConfig, RetrievalConfig
 from app.core.logging import get_logger
+from app.core.types import SessionFactory
 from app.infrastructure.pgvector_db import PgVectorDB
 from app.models.content_chunk import ChunkPosition, ContentChunk
 
@@ -110,7 +110,7 @@ class RAGRetriever:
     def __init__(
         self,
         vector_db: PgVectorDB,
-        db_session_factory: Any,
+        db_session_factory: SessionFactory,
         retrieval_config: RetrievalConfig,
         query_config: QueryExpansionConfig,
         llm_client: AsyncAnthropic | None = None,

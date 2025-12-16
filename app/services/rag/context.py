@@ -6,13 +6,13 @@ persona, retrieved content, and topic information.
 
 import uuid
 from dataclasses import dataclass
-from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.rag import GenerationConfig
 from app.core.logging import get_logger
+from app.core.types import SessionFactory
 from app.models.channel import Persona
 from app.models.topic import Topic
 from app.services.rag.retriever import RetrievalResult, SpecializedRetriever
@@ -71,7 +71,7 @@ class ContextBuilder:
     def __init__(
         self,
         retriever: SpecializedRetriever,
-        db_session_factory: Any,
+        db_session_factory: SessionFactory,
     ):
         """Initialize ContextBuilder.
 
@@ -196,7 +196,8 @@ class ContextBuilder:
                 Topic.channel_id == channel_id,
             )
         )
-        return result.scalar_one_or_none()
+        topic: Topic | None = result.scalar_one_or_none()
+        return topic
 
     async def _fetch_persona(
         self,
@@ -213,7 +214,8 @@ class ContextBuilder:
             Persona object or None
         """
         result = await session.execute(select(Persona).where(Persona.channel_id == channel_id))
-        return result.scalar_one_or_none()
+        persona: Persona | None = result.scalar_one_or_none()
+        return persona
 
     def _build_query(self, topic: Topic) -> str:
         """Build search query from topic.

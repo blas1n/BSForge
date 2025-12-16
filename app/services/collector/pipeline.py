@@ -20,6 +20,7 @@ import hashlib
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from pydantic import BaseModel
 from redis.asyncio import Redis as AsyncRedis
@@ -27,7 +28,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import DedupConfig, ScoringConfig
-from app.config.filtering import TopicFilterConfig
+from app.config.filtering import (
+    ExcludeFilters,
+    IncludeFilters,
+    KeywordFilter,
+    TopicFilterConfig,
+)
 from app.config.sources import (
     HackerNewsConfig,
     RedditConfig,
@@ -35,7 +41,7 @@ from app.config.sources import (
 from app.core.logging import get_logger
 from app.models.channel import Channel
 from app.models.topic import Topic, TopicStatus
-from app.services.collector.base import NormalizedTopic, RawTopic
+from app.services.collector.base import NormalizedTopic, RawTopic, ScoredTopic
 from app.services.collector.deduplicator import TopicDeduplicator
 from app.services.collector.filter import TopicFilter
 from app.services.collector.normalizer import TopicNormalizer
@@ -86,7 +92,7 @@ class CollectionConfig:
     """
 
     enabled_sources: list[str] = field(default_factory=lambda: ["hackernews"])
-    source_overrides: dict = field(default_factory=dict)
+    source_overrides: dict[str, Any] = field(default_factory=dict)
     include_keywords: list[str] = field(default_factory=list)
     exclude_keywords: list[str] = field(default_factory=list)
     include_categories: list[str] = field(default_factory=list)
@@ -95,7 +101,7 @@ class CollectionConfig:
     save_to_db: bool = True
 
     @classmethod
-    def from_channel_config(cls, channel_config: dict) -> "CollectionConfig":
+    def from_channel_config(cls, channel_config: dict[str, Any]) -> "CollectionConfig":
         """Create CollectionConfig from channel YAML config.
 
         Args:
@@ -136,7 +142,7 @@ class TopicCollectionPipeline:
     def __init__(
         self,
         session: AsyncSession,
-        redis: AsyncRedis | None = None,
+        redis: AsyncRedis[bytes] | None = None,
         normalizer: TopicNormalizer | None = None,
         deduplicator: TopicDeduplicator | None = None,
         scorer: TopicScorer | None = None,
@@ -154,6 +160,7 @@ class TopicCollectionPipeline:
         self.redis = redis
         self.normalizer = normalizer or TopicNormalizer()
         self.scorer = scorer or TopicScorer(config=ScoringConfig())
+        self.deduplicator: TopicDeduplicator | None
 
         if redis and deduplicator is None:
             self.deduplicator = TopicDeduplicator(redis=redis, config=DedupConfig())
@@ -343,10 +350,17 @@ class TopicCollectionPipeline:
         if not config.include_keywords and not config.exclude_keywords:
             return normalized
 
+        # Build TopicFilterConfig with nested structure
+        include_filters = IncludeFilters(
+            keywords=[KeywordFilter(keyword=kw) for kw in config.include_keywords],
+        )
+        exclude_filters = ExcludeFilters(
+            keywords=config.exclude_keywords,
+            categories=config.include_categories,  # Note: include_categories used as exclude
+        )
         filter_config = TopicFilterConfig(
-            include_keywords=config.include_keywords,
-            exclude_keywords=config.exclude_keywords,
-            include_categories=config.include_categories,
+            include=include_filters,
+            exclude=exclude_filters,
         )
         topic_filter = TopicFilter(config=filter_config)
 
@@ -396,7 +410,7 @@ class TopicCollectionPipeline:
         self,
         topics: list[tuple[RawTopic, NormalizedTopic]],
         stats: CollectionStats,
-    ) -> list[tuple[RawTopic, NormalizedTopic, any]]:
+    ) -> list[tuple[RawTopic, NormalizedTopic, ScoredTopic]]:
         """Score topics.
 
         Args:
@@ -421,7 +435,7 @@ class TopicCollectionPipeline:
     async def _save_topics_to_db(
         self,
         channel: Channel,
-        scored_topics: list[tuple[RawTopic, NormalizedTopic, any]],
+        scored_topics: list[tuple[RawTopic, NormalizedTopic, ScoredTopic]],
         stats: CollectionStats,
     ) -> list[Topic]:
         """Save scored topics to database.
@@ -470,7 +484,7 @@ class TopicCollectionPipeline:
         channel: Channel,
         raw: RawTopic,
         norm: NormalizedTopic,
-        scored: any,
+        scored: ScoredTopic,
         content_hash: str | None = None,
     ) -> Topic:
         """Create Topic model from processed data.

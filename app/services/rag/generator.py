@@ -13,8 +13,10 @@ from typing import Any
 
 from app.config.rag import GenerationConfig, QualityCheckConfig
 from app.core.logging import get_logger
+from app.core.types import SessionFactory
 from app.infrastructure.llm import LLMClient, LLMConfig, get_llm_client
 from app.infrastructure.pgvector_db import PgVectorDB
+from app.models.channel import Persona
 from app.models.content_chunk import ContentType
 from app.models.scene import Scene, SceneScript, SceneType, VisualHintType
 from app.models.script import Script, ScriptStatus
@@ -70,7 +72,7 @@ class ScriptGenerator:
         embedder: ContentEmbedder,
         vector_db: PgVectorDB,
         llm_client: LLMClient | None = None,
-        db_session_factory: Any = None,
+        db_session_factory: SessionFactory | None = None,
         config: GenerationConfig | None = None,
         quality_config: QualityCheckConfig | None = None,
     ):
@@ -282,7 +284,7 @@ class ScriptGenerator:
     async def _check_quality(
         self,
         script_text: str,
-        persona: Any,
+        persona: Persona,
     ) -> dict[str, Any]:
         """Check script quality against gates.
 
@@ -355,7 +357,7 @@ class ScriptGenerator:
         duration_seconds = int((word_count / words_per_minute) * 60)
         return duration_seconds
 
-    def _calculate_style_score(self, script_text: str, persona: Any) -> float:
+    def _calculate_style_score(self, script_text: str, persona: Persona) -> float:
         """Calculate style consistency score.
 
         Simple heuristic: check for persona-specific patterns.
@@ -363,7 +365,7 @@ class ScriptGenerator:
 
         Args:
             script_text: Script text
-            persona: Persona object
+            persona: Persona DB model
 
         Returns:
             Style score (0-1)
@@ -446,12 +448,12 @@ class ScriptGenerator:
 
         return min(1.0, score)
 
-    def _find_forbidden_words(self, script_text: str, persona: Any) -> list[str]:
+    def _find_forbidden_words(self, script_text: str, persona: Persona) -> list[str]:
         """Find forbidden words in script.
 
         Args:
             script_text: Script text
-            persona: Persona object
+            persona: Persona DB model
 
         Returns:
             List of forbidden words found
@@ -513,6 +515,9 @@ class ScriptGenerator:
             status=ScriptStatus.GENERATED,
         )
 
+        if self.db_session_factory is None:
+            raise ScriptGenerationError("db_session_factory is required to save script")
+
         async with self.db_session_factory() as session:
             session.add(script)
             await session.commit()
@@ -549,6 +554,9 @@ class ScriptGenerator:
             chunk.embedding = embedding
 
         # 3. Save to database
+        if self.db_session_factory is None:
+            raise ScriptGenerationError("db_session_factory is required to save chunks")
+
         async with self.db_session_factory() as session:
             session.add_all(chunks)
             await session.commit()
@@ -801,13 +809,13 @@ class ScriptGenerator:
     async def _check_scene_quality(
         self,
         scene_script: SceneScript,
-        persona: Any,
+        persona: Persona,
     ) -> dict[str, Any]:
         """Check scene script quality.
 
         Args:
             scene_script: SceneScript object
-            persona: Persona object
+            persona: Persona DB model
 
         Returns:
             Dict with 'passed' (bool) and quality metrics
@@ -930,6 +938,9 @@ class ScriptGenerator:
             },
             status=ScriptStatus.GENERATED,
         )
+
+        if self.db_session_factory is None:
+            raise ScriptGenerationError("db_session_factory is required to save scene script")
 
         async with self.db_session_factory() as session:
             session.add(script)
