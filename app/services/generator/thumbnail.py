@@ -4,6 +4,8 @@ Generates YouTube thumbnail images using PIL.
 """
 
 import logging
+import subprocess
+import tempfile
 import textwrap
 from io import BytesIO
 from pathlib import Path
@@ -97,6 +99,8 @@ class ThumbnailGenerator:
     async def _load_background(self, asset: VisualAsset) -> Image.Image:
         """Load background image from asset.
 
+        For video files, extracts a frame using FFmpeg.
+
         Args:
             asset: Visual asset
 
@@ -104,6 +108,10 @@ class ThumbnailGenerator:
             PIL Image
         """
         if asset.path and asset.path.exists():
+            # Check if it's a video file
+            video_extensions = {".mp4", ".mov", ".avi", ".webm", ".mkv"}
+            if asset.path.suffix.lower() in video_extensions:
+                return self._extract_frame_from_video(asset.path)
             return Image.open(asset.path)
 
         if asset.url:
@@ -113,6 +121,40 @@ class ThumbnailGenerator:
                 return Image.open(BytesIO(response.content))
 
         raise ValueError("Asset has no valid path or URL")
+
+    def _extract_frame_from_video(self, video_path: Path) -> Image.Image:
+        """Extract a frame from video using FFmpeg.
+
+        Extracts a frame from 1 second into the video for better content.
+
+        Args:
+            video_path: Path to video file
+
+        Returns:
+            PIL Image of extracted frame
+        """
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+
+        try:
+            cmd = [
+                "ffmpeg",
+                "-y",
+                "-ss",
+                "1",  # Seek to 1 second
+                "-i",
+                str(video_path),
+                "-vframes",
+                "1",
+                "-q:v",
+                "2",
+                str(tmp_path),
+            ]
+            subprocess.run(cmd, capture_output=True, check=True)
+            return Image.open(tmp_path)
+        finally:
+            if tmp_path.exists():
+                tmp_path.unlink()
 
     def _resize_and_crop(
         self,

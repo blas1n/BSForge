@@ -1,10 +1,15 @@
 # Translation Prompt Template
-# Version: 1.0.0
-# Last Updated: 2025-12-11
+# Version: 1.1.0
+# Last Updated: 2025-12-16
 
 name: "Translation Prompt"
-version: "1.0.0"
-description: "Translates text from source language to target language using Claude Haiku"
+version: "1.1.0"
+description: "Translates text from source language to target language"
+
+# LLM Settings
+model: "anthropic/claude-3-5-haiku-20241022"
+max_tokens: 500
+temperature: 0.2
 
 template: |
   Translate the following ${source_name} text to ${target_name}.

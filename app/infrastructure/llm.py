@@ -11,13 +11,16 @@ Benefits:
 """
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import litellm
 from litellm import acompletion
 
 from app.core.config import settings
 from app.core.logging import get_logger
+
+if TYPE_CHECKING:
+    from app.prompts.manager import LLMSettings
 
 logger = get_logger(__name__)
 
@@ -40,6 +43,24 @@ class LLMConfig:
     max_tokens: int = 1000
     temperature: float = 0.7
     timeout: int = 60
+
+    @classmethod
+    def from_prompt_settings(cls, llm_settings: "LLMSettings", timeout: int = 60) -> "LLMConfig":
+        """Create LLMConfig from prompt template LLMSettings.
+
+        Args:
+            llm_settings: Settings from prompt template
+            timeout: Request timeout in seconds (default 60)
+
+        Returns:
+            LLMConfig instance
+        """
+        return cls(
+            model=llm_settings.model,
+            max_tokens=llm_settings.max_tokens,
+            temperature=llm_settings.temperature,
+            timeout=timeout,
+        )
 
 
 @dataclass
@@ -80,12 +101,20 @@ class LLMClient:
     """
 
     def __init__(self) -> None:
-        """Initialize LLM client with API keys from settings."""
-        # Set API keys for providers
-        if settings.anthropic_api_key:
-            litellm.api_key = settings.anthropic_api_key
-        if settings.openai_api_key:
-            litellm.openai_key = settings.openai_api_key
+        """Initialize LLM client with API keys from settings.
+
+        Note: LiteLLM reads API keys from environment variables by default:
+        - ANTHROPIC_API_KEY for Anthropic models
+        - OPENAI_API_KEY for OpenAI models
+        We only set them explicitly if the environment doesn't have them.
+        """
+        import os
+
+        # Only set if not already in environment
+        if settings.anthropic_api_key and not os.environ.get("ANTHROPIC_API_KEY"):
+            os.environ["ANTHROPIC_API_KEY"] = settings.anthropic_api_key
+        if settings.openai_api_key and not os.environ.get("OPENAI_API_KEY"):
+            os.environ["OPENAI_API_KEY"] = settings.openai_api_key
 
         logger.info("LLMClient initialized")
 

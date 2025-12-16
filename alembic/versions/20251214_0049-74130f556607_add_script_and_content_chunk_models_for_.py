@@ -29,8 +29,18 @@ def upgrade() -> None:
     op.create_table(
         "scripts",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
         sa.Column("channel_id", sa.UUID(), nullable=False),
         sa.Column("topic_id", sa.UUID(), nullable=False),
         sa.Column("script_text", sa.Text(), nullable=False),
@@ -70,8 +80,18 @@ def upgrade() -> None:
     op.create_table(
         "content_chunks",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
         sa.Column("channel_id", sa.UUID(), nullable=False),
         sa.Column("script_id", sa.UUID(), nullable=True),
         sa.Column("content_type", sa.String(length=20), nullable=False, server_default="script"),

@@ -162,7 +162,7 @@ class QualityCheckConfig(BaseModel):
     min_hook_score: float = Field(default=0.5, ge=0.0, le=1.0)
     max_forbidden_words: int = Field(default=2, ge=0, le=10)
     max_duration: int = Field(default=65, ge=30, le=600)
-    min_duration: int = Field(default=40, ge=15, le=300)
+    min_duration: int = Field(default=20, ge=15, le=300)
 
 
 class GenerationConfig(BaseModel):

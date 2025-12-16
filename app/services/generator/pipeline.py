@@ -14,6 +14,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from sqlalchemy import inspect as sa_inspect
+
 from app.config.video import VideoGenerationConfig
 from app.config.video_template import VideoTemplateConfig
 from app.core.template_loader import VideoTemplateLoader, get_template_loader
@@ -506,6 +508,18 @@ class VideoGenerationPipeline:
 
             title_text = self._get_title_text(script) or scene_script.title_text
 
+            # Get headline text for 2-line headline overlay
+            headline_keyword = scene_script.headline_keyword
+            headline_hook = scene_script.headline_hook
+
+            # Fallback: extract from first scene if not provided
+            if not headline_keyword and scene_script.scenes:
+                first_scene = scene_script.scenes[0]
+                if first_scene.keyword:
+                    headline_keyword = first_scene.keyword
+                if first_scene.text and len(first_scene.text) < 30:
+                    headline_hook = first_scene.text
+
             composition_result = await self.compositor.compose_scenes(
                 scenes=scene_script.scenes,
                 scene_tts_results=scene_tts_results,
@@ -515,6 +529,8 @@ class VideoGenerationPipeline:
                 output_path=output_dir / "video",
                 persona_style=persona_style,
                 title_text=title_text,
+                headline_keyword=headline_keyword,
+                headline_hook=headline_hook,
             )
 
             logger.info(f"Video composed: {composition_result.duration_seconds:.1f}s")
@@ -676,14 +692,12 @@ class VideoGenerationPipeline:
         Returns:
             Title string
         """
-        # Try topic title first
-        if (
-            hasattr(script, "topic")
-            and script.topic
-            and hasattr(script.topic, "title")
-            and script.topic.title
-        ):
-            return str(script.topic.title)
+        # Try topic title first (check if loaded to avoid DetachedInstanceError)
+        state = sa_inspect(script, raiseerr=False)
+        if state is not None and "topic" not in state.unloaded:
+            topic = script.topic
+            if topic and hasattr(topic, "title") and topic.title:
+                return str(topic.title)
 
         # Fallback: first line of script
         first_line = script.script_text.split("\n")[0][:50]
@@ -705,14 +719,12 @@ class VideoGenerationPipeline:
         if hasattr(script, "title_text") and script.title_text:
             return str(script.title_text)
 
-        # Second priority: topic title
-        if (
-            hasattr(script, "topic")
-            and script.topic
-            and hasattr(script.topic, "title")
-            and script.topic.title
-        ):
-            return str(script.topic.title)
+        # Second priority: topic title (check if loaded to avoid DetachedInstanceError)
+        state = sa_inspect(script, raiseerr=False)
+        if state is not None and "topic" not in state.unloaded:
+            topic = script.topic
+            if topic and hasattr(topic, "title") and topic.title:
+                return str(topic.title)
 
         return None
 

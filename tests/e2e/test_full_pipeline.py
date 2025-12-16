@@ -19,6 +19,7 @@ from app.config.persona import (
     VoiceSettings,
 )
 from app.config.video import CompositionConfig
+from app.models.scene import SceneScript
 from app.services.collector.base import ScoredTopic
 from app.services.generator.compositor import FFmpegCompositor
 from app.services.generator.subtitle import SubtitleGenerator
@@ -305,3 +306,285 @@ class TestIntegrationWithRAG:
         results = await mock_retriever.retrieve("ChatGPT 최신 소식")
         assert len(results) == 2
         assert results[0].score > results[1].score
+
+
+class TestSceneBasedVideoGeneration:
+    """E2E tests for scene-based video generation (BSForge differentiator)."""
+
+    @pytest.fixture
+    def sample_scene_script(self) -> SceneScript:
+        """Create sample SceneScript for testing."""
+        from app.models.scene import Scene, SceneType, VisualHintType
+
+        return SceneScript(
+            scenes=[
+                Scene(
+                    scene_type=SceneType.HOOK,
+                    text="충격적인 AI 뉴스가 있습니다!",
+                    keyword="AI news",
+                    visual_hint=VisualHintType.STOCK_IMAGE,
+                ),
+                Scene(
+                    scene_type=SceneType.CONTENT,
+                    text="OpenAI가 오늘 새로운 모델을 발표했습니다. 이 모델은 기존 대비 50% 빠른 속도를 자랑합니다.",
+                    keyword="OpenAI",
+                    visual_hint=VisualHintType.STOCK_IMAGE,
+                ),
+                Scene(
+                    scene_type=SceneType.COMMENTARY,
+                    text="제 생각에 이건 정말 게임 체인저예요. AI 발전 속도가 정말 놀랍습니다.",
+                    keyword="AI innovation",
+                    visual_hint=VisualHintType.AI_GENERATED,
+                    emphasis_words=["게임 체인저", "놀랍습니다"],
+                ),
+                Scene(
+                    scene_type=SceneType.CONCLUSION,
+                    text="AI 시대가 본격적으로 시작됐습니다. 구독과 좋아요 부탁드립니다!",
+                    keyword="future",
+                    visual_hint=VisualHintType.SOLID_COLOR,
+                ),
+            ],
+            title_text="AI 혁명의 시작",
+        )
+
+    def test_scene_script_structure_validation(self, sample_scene_script: SceneScript) -> None:
+        """Test SceneScript structure validation."""
+        errors = sample_scene_script.validate_structure()
+
+        # Should have no critical errors (may have duration warnings)
+        structural_errors = [e for e in errors if "HOOK" in e or "CONTENT" in e]
+        assert len(structural_errors) == 0
+
+        # Should have commentary (BSForge differentiator)
+        assert sample_scene_script.has_commentary
+
+    def test_scene_script_transitions(self, sample_scene_script: SceneScript) -> None:
+        """Test recommended transitions between scenes."""
+        from app.models.scene import TransitionType
+
+        transitions = sample_scene_script.get_recommended_transitions()
+
+        # Should have n-1 transitions for n scenes
+        assert len(transitions) == len(sample_scene_script.scenes) - 1
+
+        # CONTENT -> COMMENTARY should be FLASH (key differentiator)
+        # Position 1 is CONTENT->COMMENTARY
+        assert transitions[1] == TransitionType.FLASH
+
+    def test_scene_types_classification(self, sample_scene_script: SceneScript) -> None:
+        """Test scene type classification."""
+        from app.models.scene import SceneType
+
+        scene_types = sample_scene_script.scene_types
+
+        assert scene_types[0] == SceneType.HOOK
+        assert scene_types[1] == SceneType.CONTENT
+        assert scene_types[2] == SceneType.COMMENTARY
+        assert scene_types[3] == SceneType.CONCLUSION
+
+    def test_full_text_extraction(self, sample_scene_script: SceneScript) -> None:
+        """Test full text extraction from scenes."""
+        full_text = sample_scene_script.full_text
+
+        assert "충격적인 AI 뉴스" in full_text
+        assert "게임 체인저" in full_text
+        assert "구독과 좋아요" in full_text
+
+    @pytest.mark.asyncio
+    async def test_scene_based_tts_generation(
+        self,
+        temp_output_dir: Path,
+        sample_scene_script: SceneScript,
+    ) -> None:
+        """Test TTS generation for each scene."""
+        tts_engine = EdgeTTSEngine()
+        tts_config = TTSConfigDataclass(voice_id="ko-KR-InJoonNeural")
+
+        scene_audios = []
+
+        for i, scene in enumerate(sample_scene_script.scenes):
+            audio_path = temp_output_dir / f"scene_{i}"
+            tts_result = await tts_engine.synthesize(
+                text=scene.text,
+                config=tts_config,
+                output_path=audio_path,
+            )
+
+            scene_audios.append(
+                {
+                    "scene_type": scene.scene_type,
+                    "audio_path": tts_result.audio_path,
+                    "duration": tts_result.duration_seconds,
+                    "is_persona": scene.is_persona_scene,
+                }
+            )
+
+            assert tts_result.audio_path.exists()
+            assert tts_result.duration_seconds > 0
+
+        # Verify all scenes processed
+        assert len(scene_audios) == 4
+
+        # Commentary scene should be marked as persona scene
+        commentary_audio = next(a for a in scene_audios if a["scene_type"].value == "commentary")
+        assert commentary_audio["is_persona"] is True
+
+    @pytest.mark.asyncio
+    async def test_scene_based_video_composition(
+        self,
+        temp_output_dir: Path,
+        sample_scene_script: SceneScript,
+        skip_without_ffmpeg: None,
+    ) -> None:
+        """Test video composition with scene-based structure."""
+        tts_engine = EdgeTTSEngine()
+        tts_config = TTSConfigDataclass(voice_id="ko-KR-SunHiNeural")
+        subtitle_gen = SubtitleGenerator()
+        fallback_gen = FallbackGenerator()
+        compositor = FFmpegCompositor(CompositionConfig())
+
+        # Generate TTS for full script
+        full_text = sample_scene_script.full_text
+        tts_result = await tts_engine.synthesize(
+            text=full_text,
+            config=tts_config,
+            output_path=temp_output_dir / "scene_audio",
+        )
+
+        # Generate subtitles
+        if tts_result.word_timestamps:
+            subtitle_file = subtitle_gen.generate_from_timestamps(tts_result.word_timestamps)
+        else:
+            subtitle_file = subtitle_gen.generate_from_script(
+                full_text, tts_result.duration_seconds
+            )
+
+        subtitle_path = temp_output_dir / "scene_subs.ass"
+        subtitle_gen.to_ass(subtitle_file, subtitle_path)
+
+        # Generate visuals
+        visuals = await fallback_gen.search("technology AI", max_results=1)
+        visual = await fallback_gen.download(visuals[0], temp_output_dir)
+
+        # Compose video
+        video_path = temp_output_dir / "scene_video.mp4"
+        result = await compositor.compose(
+            audio=tts_result,
+            visuals=[visual],
+            subtitle_file=subtitle_path,
+            output_path=video_path,
+        )
+
+        assert video_path.exists()
+        assert result.duration_seconds > 0
+
+    def test_visual_style_inference(self, sample_scene_script: SceneScript) -> None:
+        """Test visual style inference from scene types."""
+        from app.models.scene import VisualStyle
+
+        for scene in sample_scene_script.scenes:
+            style = scene.inferred_visual_style
+
+            if scene.is_persona_scene:
+                # Commentary/Reaction should have PERSONA style
+                assert style == VisualStyle.PERSONA
+            elif scene.scene_type.value in ("conclusion", "cta"):
+                # Conclusion/CTA should have EMPHASIS style
+                assert style == VisualStyle.EMPHASIS
+            else:
+                # Others should have NEUTRAL style
+                assert style == VisualStyle.NEUTRAL
+
+
+class TestFullPipelineIntegration:
+    """E2E tests for the complete pipeline from topic to video."""
+
+    @pytest.mark.asyncio
+    async def test_topic_to_scene_script_to_video(
+        self,
+        temp_output_dir: Path,
+        skip_without_ffmpeg: None,
+    ) -> None:
+        """Test complete pipeline: Topic -> SceneScript -> Video."""
+        from app.models.scene import Scene, SceneScript, SceneType
+
+        # Step 1: Simulated topic (in real system, collected from sources)
+        topic_title = "GPT-5 출시 임박 소식"
+        # Keywords would be used by RAG in production: ["GPT-5", "OpenAI", "AI"]
+
+        # Step 2: Simulated RAG script generation (would use ScriptGenerator)
+        # In production, RAG retrieves relevant chunks and LLM generates script
+        scene_script = SceneScript(
+            scenes=[
+                Scene(
+                    scene_type=SceneType.HOOK,
+                    text="GPT-5가 곧 출시됩니다!",
+                    keyword="GPT-5",
+                ),
+                Scene(
+                    scene_type=SceneType.CONTENT,
+                    text="OpenAI에서 새로운 모델을 준비 중입니다.",
+                    keyword="OpenAI model",
+                ),
+                Scene(
+                    scene_type=SceneType.COMMENTARY,
+                    text="이건 정말 기대되는 소식이에요.",
+                    keyword="AI excitement",
+                ),
+            ],
+            title_text=topic_title,
+        )
+
+        # Step 3: Video generation
+        tts_engine = EdgeTTSEngine()
+        tts_config = TTSConfigDataclass(voice_id="ko-KR-InJoonNeural")
+        subtitle_gen = SubtitleGenerator()
+        fallback_gen = FallbackGenerator()
+        compositor = FFmpegCompositor(CompositionConfig())
+        thumb_gen = ThumbnailGenerator()
+
+        # TTS
+        full_text = scene_script.full_text
+        tts_result = await tts_engine.synthesize(
+            text=full_text,
+            config=tts_config,
+            output_path=temp_output_dir / "pipeline_audio",
+        )
+
+        # Subtitles
+        if tts_result.word_timestamps:
+            subtitle_file = subtitle_gen.generate_from_timestamps(tts_result.word_timestamps)
+        else:
+            subtitle_file = subtitle_gen.generate_from_script(
+                full_text, tts_result.duration_seconds
+            )
+
+        subtitle_path = temp_output_dir / "pipeline_subs.ass"
+        subtitle_gen.to_ass(subtitle_file, subtitle_path)
+
+        # Visual
+        visuals = await fallback_gen.search("AI technology", max_results=1)
+        visual = await fallback_gen.download(visuals[0], temp_output_dir)
+
+        # Compose
+        video_path = temp_output_dir / "pipeline_video.mp4"
+        result = await compositor.compose(
+            audio=tts_result,
+            visuals=[visual],
+            subtitle_file=subtitle_path,
+            output_path=video_path,
+        )
+
+        # Thumbnail
+        thumb_path = await thumb_gen.generate(
+            title=topic_title,
+            output_path=temp_output_dir / "pipeline_thumb.jpg",
+        )
+
+        # Verify all outputs
+        assert video_path.exists()
+        assert thumb_path.exists()
+        assert result.duration_seconds > 0
+
+        # Video should be within Shorts duration (< 60s)
+        assert result.duration_seconds <= 60

@@ -1,13 +1,18 @@
 # Scene-Based Script Generation Prompt Template (Persona RAG)
-# Version: 1.0.0
-# Last Updated: 2025-12-15
+# Version: 1.1.0
+# Last Updated: 2025-12-16
 #
 # This template generates scene-structured scripts with COMMENTARY/REACTION
 # scenes for persona opinions - the key differentiator for BSForge.
 
 name: "Scene Script Generation Prompt"
-version: "1.0.0"
+version: "1.1.0"
 description: "Generates scene-structured YouTube scripts with persona commentary"
+
+# LLM Settings - OpenAI for natural Korean conversation
+model: "openai/gpt-4o-mini"
+max_tokens: 2000
+temperature: 0.8
 
 template: |
   # Role
@@ -114,24 +119,38 @@ template: |
 
   **Closing scenes**:
   - **conclusion**: 2-4 seconds, wrap-up or key takeaway
-  - **cta**: 2-3 seconds, call-to-action (optional)
+  - **cta**: 2-3 seconds, call-to-action ("구독하고 좋아요!", "댓글로 알려주세요")
 
-  ## CRITICAL REQUIREMENT
-  Your script MUST include at least one "commentary" or "reaction" scene.
-  This is YOUR voice - share what YOU think about the topic.
-  Without your opinion, this is just another generic information channel.
+  ## TEXT LENGTH RULE (IMPORTANT!)
+  Each scene's "text" MUST be 1-2 short sentences only (max 40 characters).
+  This ensures proper subtitle display. If content is longer, split into multiple scenes.
+  BAD: "최근 GitHub Copilot 사용률이 70%를 넘었고, 코드 자동완성 정확도도 크게 올랐습니다."
+  GOOD: Split into two scenes:
+    - Scene 1: "GitHub Copilot 사용률이 70%를 넘었어요."
+    - Scene 2: "코드 자동완성 정확도도 크게 올랐고요."
+
+  ## CRITICAL REQUIREMENTS
+  1. Your script MUST include at least one "commentary" or "reaction" scene.
+     This is YOUR voice - share what YOU think about the topic.
+     Without your opinion, this is just another generic information channel.
+  2. Your script MUST end with a "cta" scene for engagement.
+     Examples: "구독하고 좋아요 눌러주세요!", "댓글로 의견 남겨주세요!", "다음 영상도 기대해주세요!"
 
   ## JSON Output Format
   ```json
-  [
-    {
-      "scene_type": "hook|intro|content|example|commentary|reaction|conclusion|cta",
-      "text": "Spoken text for TTS",
-      "keyword": "visual search keyword",
-      "visual_hint": "stock_video|stock_image|ai_generated|text_overlay",
-      "emphasis_words": ["word1", "word2"]  // optional: words to highlight
-    }
-  ]
+  {
+    "headline_keyword": "키워드 (1-2 words, e.g., '일론 머스크', '엔비디아')",
+    "headline_hook": "짧은 훅 (5-10 chars, e.g., '이번엔 진짜 대박')",
+    "scenes": [
+      {
+        "scene_type": "hook|intro|content|example|commentary|reaction|conclusion|cta",
+        "text": "Spoken text for TTS",
+        "keyword": "visual search keyword",
+        "visual_hint": "stock_video|stock_image|ai_generated|text_overlay",
+        "emphasis_words": ["word1", "word2"]
+      }
+    ]
+  }
   ```
 
   ## Visual Hint Guidelines
@@ -140,40 +159,70 @@ template: |
   - **ai_generated**: Abstract concepts, future scenarios, persona emphasis
   - **text_overlay**: When text itself is the visual (quotes, key points)
 
+  ## Keyword Guidelines (for visual search)
+  The "keyword" field is used to search stock images/videos. Make it specific:
+  - Use English keywords for better search results
+  - Be specific: "nvidia GPU datacenter" not "technology"
+  - Include visual elements: "person coding laptop", "robot hand AI"
+  - For people/companies: "Elon Musk portrait", "Apple logo"
+  - Avoid abstract words alone: "innovation", "future"
+
   ## Example Output
   ```json
-  [
-    {
-      "scene_type": "hook",
-      "text": "AI가 개발자를 대체한다고요?",
-      "keyword": "robot programmer",
-      "visual_hint": "stock_video"
-    },
-    {
-      "scene_type": "content",
-      "text": "최근 GitHub Copilot 사용률이 70%를 넘었고, 코드 자동완성 정확도도 크게 올랐습니다.",
-      "keyword": "github copilot coding",
-      "visual_hint": "stock_image"
-    },
-    {
-      "scene_type": "commentary",
-      "text": "근데 솔직히 말씀드리면, 이건 대체가 아니라 진화예요. 마치 계산기가 수학자를 대체하지 않은 것처럼요.",
-      "keyword": "evolution technology",
-      "visual_hint": "ai_generated",
-      "emphasis_words": ["진화", "대체"]
-    },
-    {
-      "scene_type": "conclusion",
-      "text": "중요한 건 어떻게 활용하느냐입니다.",
-      "keyword": "future technology",
-      "visual_hint": "stock_image"
-    }
-  ]
+  {
+    "headline_keyword": "AI 코딩",
+    "headline_hook": "대체 아닌 진화",
+    "scenes": [
+      {
+        "scene_type": "hook",
+        "text": "AI가 개발자를 대체한다고요?",
+        "keyword": "robot arm typing keyboard",
+        "visual_hint": "stock_video"
+      },
+      {
+        "scene_type": "content",
+        "text": "GitHub Copilot 사용률이 70%를 넘었어요.",
+        "keyword": "github copilot logo screen",
+        "visual_hint": "stock_image"
+      },
+      {
+        "scene_type": "content",
+        "text": "코드 자동완성 정확도도 크게 올랐고요.",
+        "keyword": "code editor autocomplete",
+        "visual_hint": "stock_image"
+      },
+      {
+        "scene_type": "commentary",
+        "text": "근데 이건 대체가 아니라 진화예요.",
+        "keyword": "human robot collaboration",
+        "visual_hint": "ai_generated",
+        "emphasis_words": ["진화"]
+      },
+      {
+        "scene_type": "commentary",
+        "text": "계산기가 수학자를 대체하지 않은 것처럼요.",
+        "keyword": "calculator math",
+        "visual_hint": "stock_image"
+      },
+      {
+        "scene_type": "conclusion",
+        "text": "중요한 건 어떻게 활용하느냐입니다.",
+        "keyword": "person using laptop success",
+        "visual_hint": "stock_image"
+      },
+      {
+        "scene_type": "cta",
+        "text": "구독하고 좋아요 눌러주세요!",
+        "keyword": "subscribe like button",
+        "visual_hint": "text_overlay"
+      }
+    ]
+  }
   ```
 
   ## Constraints
   - No greetings like "안녕하세요" or "Hello everyone"
-  - No CTAs unless style is soft/community-focused
+  - Always end with a CTA scene for engagement
   - Natural conversational flow, not an information dump
   - Stay on topic without tangents
   - Each scene should have ONE clear idea (not multiple)

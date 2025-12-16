@@ -59,17 +59,17 @@ layout:
     enabled: true
     position_y_ratio: 0.06  # 상단 6% = 약 115px from top
 
-    # Line 1: 키워드 (컬러) - 가로로 꽉 차도록 큰 폰트
+    # Line 1: 키워드 (컬러)
     line1:
       color: "#FF69B4"  # Hot pink
-      font_size: 120    # 가로 꽉 차게 더 크게
+      font_size: 72     # 줄임 (120 → 72)
       bold: true
       outline_width: 0  # 검은 배경이라 외곽선 불필요
 
     # Line 2: 설명 (흰색)
     line2:
       color: "#FFFFFF"
-      font_size: 90     # 설명도 더 크게
+      font_size: 56     # 줄임 (90 → 56)
       bold: true
       outline_width: 0
 
@@ -95,13 +95,13 @@ layout:
     enabled: true
     position_y_ratio: 0.55  # 중앙보다 약간 아래 (55%)
     font_name: "Noto Sans CJK KR"
-    font_size: 140
+    font_size: 90  # 자막 폰트 키움 (72 → 90)
     primary_color: "#FFFFFF"
     outline_color: "#000000"
-    outline_width: 6  # 외곽선도 두껍게
+    outline_width: 5  # 외곽선도 키움
     emphasis_enabled: true
     emphasis_color: "#FFFF00"  # 노랑 강조
-    max_chars_per_line: 10  # 큰 폰트라 줄당 글자수 줄임
+    max_chars_per_line: 14  # 글자수 줄임 (18 → 14)
     max_lines: 2
     fade_in_ms: 100
     fade_out_ms: 80
@@ -116,18 +116,18 @@ layout:
 
 subtitle:
   font_name: "Noto Sans CJK KR"
-  font_size: 140
+  font_size: 90  # 자막 폰트 키움 (72 → 90)
   bold: true
   primary_color: "#FFFFFF"
   outline_color: "#000000"
-  outline_width: 6  # 두꺼운 외곽선
+  outline_width: 5  # 외곽선도 키움
   highlight_color: "#FFFF00"
   background_enabled: false  # 배경 없음
   background_opacity: 0.0
   fade_in_ms: 100
   fade_out_ms: 80
   karaoke_enabled: false  # 카라오케 효과 꺼둠
-  max_chars_per_line: 10  # 큰 폰트라 줄당 글자수 줄임
+  max_chars_per_line: 14  # 글자수 줄임 (18 → 14)
   max_lines: 2
 
 visual_effects:
