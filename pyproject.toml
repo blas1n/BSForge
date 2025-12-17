@@ -191,12 +191,9 @@ select = [
     "DTZ", # flake8-datetimez
     "T20", # flake8-print
     "SIM", # flake8-simplify
+    "E4",  # pycodestyle import rules (E401 multiple imports on one line, E402 module level import not at top)
 ]
-ignore = [
-    "E501",  # line too long (handled by black)
-    "B008",  # do not perform function calls in argument defaults
-    "T201",  # print found (we use print for CLI)
-]
+ignore = []
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # Allow unused imports in __init__.py

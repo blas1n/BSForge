@@ -938,7 +938,9 @@ class FFmpegCompositor:
             border_color = frame_cfg.content_border_color.lstrip("#")
             border_w = frame_cfg.content_border_width
             # Add padding (border) around image
-            image_filter += f",pad={content_w + border_w * 2}:{content_h + border_w * 2}:{border_w}:{border_w}:color=#{border_color}"
+            pad_w = content_w + border_w * 2
+            pad_h = content_h + border_w * 2
+            image_filter += f",pad={pad_w}:{pad_h}:{border_w}:{border_w}:color=#{border_color}"
             # Adjust position for border (center horizontally)
             content_x = (w - (content_w + border_w * 2)) // 2
 
@@ -1360,7 +1362,10 @@ class FFmpegCompositor:
         if apply_color_grade:
             # Add warm/orange color grading for viral style
             # Increase red, slightly increase green, decrease blue
-            color_grade = ",eq=brightness=0.05:contrast=1.1:saturation=1.2,colorbalance=rs=0.1:gs=0.05:bs=-0.1"
+            color_grade = (
+                ",eq=brightness=0.05:contrast=1.1:saturation=1.2"
+                ",colorbalance=rs=0.1:gs=0.05:bs=-0.1"
+            )
             return base_filter + color_grade
 
         return base_filter

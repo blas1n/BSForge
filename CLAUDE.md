@@ -68,19 +68,17 @@ main (protected)
 ```
 bsforge/
 ├── app/
-│   ├── api/                  # FastAPI routers
-│   │   ├── v1/
-│   │   │   ├── channels.py
-│   │   │   ├── review.py
-│   │   │   ├── stats.py
-│   │   │   └── auth.py
-│   │   └── deps.py           # Dependencies
+│   ├── api/                  # FastAPI routers (Phase 9 - NOT YET IMPLEMENTED)
+│   │   └── ...               # To be added in API layer phase
 │   ├── config/               # Channel config models (Pydantic)
 │   │   ├── __init__.py       # ChannelConfig
 │   │   ├── channel.py        # ChannelInfo, YouTubeConfig
 │   │   ├── persona.py        # PersonaConfig, VoiceConfig, etc.
 │   │   ├── content.py        # ContentConfig, ScoringConfig, etc.
-│   │   └── operation.py      # OperationConfig, ReviewGates, etc.
+│   │   ├── operation.py      # OperationConfig, ReviewGates, etc.
+│   │   ├── rag.py            # RAG configuration (EmbeddingConfig, etc.)
+│   │   ├── video.py          # Video generation config
+│   │   └── video_template.py # Scene-based video templates
 │   ├── core/
 │   │   ├── config.py         # App settings (pydantic-settings)
 │   │   ├── config_loader.py  # YAML config loader & manager
@@ -88,7 +86,9 @@ bsforge/
 │   │   ├── database.py       # SQLAlchemy setup
 │   │   ├── redis.py          # Redis client
 │   │   ├── logging.py        # Logging setup
-│   │   └── exceptions.py     # Custom exceptions
+│   │   ├── exceptions.py     # Custom exceptions (23 classes, see below)
+│   │   ├── types.py          # Shared type aliases (SessionFactory)
+│   │   └── template_loader.py # Prompt template loader
 │   ├── infrastructure/       # External service clients
 │   │   ├── llm.py            # LiteLLM unified client
 │   │   └── pgvector_db.py    # pgvector implementation
@@ -99,43 +99,52 @@ bsforge/
 │   │   ├── script.py
 │   │   ├── scene.py          # Scene, SceneScript, SceneType, VisualStyle
 │   │   ├── video.py
-│   │   ├── upload.py
-│   │   └── ...
+│   │   └── content_chunk.py  # Vector embeddings for RAG
+│   ├── prompts/              # Prompt template system
+│   │   ├── manager.py        # PromptManager for template loading
+│   │   └── templates/        # YAML prompt templates
+│   │       ├── script_generation.yaml
+│   │       ├── scene_script_generation.yaml
+│   │       ├── classification.yaml
+│   │       └── translation.yaml
 │   ├── schemas/              # API request/response schemas (Pydantic)
 │   │   └── ...               # (to be added in API layer phase)
 │   ├── services/
 │   │   ├── collector/        # Topic collection
-│   │   │   ├── sources/      # Source implementations
+│   │   │   ├── sources/      # Source implementations (reddit, hackernews, rss, etc.)
 │   │   │   ├── normalizer.py
 │   │   │   ├── deduplicator.py
-│   │   │   └── scorer.py
+│   │   │   ├── filter.py
+│   │   │   ├── scorer.py
+│   │   │   ├── queue_manager.py
+│   │   │   ├── series_matcher.py
+│   │   │   ├── global_pool.py
+│   │   │   └── pipeline.py
 │   │   ├── rag/              # Persona RAG system
 │   │   │   ├── embedder.py
 │   │   │   ├── retriever.py
 │   │   │   ├── reranker.py
-│   │   │   └── generator.py
+│   │   │   ├── generator.py
+│   │   │   ├── quality.py    # ScriptQualityChecker for quality gates
+│   │   │   ├── chunker.py    # Script chunking for RAG
+│   │   │   ├── classifier.py # Content classification
+│   │   │   ├── context.py    # Context building
+│   │   │   └── prompt.py     # Prompt building
 │   │   ├── generator/        # Video generation
 │   │   │   ├── tts/          # TTS engines (Edge TTS, ElevenLabs)
 │   │   │   ├── visual/       # Visual sourcing (Pexels, AI, fallback)
 │   │   │   ├── subtitle.py   # Subtitle generation (ASS/SRT, scene-aware)
 │   │   │   ├── compositor.py # FFmpeg video composition
+│   │   │   ├── ffmpeg.py     # Type-safe FFmpeg wrapper (ffmpeg-python)
 │   │   │   ├── pipeline.py   # Video generation pipeline orchestrator
 │   │   │   └── thumbnail.py  # Thumbnail generation
-│   │   ├── uploader/         # YouTube upload
-│   │   │   ├── youtube.py
-│   │   │   ├── metadata.py
-│   │   │   └── scheduler.py
-│   │   ├── analyzer/         # Analytics
-│   │   │   ├── performance.py
-│   │   │   └── series.py
-│   │   └── filter/           # Content filter
-│   │       ├── keyword.py
-│   │       └── llm.py
+│   │   ├── uploader/         # YouTube upload (Phase 6 - NOT YET IMPLEMENTED)
+│   │   ├── analyzer/         # Analytics (Phase 6 - NOT YET IMPLEMENTED)
+│   │   └── filter/           # Content filter (Phase 6 - NOT YET IMPLEMENTED)
 │   ├── workers/              # Celery tasks
-│   │   ├── collect.py
-│   │   ├── generate.py
-│   │   ├── upload.py
-│   │   └── sync.py
+│   │   ├── celery_app.py     # Celery application setup
+│   │   ├── collect.py        # Topic collection tasks
+│   │   └── scheduler.py      # Task scheduling
 │   └── main.py               # FastAPI app
 ├── config/
 │   ├── examples/             # Example configs (public)
@@ -251,22 +260,55 @@ from app.services.collector import TopicCollector
 - Solve circular imports by design (fix dependency direction)
 
 ### Error Handling
+
+All custom exceptions inherit from `BSForgeError` and include context dictionaries for structured logging.
+
+**Exception Hierarchy** (`app/core/exceptions.py`):
+```
+BSForgeError (base)
+├── DatabaseError
+│   ├── RecordNotFoundError (model, record_id)
+│   └── RecordAlreadyExistsError (model, field, value)
+├── ConfigError (config_path)
+│   ├── ConfigValidationError (field, value, reason)
+│   └── ConfigNotFoundError (config_key)
+├── ServiceError (service_name)
+│   ├── ExternalAPIError (service, status_code, endpoint)
+│   └── RateLimitError (service, retry_after)
+├── ContentError (content_type)
+│   ├── ContentGenerationError (stage, model)
+│   ├── ContentValidationError (validation_errors)
+│   └── UnsafeContentError (reason, risk_score, flagged_words)
+├── VideoError (video_id, script_id)
+│   ├── TTSError (engine, voice_id)
+│   └── VideoRenderError (stage, ffmpeg_error)
+├── UploadError (video_id, platform)
+│   ├── YouTubeAPIError (error_code, error_reason)
+│   └── QuotaExceededError (quota_limit, quota_used, reset_time)
+└── AuthError (user_id)
+    ├── InvalidCredentialsError (credential_type)
+    └── TokenExpiredError (token_type, expired_at)
+```
+
+**Usage examples**:
 ```python
-# Use custom exceptions
-class BSForgeError(Exception):
-    """Base exception"""
-    pass
+from app.core.exceptions import RecordNotFoundError, ExternalAPIError
 
-class TopicNotFoundError(BSForgeError):
-    """Topic not found"""
-    pass
+# Raise with context
+raise RecordNotFoundError(model="Topic", record_id="abc-123")
 
-# Always log errors with context
-logger.error(
-    "Failed to generate script",
-    extra={"topic_id": topic.id, "channel_id": channel.id},
-    exc_info=True,
-)
+# Raise with additional context via chaining
+raise ExternalAPIError(
+    service="Pexels",
+    message="Rate limited",
+    status_code=429,
+).with_context(endpoint="/videos/search", query="nature")
+
+# Log with context
+try:
+    ...
+except BSForgeError as e:
+    logger.error("Operation failed", **e.context, exc_info=True)
 ```
 
 ### Dependency Injection
@@ -454,19 +496,19 @@ Models are created alongside the features that use them:
   - Generation: tts_service, tts_voice_id, visual_sources (JSONB)
   - status: GENERATING, GENERATED, REVIEWED, APPROVED, REJECTED, UPLOADED, FAILED, ARCHIVED
 
-**Phase 6: Upload & Analytics**
+**Phase 6: Upload & Analytics** (NOT YET IMPLEMENTED)
 - `uploads` - YouTube uploads
 - `performances` - Video analytics
 - `series` - Auto-detected series
 
-**Phase 7: A/B Testing**
+**Phase 7: A/B Testing** (NOT YET IMPLEMENTED)
 - `experiments` - A/B test experiments
 - `experiment_assignments` - Variant assignments
 
-**Phase 8: Review System**
+**Phase 8: Review System** (NOT YET IMPLEMENTED)
 - `review_queue` - Review items
 
-**Phase 10: Workers**
+**Phase 10: Workers** (NOT YET IMPLEMENTED)
 - `job_logs` - Task logs
 
 ### Key Relationships

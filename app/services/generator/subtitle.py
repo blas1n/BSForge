@@ -18,6 +18,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from app.config.video import SubtitleConfig, SubtitleStyleConfig
+from app.services.generator.templates import (
+    ASSDialogueParams,
+    ASSStyleParams,
+    ASSTemplateLoader,
+    get_ass_template_loader,
+)
 from app.services.generator.tts.base import SceneTTSResult, WordTimestamp
 
 if TYPE_CHECKING:
@@ -76,13 +82,19 @@ class SubtitleGenerator:
         >>> generator.to_ass(subtitle, Path("/tmp/subtitle.ass"))
     """
 
-    def __init__(self, config: SubtitleConfig | None = None) -> None:
+    def __init__(
+        self,
+        config: SubtitleConfig | None = None,
+        template_loader: ASSTemplateLoader | None = None,
+    ) -> None:
         """Initialize SubtitleGenerator.
 
         Args:
             config: Subtitle configuration
+            template_loader: ASS template loader (uses singleton if not provided)
         """
         self.config = config or SubtitleConfig()
+        self.template_loader = template_loader or get_ass_template_loader()
 
     def generate_from_timestamps(
         self,
@@ -323,22 +335,43 @@ class SubtitleGenerator:
             fade_out_ms = 50
             karaoke_enabled = self.config.highlight_current_word
 
-        # Build ASS content
-        ass_content = f"""[Script Info]
-Title: BSForge Generated Subtitles
-ScriptType: v4.00+
-PlayResX: 1080
-PlayResY: 1920
-WrapStyle: 0
+        # Build styles using template loader
+        default_style = ASSStyleParams(
+            name="Default",
+            font_name=font_name,
+            font_size=font_size,
+            primary_color=primary_color,
+            outline_color=outline_color,
+            back_color=bg_color,
+            bold=bold,
+            border_style=border_style,
+            outline=outline_width,
+            alignment=alignment,
+            margin_l=self.config.margin_horizontal,
+            margin_r=self.config.margin_horizontal,
+            margin_v=margin_v,
+        )
+        highlight_style = ASSStyleParams(
+            name="Highlight",
+            font_name=font_name,
+            font_size=font_size,
+            primary_color=highlight_color,
+            outline_color=outline_color,
+            back_color=bg_color,
+            bold=1,
+            border_style=border_style,
+            outline=outline_width,
+            alignment=alignment,
+            margin_l=self.config.margin_horizontal,
+            margin_r=self.config.margin_horizontal,
+            margin_v=margin_v,
+        )
 
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font_name},{font_size},{primary_color},&H00000000,{outline_color},{bg_color},{bold},0,0,0,100,100,0,0,{border_style},{outline_width},0,{alignment},{self.config.margin_horizontal},{self.config.margin_horizontal},{margin_v},1
-Style: Highlight,{font_name},{font_size},{highlight_color},&H00000000,{outline_color},{bg_color},1,0,0,0,100,100,0,0,{border_style},{outline_width},0,{alignment},{self.config.margin_horizontal},{self.config.margin_horizontal},{margin_v},1
-
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-"""
+        # Render header with styles
+        ass_content = self.template_loader.render_header(
+            title="BSForge Generated Subtitles",
+            styles=[default_style, highlight_style],
+        )
 
         # Add dialogue lines
         for segment in subtitle.segments:
@@ -355,7 +388,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if fade_in_ms > 0 or fade_out_ms > 0:
                 text = f"{{\\fad({fade_in_ms},{fade_out_ms})}}{text}"
 
-            ass_content += f"Dialogue: 0,{start_time},{end_time},Default,,0,0,0,,{text}\n"
+            dialogue = self.template_loader.render_dialogue(
+                ASSDialogueParams(start=start_time, end=end_time, text=text)
+            )
+            ass_content += dialogue + "\n"
 
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(ass_content)
@@ -937,23 +973,58 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             fade_out_ms = 50
             karaoke_enabled = self.config.highlight_current_word
 
-        # Build ASS with multiple styles
-        ass_content = f"""[Script Info]
-Title: BSForge Scene-Based Subtitles
-ScriptType: v4.00+
-PlayResX: 1080
-PlayResY: 1920
-WrapStyle: 0
+        # Create style params for each visual style
+        neutral_style_params = ASSStyleParams(
+            name="Neutral",
+            font_name=font_name,
+            font_size=font_size,
+            primary_color=primary_color,
+            outline_color=outline_color,
+            back_color=bg_color,
+            bold=bold,
+            border_style=border_style,
+            outline=outline_width,
+            alignment=alignment,
+            margin_l=self.config.margin_horizontal,
+            margin_r=self.config.margin_horizontal,
+            margin_v=margin_v,
+        )
+        persona_style_params = ASSStyleParams(
+            name="Persona",
+            font_name=font_name,
+            font_size=font_size,
+            primary_color=primary_color,
+            outline_color=outline_color,
+            back_color=bg_color,
+            bold=bold,
+            border_style=border_style,
+            outline=outline_width,
+            alignment=alignment,
+            margin_l=self.config.margin_horizontal,
+            margin_r=self.config.margin_horizontal,
+            margin_v=margin_v,
+        )
+        emphasis_style_params = ASSStyleParams(
+            name="Emphasis",
+            font_name=font_name,
+            font_size=font_size,
+            primary_color=primary_color,
+            outline_color=outline_color,
+            back_color=bg_color,
+            bold=bold,
+            border_style=border_style,
+            outline=outline_width,
+            alignment=alignment,
+            margin_l=self.config.margin_horizontal,
+            margin_r=self.config.margin_horizontal,
+            margin_v=margin_v,
+        )
 
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Neutral,{font_name},{font_size},{primary_color},&H00000000,{outline_color},{bg_color},{bold},0,0,0,100,100,0,0,{border_style},{outline_width},0,{alignment},{self.config.margin_horizontal},{self.config.margin_horizontal},{margin_v},1
-Style: Persona,{font_name},{font_size},{primary_color},&H00000000,{outline_color},{bg_color},{bold},0,0,0,100,100,0,0,{border_style},{outline_width},0,{alignment},{self.config.margin_horizontal},{self.config.margin_horizontal},{margin_v},1
-Style: Emphasis,{font_name},{font_size},{primary_color},&H00000000,{outline_color},{bg_color},{bold},0,0,0,100,100,0,0,{border_style},{outline_width},0,{alignment},{self.config.margin_horizontal},{self.config.margin_horizontal},{margin_v},1
-
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-"""
+        # Render header with styles
+        ass_content = self.template_loader.render_header(
+            title="BSForge Scene-Based Subtitles",
+            styles=[neutral_style_params, persona_style_params, emphasis_style_params],
+        )
 
         # Build scene timing lookup: scene_index -> (start, end)
         scene_timings: list[tuple[float, float]] = []
@@ -987,7 +1058,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if fade_in_ms > 0 or fade_out_ms > 0:
                 text = f"{{\\fad({fade_in_ms},{fade_out_ms})}}{text}"
 
-            ass_content += f"Dialogue: 0,{start_time},{end_time},{style_name},,0,0,0,,{text}\n"
+            dialogue = self.template_loader.render_dialogue(
+                ASSDialogueParams(start=start_time, end=end_time, style=style_name, text=text)
+            )
+            ass_content += dialogue + "\n"
 
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(ass_content)

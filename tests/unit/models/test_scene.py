@@ -355,7 +355,10 @@ class TestSceneScript:
                 ),
                 Scene(
                     scene_type=SceneType.COMMENTARY,
-                    text="제 생각에는 이게 정말 큰 변화의 시작이에요 앞으로 더 많은 발전이 있을 것 같습니다",
+                    text=(
+                        "제 생각에는 이게 정말 큰 변화의 시작이에요 "
+                        "앞으로 더 많은 발전이 있을 것 같습니다"
+                    ),
                 ),
                 Scene(scene_type=SceneType.CONCLUSION, text="이상 AI 뉴스였습니다 감사합니다"),
             ]

@@ -25,6 +25,7 @@ class PromptType(str, Enum):
     CONTENT_CLASSIFICATION = "content_classification"
     SCRIPT_GENERATION = "script_generation"
     SCENE_SCRIPT_GENERATION = "scene_script_generation"
+    QUERY_EXPANSION = "query_expansion"
 
 
 class LLMSettings(BaseModel):

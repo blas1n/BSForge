@@ -15,6 +15,7 @@ from app.core.logging import get_logger
 from app.core.types import SessionFactory
 from app.infrastructure.pgvector_db import PgVectorDB
 from app.models.content_chunk import ChunkPosition, ContentChunk
+from app.prompts.manager import PromptManager, PromptType, get_prompt_manager
 
 logger = get_logger(__name__)
 
@@ -114,6 +115,7 @@ class RAGRetriever:
         retrieval_config: RetrievalConfig,
         query_config: QueryExpansionConfig,
         llm_client: AsyncAnthropic | None = None,
+        prompt_manager: PromptManager | None = None,
     ):
         """Initialize RAGRetriever.
 
@@ -123,12 +125,14 @@ class RAGRetriever:
             retrieval_config: Retrieval configuration
             query_config: Query expansion configuration
             llm_client: Optional Anthropic client for query expansion
+            prompt_manager: Optional PromptManager for centralized prompt management
         """
         self.vector_db = vector_db
         self.db_session_factory = db_session_factory
         self.retrieval_config = retrieval_config
         self.query_config = query_config
         self.llm_client = llm_client
+        self.prompt_manager = prompt_manager or get_prompt_manager()
 
     async def retrieve(
         self,
@@ -240,17 +244,19 @@ class RAGRetriever:
             return [query]
 
         try:
-            prompt = f"""Given this search query about a YouTube Shorts topic:
+            # Render prompt from centralized template
+            prompt = self.prompt_manager.render(
+                PromptType.QUERY_EXPANSION,
+                query=query,
+                num_expansions=self.query_config.num_expansions,
+            )
 
-"{query}"
-
-Generate {self.query_config.num_expansions} alternative search queries that would help find related content from different angles or perspectives.
-
-Return ONLY the alternative queries, one per line, without numbering or explanation."""
+            # Get LLM settings from template
+            llm_settings = self.prompt_manager.get_llm_settings(PromptType.QUERY_EXPANSION)
 
             response = await self.llm_client.messages.create(
-                model=self.query_config.model,
-                max_tokens=self.query_config.max_tokens,
+                model=llm_settings.model,
+                max_tokens=llm_settings.max_tokens,
                 messages=[{"role": "user", "content": prompt}],
             )
 

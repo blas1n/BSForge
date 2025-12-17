@@ -37,11 +37,11 @@ class TestTopicNormalization:
     async def test_normalize_korean_topic(self) -> None:
         """Test normalization of Korean topic."""
         llm_client = AsyncMock()
-        llm_client.complete = AsyncMock(
-            return_value=MagicMock(
-                content='{"categories": ["tech"], "keywords": ["AI", "기술"], "entities": {}, "summary": "AI 기술 관련 요약"}'
-            )
+        mock_content = (
+            '{"categories": ["tech"], "keywords": ["AI", "기술"], '
+            '"entities": {}, "summary": "AI 기술 관련 요약"}'
         )
+        llm_client.complete = AsyncMock(return_value=MagicMock(content=mock_content))
 
         normalizer = TopicNormalizer(llm_client=llm_client)
 
@@ -63,11 +63,11 @@ class TestTopicNormalization:
     async def test_normalize_english_topic(self) -> None:
         """Test normalization of English topic."""
         llm_client = AsyncMock()
-        llm_client.complete = AsyncMock(
-            return_value=MagicMock(
-                content='{"categories": ["tech"], "keywords": ["AI", "future"], "entities": {}, "summary": "Summary about AI"}'
-            )
+        mock_content = (
+            '{"categories": ["tech"], "keywords": ["AI", "future"], '
+            '"entities": {}, "summary": "Summary about AI"}'
         )
+        llm_client.complete = AsyncMock(return_value=MagicMock(content=mock_content))
 
         normalizer = TopicNormalizer(llm_client=llm_client)
 
@@ -233,14 +233,18 @@ class TestCollectionPipeline:
         """Test complete topic collection pipeline."""
         # Setup mocks - different responses for different topics
         llm_client = AsyncMock()
+        tech_content = (
+            '{"categories": ["tech"], "keywords": ["ai"], '
+            '"entities": {}, "summary": "AI summary"}'
+        )
+        politics_content = (
+            '{"categories": ["politics"], "keywords": ["정치"], '
+            '"entities": {}, "summary": "Politics summary"}'
+        )
         llm_client.complete = AsyncMock(
             side_effect=[
-                MagicMock(
-                    content='{"categories": ["tech"], "keywords": ["ai"], "entities": {}, "summary": "AI summary"}'
-                ),
-                MagicMock(
-                    content='{"categories": ["politics"], "keywords": ["정치"], "entities": {}, "summary": "Politics summary"}'
-                ),
+                MagicMock(content=tech_content),
+                MagicMock(content=politics_content),
             ]
         )
 

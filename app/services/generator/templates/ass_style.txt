@@ -1,0 +1,1 @@
+Style: ${name},${font_name},${font_size},${primary_color},${secondary_color},${outline_color},${back_color},${bold},${italic},${underline},${strikeout},${scale_x},${scale_y},${spacing},${angle},${border_style},${outline},${shadow},${alignment},${margin_l},${margin_r},${margin_v},${encoding}

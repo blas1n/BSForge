@@ -509,8 +509,9 @@ class ScriptGenerator:
                 return script
 
             except QualityCheckFailedError as e:
+                max_attempts = config.max_retries + 1
                 logger.warning(
-                    f"Scene quality check failed on attempt {attempt + 1}/{config.max_retries + 1}: {e}"
+                    f"Scene quality check failed on attempt {attempt + 1}/{max_attempts}: {e}"
                 )
 
                 if attempt >= config.max_retries or not config.retry_on_failure:
