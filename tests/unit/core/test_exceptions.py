@@ -35,11 +35,11 @@ def test_bsforge_error():
 
 @pytest.mark.unit
 def test_record_not_found_error():
-    """Test RecordNotFoundError with model and id."""
-    error = RecordNotFoundError(model="User", id="123")
+    """Test RecordNotFoundError with model and record_id."""
+    error = RecordNotFoundError(model="User", record_id="123")
 
     assert error.model == "User"
-    assert error.id == "123"
+    assert error.record_id == "123"
     assert "User" in str(error)
     assert "123" in str(error)
     assert isinstance(error, DatabaseError)
@@ -48,8 +48,14 @@ def test_record_not_found_error():
 
 @pytest.mark.unit
 def test_record_already_exists_error():
-    """Test RecordAlreadyExistsError."""
-    error = RecordAlreadyExistsError("Record exists")
+    """Test RecordAlreadyExistsError with model, field, and value."""
+    error = RecordAlreadyExistsError(model="User", field="email", value="test@example.com")
+
+    assert error.model == "User"
+    assert error.field == "email"
+    assert error.value == "test@example.com"
+    assert "User" in str(error)
+    assert "email" in str(error)
     assert isinstance(error, DatabaseError)
     assert isinstance(error, BSForgeError)
 
@@ -73,9 +79,9 @@ def test_external_api_error():
     error = ExternalAPIError(service="YouTube", message="API request failed", status_code=429)
 
     assert error.service == "YouTube"
-    assert error.message == "API request failed"
     assert error.status_code == 429
     assert "YouTube" in str(error)
+    assert "API request failed" in str(error)
     assert isinstance(error, ServiceError)
     assert isinstance(error, BSForgeError)
 
@@ -153,13 +159,13 @@ def test_exception_hierarchy():
     # All custom exceptions should inherit from BSForgeError
     exceptions = [
         DatabaseError("test"),
-        RecordNotFoundError("Model", "id"),
-        RecordAlreadyExistsError("test"),
+        RecordNotFoundError(model="Model", record_id="id"),
+        RecordAlreadyExistsError(model="Model", field="field", value="value"),
         ConfigError("test"),
         ConfigValidationError("test"),
         ConfigNotFoundError("test"),
         ServiceError("test"),
-        ExternalAPIError("service", "msg"),
+        ExternalAPIError(service="service", message="msg"),
         RateLimitError("test"),
         ContentError("test"),
         ContentGenerationError("test"),

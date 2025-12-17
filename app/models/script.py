@@ -138,12 +138,12 @@ class Script(Base, UUIDMixin, TimestampMixin):
         Returns:
             SceneScript if scenes exist, None otherwise
         """
-        if not self.has_scenes:
+        if not self.has_scenes or self.scenes is None:
             return None
 
         from app.models.scene import Scene, SceneScript
 
-        parsed_scenes = [Scene(**scene_data) for scene_data in self.scenes]  # type: ignore[union-attr]
+        parsed_scenes = [Scene(**scene_data) for scene_data in self.scenes]
         return SceneScript(scenes=parsed_scenes, title_text=self.title_text)
 
 

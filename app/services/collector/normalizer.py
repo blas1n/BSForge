@@ -204,6 +204,7 @@ class TopicNormalizer:
                 source_lang=source_lang,
                 target_lang=target_lang,
                 error=str(e),
+                exc_info=True,
             )
             # Return original text if translation fails
             return text
@@ -330,7 +331,8 @@ class TopicNormalizer:
         """
         # Try parsing the whole text first
         try:
-            return json.loads(text)
+            result: dict[str, Any] = json.loads(text)
+            return result
         except json.JSONDecodeError:
             pass
 
@@ -367,7 +369,8 @@ class TopicNormalizer:
                 if depth == 0:
                     # Found complete JSON object
                     json_str = text[start : i + 1]
-                    return json.loads(json_str)
+                    parsed: dict[str, Any] = json.loads(json_str)
+                    return parsed
 
         # If we get here, no complete object was found
         raise json.JSONDecodeError("Incomplete JSON object", text, len(text))

@@ -1,7 +1,7 @@
 """Tests for VideoGenerationPipeline."""
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -248,11 +248,21 @@ class TestPipelineHelpers:
     def test_get_thumbnail_title_from_topic(
         self, pipeline: VideoGenerationPipeline, mock_script: MagicMock
     ) -> None:
-        """Test thumbnail title extraction from topic."""
-        mock_script.topic = MagicMock()
-        mock_script.topic.title = "Amazing Video Title"
+        """Test thumbnail title extraction from topic.
 
-        title = pipeline._get_thumbnail_title(mock_script)
+        Note: The actual method uses sa_inspect to check SQLAlchemy state,
+        which doesn't work with MagicMock. We patch sa_inspect to simulate
+        a properly loaded SQLAlchemy model.
+        """
+        mock_topic = MagicMock()
+        mock_topic.title = "Amazing Video Title"
+        mock_script.topic = mock_topic
+
+        mock_state = MagicMock()
+        mock_state.unloaded = set()  # topic is loaded
+
+        with patch("app.services.generator.pipeline.sa_inspect", return_value=mock_state):
+            title = pipeline._get_thumbnail_title(mock_script)
 
         assert title == "Amazing Video Title"
 

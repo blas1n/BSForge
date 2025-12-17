@@ -5,7 +5,6 @@ Supports template-based styling for visual effects and overlays.
 Supports scene-based composition with per-scene visual styles.
 """
 
-import asyncio
 import logging
 import shutil
 import tempfile
@@ -14,6 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from app.config.video import CompositionConfig
+from app.services.generator.ffmpeg import FFmpegError, FFmpegWrapper, get_ffmpeg_wrapper
 from app.services.generator.tts.base import TTSResult
 from app.services.generator.visual.base import VisualAsset
 
@@ -68,15 +68,18 @@ class FFmpegCompositor:
         self,
         config: CompositionConfig | None = None,
         template: "VideoTemplateConfig | None" = None,
+        ffmpeg_wrapper: FFmpegWrapper | None = None,
     ) -> None:
         """Initialize FFmpegCompositor.
 
         Args:
             config: Composition configuration
             template: Video template for visual effects and overlays
+            ffmpeg_wrapper: FFmpeg wrapper for type-safe operations
         """
         self.config = config or CompositionConfig()
         self.template = template
+        self.ffmpeg = ffmpeg_wrapper or get_ffmpeg_wrapper()
 
     async def compose(
         self,
@@ -512,9 +515,13 @@ class FFmpegCompositor:
         if len(segments) == 1:
             return segments[0]
 
-        # For now, use simple concat with flash transitions for FLASH type
-        # Complex xfade would require knowing exact durations
-        # TODO: Implement proper xfade transitions when timing is reliable
+        # NOTE: FFmpeg xfade requires exact segment durations.
+        # Current implementation uses simple concat with fade-in at start.
+        # For proper crossfade transitions:
+        # 1. Pass segment durations alongside segment paths
+        # 2. Build ffmpeg filter chain: xfade=transition=fade:duration=0.5:offset=<duration-0.5>
+        # 3. Chain multiple xfade filters for multiple segments
+        # This is deferred as it requires structural changes to pass duration info.
 
         # Get recommended transitions from scenes
         transitions: list[TransitionType] = []
@@ -931,7 +938,9 @@ class FFmpegCompositor:
             border_color = frame_cfg.content_border_color.lstrip("#")
             border_w = frame_cfg.content_border_width
             # Add padding (border) around image
-            image_filter += f",pad={content_w + border_w * 2}:{content_h + border_w * 2}:{border_w}:{border_w}:color=#{border_color}"
+            pad_w = content_w + border_w * 2
+            pad_h = content_h + border_w * 2
+            image_filter += f",pad={pad_w}:{pad_h}:{border_w}:{border_w}:color=#{border_color}"
             # Adjust position for border (center horizontally)
             content_x = (w - (content_w + border_w * 2)) // 2
 
@@ -1353,7 +1362,10 @@ class FFmpegCompositor:
         if apply_color_grade:
             # Add warm/orange color grading for viral style
             # Increase red, slightly increase green, decrease blue
-            color_grade = ",eq=brightness=0.05:contrast=1.1:saturation=1.2,colorbalance=rs=0.1:gs=0.05:bs=-0.1"
+            color_grade = (
+                ",eq=brightness=0.05:contrast=1.1:saturation=1.2"
+                ",colorbalance=rs=0.1:gs=0.05:bs=-0.1"
+            )
             return base_filter + color_grade
 
         return base_filter
@@ -1366,50 +1378,28 @@ class FFmpegCompositor:
 
         Returns:
             Duration in seconds
+
+        Raises:
+            FFmpegError: If probing fails
         """
-        cmd = [
-            "ffprobe",
-            "-v",
-            "error",
-            "-show_entries",
-            "format=duration",
-            "-of",
-            "default=noprint_wrappers=1:nokey=1",
-            str(video_path),
-        ]
-
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-
-        stdout, _ = await process.communicate()
-        return float(stdout.decode().strip())
+        return await self.ffmpeg.get_duration(video_path)
 
     async def _run_ffmpeg(self, cmd: list[str]) -> None:
         """Run FFmpeg command.
 
         Args:
-            cmd: Command list
+            cmd: Command list (without 'ffmpeg' prefix)
 
         Raises:
-            RuntimeError: If FFmpeg fails
+            FFmpegError: If FFmpeg fails
         """
-        logger.debug(f"Running FFmpeg: {' '.join(cmd)}")
+        logger.debug(f"Running FFmpeg: ffmpeg {' '.join(cmd)}")
 
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-
-        _, stderr = await process.communicate()
-
-        if process.returncode != 0:
-            error_msg = stderr.decode()
-            logger.error(f"FFmpeg failed: {error_msg}", exc_info=True)
-            raise RuntimeError(f"FFmpeg failed: {error_msg[:500]}")
+        try:
+            await self.ffmpeg.run_raw(cmd)
+        except FFmpegError as e:
+            # Re-raise with truncated message for logging
+            raise FFmpegError(f"FFmpeg failed: {str(e)[:500]}", stderr=e.stderr) from e
 
     def _should_add_headline(self) -> bool:
         """Check if 2-line headline should be added based on template.

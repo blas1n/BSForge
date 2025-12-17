@@ -184,7 +184,7 @@ async def cache_set(key: str, value: Any, expire: int | None = None) -> bool:
         logger.debug("Cache set", key=key, expire=expire)
         return bool(result)
     except Exception as e:
-        logger.error("Cache set failed", key=key, error=str(e))
+        logger.error("Cache set failed", key=key, error=str(e), exc_info=True)
         return False
 
 
@@ -215,7 +215,7 @@ async def cache_get(key: str, default: Any = None) -> Any:
         except (json.JSONDecodeError, TypeError):
             return value
     except Exception as e:
-        logger.error("Cache get failed", key=key, error=str(e))
+        logger.error("Cache get failed", key=key, error=str(e), exc_info=True)
         return default
 
 
@@ -237,7 +237,7 @@ async def cache_delete(key: str) -> bool:
         logger.debug("Cache delete", key=key)
         return bool(result)
     except Exception as e:
-        logger.error("Cache delete failed", key=key, error=str(e))
+        logger.error("Cache delete failed", key=key, error=str(e), exc_info=True)
         return False
 
 
@@ -259,7 +259,7 @@ async def cache_exists(key: str) -> bool:
         result = await client.exists(key)
         return bool(result)
     except Exception as e:
-        logger.error("Cache exists check failed", key=key, error=str(e))
+        logger.error("Cache exists check failed", key=key, error=str(e), exc_info=True)
         return False
 
 
@@ -288,7 +288,7 @@ async def cache_clear_pattern(pattern: str) -> int:
             return deleted
         return 0
     except Exception as e:
-        logger.error("Cache pattern clear failed", pattern=pattern, error=str(e))
+        logger.error("Cache pattern clear failed", pattern=pattern, error=str(e), exc_info=True)
         return 0
 
 
@@ -308,7 +308,7 @@ async def check_redis_connection() -> bool:
         await client.ping()
         return True
     except Exception as e:
-        logger.error("Redis health check failed", error=str(e))
+        logger.error("Redis health check failed", error=str(e), exc_info=True)
         return False
 
 

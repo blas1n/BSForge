@@ -326,7 +326,10 @@ class TestSceneBasedVideoGeneration:
                 ),
                 Scene(
                     scene_type=SceneType.CONTENT,
-                    text="OpenAI가 오늘 새로운 모델을 발표했습니다. 이 모델은 기존 대비 50% 빠른 속도를 자랑합니다.",
+                    text=(
+                        "OpenAI가 오늘 새로운 모델을 발표했습니다. "
+                        "이 모델은 기존 대비 50% 빠른 속도를 자랑합니다."
+                    ),
                     keyword="OpenAI",
                     visual_hint=VisualHintType.STOCK_IMAGE,
                 ),

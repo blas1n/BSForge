@@ -12,13 +12,14 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from sqlalchemy import inspect as sa_inspect
 
 from app.config.video import VideoGenerationConfig
 from app.config.video_template import VideoTemplateConfig
 from app.core.template_loader import VideoTemplateLoader, get_template_loader
+from app.core.types import SessionFactory
 from app.models.script import Script
 from app.models.video import Video, VideoStatus
 from app.services.generator.compositor import FFmpegCompositor
@@ -98,7 +99,7 @@ class VideoGenerationPipeline:
         subtitle_generator: SubtitleGenerator,
         compositor: FFmpegCompositor,
         thumbnail_generator: ThumbnailGenerator,
-        db_session_factory: Any,
+        db_session_factory: SessionFactory,
         config: VideoGenerationConfig | None = None,
         template_loader: VideoTemplateLoader | None = None,
     ) -> None:

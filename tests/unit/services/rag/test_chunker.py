@@ -32,15 +32,20 @@ class TestScriptChunker:
     @pytest.fixture
     def sample_script(self) -> str:
         """Sample script for testing."""
-        return """Have you ever wondered why Python is so popular? Let me tell you the secret.
-
-Python was created by Guido van Rossum in the late 1980s. It was designed to be easy to read and write. The philosophy behind Python is that code should be readable.
-
-Many companies use Python today. Google, Netflix, and Instagram all rely on Python for various services. For example, Instagram uses Python for their backend services.
-
-I personally think Python is the best language for beginners. It's like learning to drive with an automatic car instead of a manual.
-
-That's why I recommend Python to everyone starting their programming journey. Try it and you won't regret it!"""
+        return (
+            "Have you ever wondered why Python is so popular? "
+            "Let me tell you the secret.\n\n"
+            "Python was created by Guido van Rossum in the late 1980s. "
+            "It was designed to be easy to read and write. "
+            "The philosophy behind Python is that code should be readable.\n\n"
+            "Many companies use Python today. Google, Netflix, and Instagram "
+            "all rely on Python for various services. "
+            "For example, Instagram uses Python for their backend services.\n\n"
+            "I personally think Python is the best language for beginners. "
+            "It's like learning to drive with an automatic car instead of a manual.\n\n"
+            "That's why I recommend Python to everyone starting their "
+            "programming journey. Try it and you won't regret it!"
+        )
 
     @pytest.mark.asyncio
     async def test_chunk_script_creates_chunks(
@@ -117,7 +122,10 @@ That's why I recommend Python to everyone starting their programming journey. Tr
         config.use_llm_classification = False
         chunker = ScriptChunker(config=config)
 
-        example_script = "Let me explain with an example. For instance, when you use a list in Python, you can iterate over it easily."
+        example_script = (
+            "Let me explain with an example. For instance, when you use a list "
+            "in Python, you can iterate over it easily."
+        )
         channel_id = uuid.uuid4()
 
         chunks = await chunker.chunk_script(
@@ -134,7 +142,10 @@ That's why I recommend Python to everyone starting their programming journey. Tr
         config.use_llm_classification = False
         chunker = ScriptChunker(config=config)
 
-        analogy_script = "Think of a variable like a box that stores values. It's similar to a container in your kitchen."
+        analogy_script = (
+            "Think of a variable like a box that stores values. "
+            "It's similar to a container in your kitchen."
+        )
         channel_id = uuid.uuid4()
 
         chunks = await chunker.chunk_script(

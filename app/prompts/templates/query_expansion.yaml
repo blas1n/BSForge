@@ -1,0 +1,25 @@
+# Query Expansion Prompt Template
+# Version: 1.0.0
+# Last Updated: 2025-12-17
+
+name: "Query Expansion Prompt"
+version: "1.0.0"
+description: "Expands a search query into multiple alternative queries for improved retrieval"
+
+# LLM Settings
+model: "anthropic/claude-3-5-haiku-20241022"
+max_tokens: 200
+temperature: 0.7
+
+template: |
+  Given this search query about a YouTube Shorts topic:
+
+  "${query}"
+
+  Generate ${num_expansions} alternative search queries that would help find related content from different angles or perspectives.
+
+  Return ONLY the alternative queries, one per line, without numbering or explanation.
+
+example_variables:
+  query: "Python programming tips for beginners"
+  num_expansions: 3
