@@ -2,6 +2,7 @@
 
 from pydantic import BaseModel, Field
 
+from app.config.bgm import BGMConfig, BGMTrack
 from app.config.channel import ChannelInfo, YouTubeConfig
 from app.config.content import (
     ContentConfig,
@@ -62,6 +63,7 @@ class ChannelConfig(BaseModel):
         content: Content generation settings
         upload: Upload settings
         operation: Operation mode settings
+        bgm: Background music configuration
     """
 
     channel: ChannelInfo
@@ -71,9 +73,13 @@ class ChannelConfig(BaseModel):
     content: ContentConfig
     upload: UploadConfig
     operation: OperationConfig = Field(default_factory=OperationConfig)
+    bgm: BGMConfig = Field(default_factory=BGMConfig)
 
 
 __all__ = [
+    # BGM
+    "BGMConfig",
+    "BGMTrack",
     # Channel
     "ChannelInfo",
     "YouTubeConfig",

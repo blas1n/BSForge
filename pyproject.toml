@@ -49,6 +49,7 @@ dependencies = [
     "pysrt>=1.1.2",
     "pillow>=10.2.0",
     "ffmpeg-python>=0.2.0",
+    "yt-dlp>=2024.1.0",
     # YouTube
     "google-api-python-client>=2.115.0",
     "google-auth-oauthlib>=1.2.0",
@@ -198,6 +199,7 @@ ignore = []
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # Allow unused imports in __init__.py
 "tests/*" = ["T201", "S101"]  # Allow print and assert in tests
+"scripts/*" = ["T201"]  # Allow print in scripts (CLI output)
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]

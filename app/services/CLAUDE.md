@@ -64,9 +64,7 @@ Visual styles: NEUTRAL (facts), PERSONA (opinions), EMPHASIS (conclusions)
 
 ### Generator TODOs
 
-- [ ] BGM (Background Music) system
-- [ ] Audio mixing with configurable volume
-- [ ] License-aware music selection
+- [ ] A/B testing for video variations
 
 ## Common Patterns
 

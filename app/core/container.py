@@ -242,6 +242,10 @@ class ConfigContainer(containers.DeclarativeContainer):
         "app.config.video.ThumbnailConfig",
     )
 
+    bgm_config = providers.Singleton(
+        "app.config.bgm.BGMConfig",
+    )
+
 
 class ServiceContainer(containers.DeclarativeContainer):
     """Service layer dependencies.
@@ -419,6 +423,18 @@ class ServiceContainer(containers.DeclarativeContainer):
         config=configs.thumbnail_config,
     )
 
+    # BGM Services
+    bgm_downloader = providers.Factory(
+        "app.services.generator.bgm.downloader.BGMDownloader",
+        config=configs.bgm_config,
+    )
+
+    bgm_manager = providers.Factory(
+        "app.services.generator.bgm.manager.BGMManager",
+        config=configs.bgm_config,
+        downloader=bgm_downloader,
+    )
+
     # Video Pipeline (Orchestrator)
     video_pipeline = providers.Factory(
         "app.services.generator.pipeline.VideoGenerationPipeline",
@@ -430,6 +446,7 @@ class ServiceContainer(containers.DeclarativeContainer):
         db_session_factory=infrastructure.db_session_factory,
         config=configs.video_generation_config,
         template_loader=video_template_loader,
+        bgm_manager=bgm_manager,
     )
 
 
