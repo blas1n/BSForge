@@ -5,15 +5,16 @@ Supports template-based styling for visual effects and overlays.
 Supports scene-based composition with per-scene visual styles.
 """
 
-import logging
 import shutil
+import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from app.config.video import CompositionConfig
-from app.services.generator.ffmpeg import FFmpegError, FFmpegWrapper, get_ffmpeg_wrapper
+from app.core.logging import get_logger
+from app.services.generator.ffmpeg import FFmpegWrapper, get_ffmpeg_wrapper
 from app.services.generator.tts.base import TTSResult
 from app.services.generator.visual.base import VisualAsset
 
@@ -24,7 +25,7 @@ if TYPE_CHECKING:
     from app.services.generator.tts.base import SceneTTSResult
     from app.services.generator.visual.manager import SceneVisualResult
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -353,53 +354,29 @@ class FFmpegCompositor:
 
         if asset.is_video:
             # Video asset
-            cmd = [
-                "-y",
-                "-i",
-                str(asset.path),
-                "-t",
-                str(duration),
-                "-vf",
-                vf,
-                "-c:v",
-                self.config.video_codec,
-                "-crf",
-                str(self.config.crf),
-                "-preset",
-                self.config.preset,
-                "-r",
-                str(self.config.fps),
-                "-pix_fmt",
-                self.config.pixel_format,
-                "-an",
-                str(output_path),
-            ]
+            stream = self.ffmpeg.video_with_filters(
+                input_path=asset.path,
+                output_path=output_path,
+                vf=vf,
+                duration=duration,
+                fps=self.config.fps,
+                crf=self.config.crf,
+                preset=self.config.preset,
+                no_audio=True,
+            )
         else:
             # Image asset - loop and apply Ken Burns
-            cmd = [
-                "-y",
-                "-loop",
-                "1",
-                "-i",
-                str(asset.path),
-                "-t",
-                str(duration),
-                "-vf",
-                vf,
-                "-c:v",
-                self.config.video_codec,
-                "-crf",
-                str(self.config.crf),
-                "-preset",
-                self.config.preset,
-                "-r",
-                str(self.config.fps),
-                "-pix_fmt",
-                self.config.pixel_format,
-                str(output_path),
-            ]
+            stream = self.ffmpeg.image_to_video_with_filters(
+                image_path=asset.path,
+                output_path=output_path,
+                duration=duration,
+                vf=vf,
+                fps=self.config.fps,
+                crf=self.config.crf,
+                preset=self.config.preset,
+            )
 
-        await self._run_ffmpeg(cmd)
+        await self.ffmpeg.run(stream)
         return output_path
 
     def _build_style_filter(
@@ -536,33 +513,7 @@ class FFmpegCompositor:
         # Check if any transitions need special handling (FLASH)
         has_flash = any(t == TransitionType.FLASH for t in transitions)
 
-        if not has_flash:
-            # Simple concat without special effects
-            concat_file = temp_dir / "concat.txt"
-            with open(concat_file, "w") as f:
-                for segment in segments:
-                    f.write(f"file '{segment}'\n")
-
-            output_path = temp_dir / "sequence.mp4"
-
-            cmd = [
-                "-y",
-                "-f",
-                "concat",
-                "-safe",
-                "0",
-                "-i",
-                str(concat_file),
-                "-c",
-                "copy",
-                str(output_path),
-            ]
-
-            await self._run_ffmpeg(cmd)
-            return output_path
-
-        # With transitions: re-encode with fade effects
-        # This is a simplified implementation
+        # Create concat file
         concat_file = temp_dir / "concat.txt"
         with open(concat_file, "w") as f:
             for segment in segments:
@@ -570,29 +521,36 @@ class FFmpegCompositor:
 
         output_path = temp_dir / "sequence.mp4"
 
-        # Add fade in at start for visual polish
-        cmd = [
-            "-y",
-            "-f",
-            "concat",
-            "-safe",
-            "0",
-            "-i",
-            str(concat_file),
-            "-vf",
-            "fade=t=in:st=0:d=0.1",
-            "-c:v",
-            self.config.video_codec,
-            "-crf",
-            str(self.config.crf),
-            "-preset",
-            self.config.preset,
-            "-pix_fmt",
-            self.config.pixel_format,
-            str(output_path),
-        ]
+        if not has_flash:
+            # Simple concat without special effects
+            stream = self.ffmpeg.concat_with_file(
+                concat_file_path=concat_file,
+                output_path=output_path,
+                copy_codec=True,
+            )
+            await self.ffmpeg.run(stream)
+            return output_path
 
-        await self._run_ffmpeg(cmd)
+        # With transitions: re-encode with fade effects
+        # Use concat then apply fade filter
+        temp_concat = temp_dir / "temp_concat.mp4"
+        concat_stream = self.ffmpeg.concat_with_file(
+            concat_file_path=concat_file,
+            output_path=temp_concat,
+            copy_codec=True,
+        )
+        await self.ffmpeg.run(concat_stream)
+
+        # Apply fade in at start for visual polish
+        fade_stream = self.ffmpeg.video_with_filters(
+            input_path=temp_concat,
+            output_path=output_path,
+            vf="fade=t=in:st=0:d=0.1",
+            fps=self.config.fps,
+            crf=self.config.crf,
+            preset=self.config.preset,
+        )
+        await self.ffmpeg.run(fade_stream)
         return output_path
 
     async def _add_audio_file(
@@ -608,23 +566,15 @@ class FFmpegCompositor:
             audio_path: Audio file path
             output_path: Output path
         """
-        cmd = [
-            "-y",
-            "-i",
-            str(video_path),
-            "-i",
-            str(audio_path),
-            "-c:v",
-            "copy",
-            "-c:a",
-            self.config.audio_codec,
-            "-b:a",
-            self.config.audio_bitrate,
-            "-shortest",
-            str(output_path),
-        ]
-
-        await self._run_ffmpeg(cmd)
+        stream = self.ffmpeg.add_audio_to_video(
+            video_path=video_path,
+            audio_path=audio_path,
+            output_path=output_path,
+            audio_codec=self.config.audio_codec,
+            audio_bitrate=self.config.audio_bitrate,
+            shortest=True,
+        )
+        await self.ffmpeg.run(stream)
 
     async def _create_video_sequence(
         self,
@@ -717,29 +667,18 @@ class FFmpegCompositor:
         # Build filter for scaling and padding
         scale_filter = self._build_scale_filter()
 
-        cmd = [
-            "-y",
-            "-i",
-            str(asset.path),
-            "-t",
-            str(max_duration),
-            "-vf",
-            scale_filter,
-            "-c:v",
-            self.config.video_codec,
-            "-crf",
-            str(self.config.crf),
-            "-preset",
-            self.config.preset,
-            "-r",
-            str(self.config.fps),
-            "-pix_fmt",
-            self.config.pixel_format,
-            "-an",  # No audio
-            str(output_path),
-        ]
+        stream = self.ffmpeg.video_with_filters(
+            input_path=asset.path,
+            output_path=output_path,
+            vf=scale_filter,
+            duration=max_duration,
+            fps=self.config.fps,
+            crf=self.config.crf,
+            preset=self.config.preset,
+            no_audio=True,
+        )
 
-        await self._run_ffmpeg(cmd)
+        await self.ffmpeg.run(stream)
         return output_path
 
     def _should_use_frame_layout(self) -> bool:
@@ -784,28 +723,15 @@ class FFmpegCompositor:
         if self._should_use_frame_layout():
             # Use filter_complex for frame layout
             vf = self._build_frame_layout_filter(duration, segment_index)
-            cmd = [
-                "-y",
-                "-loop",
-                "1",
-                "-i",
-                str(asset.path),
-                "-t",
-                str(duration),
-                "-filter_complex",
-                vf,
-                "-c:v",
-                self.config.video_codec,
-                "-crf",
-                str(self.config.crf),
-                "-preset",
-                self.config.preset,
-                "-r",
-                str(self.config.fps),
-                "-pix_fmt",
-                self.config.pixel_format,
-                str(output_path),
-            ]
+            stream = self.ffmpeg.image_to_video_with_filters(
+                image_path=asset.path,
+                output_path=output_path,
+                duration=duration,
+                vf=vf,
+                fps=self.config.fps,
+                crf=self.config.crf,
+                preset=self.config.preset,
+            )
         else:
             # Check if Ken Burns should be enabled from template
             enable_ken_burns = True  # Default
@@ -818,30 +744,17 @@ class FFmpegCompositor:
             else:
                 vf = self._build_scale_filter()
 
-            cmd = [
-                "-y",
-                "-loop",
-                "1",
-                "-i",
-                str(asset.path),
-                "-t",
-                str(duration),
-                "-vf",
-                vf,
-                "-c:v",
-                self.config.video_codec,
-                "-crf",
-                str(self.config.crf),
-                "-preset",
-                self.config.preset,
-                "-r",
-                str(self.config.fps),
-                "-pix_fmt",
-                self.config.pixel_format,
-                str(output_path),
-            ]
+            stream = self.ffmpeg.image_to_video_with_filters(
+                image_path=asset.path,
+                output_path=output_path,
+                duration=duration,
+                vf=vf,
+                fps=self.config.fps,
+                crf=self.config.crf,
+                preset=self.config.preset,
+            )
 
-        await self._run_ffmpeg(cmd)
+        await self.ffmpeg.run(stream)
         return output_path
 
     def _build_frame_layout_filter(
@@ -994,30 +907,17 @@ class FFmpegCompositor:
         output_path = temp_dir / f"segment_{segment_index}.mp4"
         vf = self._build_frame_layout_filter(duration, segment_index)
 
-        cmd = [
-            "-y",
-            "-loop",
-            "1",
-            "-i",
-            str(asset.path),
-            "-t",
-            str(duration),
-            "-filter_complex",
-            vf,
-            "-c:v",
-            self.config.video_codec,
-            "-crf",
-            str(self.config.crf),
-            "-preset",
-            self.config.preset,
-            "-r",
-            str(self.config.fps),
-            "-pix_fmt",
-            self.config.pixel_format,
-            str(output_path),
-        ]
+        stream = self.ffmpeg.image_to_video_with_filters(
+            image_path=asset.path,
+            output_path=output_path,
+            duration=duration,
+            vf=vf,
+            fps=self.config.fps,
+            crf=self.config.crf,
+            preset=self.config.preset,
+        )
 
-        await self._run_ffmpeg(cmd)
+        await self.ffmpeg.run(stream)
         return output_path
 
     def _build_ken_burns_filter(
@@ -1115,24 +1015,15 @@ class FFmpegCompositor:
         """
         output_path = temp_dir / f"black{suffix}.mp4"
 
-        cmd = [
-            "-y",
-            "-f",
-            "lavfi",
-            "-i",
-            f"color=c=black:s={self.config.width}x{self.config.height}:d={duration}:r={self.config.fps}",
-            "-c:v",
-            self.config.video_codec,
-            "-crf",
-            str(self.config.crf),
-            "-preset",
-            self.config.preset,
-            "-pix_fmt",
-            self.config.pixel_format,
-            str(output_path),
-        ]
+        lavfi_source = f"color=c=black:s={self.config.width}x{self.config.height}"
+        stream = self.ffmpeg.create_lavfi_video(
+            lavfi_source=lavfi_source,
+            output_path=output_path,
+            duration=duration,
+            fps=self.config.fps,
+        )
 
-        await self._run_ffmpeg(cmd)
+        await self.ffmpeg.run(stream)
         return output_path
 
     async def _concat_videos(
@@ -1154,86 +1045,44 @@ class FFmpegCompositor:
         if len(segments) == 1:
             return segments[0]
 
-        if not add_flash:
-            # Simple concat without transitions
-            concat_file = temp_dir / "concat.txt"
-            with open(concat_file, "w") as f:
-                for segment in segments:
-                    f.write(f"file '{segment}'\n")
-
-            output_path = temp_dir / "sequence.mp4"
-
-            cmd = [
-                "-y",
-                "-f",
-                "concat",
-                "-safe",
-                "0",
-                "-i",
-                str(concat_file),
-                "-c",
-                "copy",
-                str(output_path),
-            ]
-
-            await self._run_ffmpeg(cmd)
-            return output_path
-
-        # Concat with flash transitions using xfade filter
-        output_path = temp_dir / "sequence.mp4"
-
-        # Build complex filter for flash transitions
-        # Flash effect: wipelr with white color overlay
-        inputs = []
-        for _i, segment in enumerate(segments):
-            inputs.extend(["-i", str(segment)])
-
-        # Build xfade filter chain
-        # Each transition: 0.15s flash effect
-        filter_parts = []
-        current_input = "[0:v]"
-
-        for i in range(1, len(segments)):
-            next_input = f"[{i}:v]"
-            output = "[outv]" if i == len(segments) - 1 else f"[v{i}]"
-
-            # xfade with fade transition (flash-like effect)
-            # offset = cumulative duration - transition duration
-            filter_parts.append(
-                f"{current_input}{next_input}xfade=transition=fade:duration=0.15:offset=0{output}"
-            )
-            current_input = output
-
-        # For simple cases, use concat demuxer with fade
-        # Complex xfade requires knowing exact durations, fallback to simple concat
+        # Create concat file
         concat_file = temp_dir / "concat.txt"
         with open(concat_file, "w") as f:
             for segment in segments:
                 f.write(f"file '{segment}'\n")
 
-        # Add flash frames between segments by re-encoding with fade
-        cmd = [
-            "-y",
-            "-f",
-            "concat",
-            "-safe",
-            "0",
-            "-i",
-            str(concat_file),
-            "-vf",
-            "fade=t=in:st=0:d=0.1",  # Fade in at start
-            "-c:v",
-            self.config.video_codec,
-            "-crf",
-            str(self.config.crf),
-            "-preset",
-            self.config.preset,
-            "-pix_fmt",
-            self.config.pixel_format,
-            str(output_path),
-        ]
+        output_path = temp_dir / "sequence.mp4"
 
-        await self._run_ffmpeg(cmd)
+        if not add_flash:
+            # Simple concat without transitions
+            stream = self.ffmpeg.concat_with_file(
+                concat_file_path=concat_file,
+                output_path=output_path,
+                copy_codec=True,
+            )
+            await self.ffmpeg.run(stream)
+            return output_path
+
+        # Concat with flash transitions
+        # Use concat demuxer then apply fade filter
+        temp_concat = temp_dir / "temp_concat.mp4"
+        concat_stream = self.ffmpeg.concat_with_file(
+            concat_file_path=concat_file,
+            output_path=temp_concat,
+            copy_codec=True,
+        )
+        await self.ffmpeg.run(concat_stream)
+
+        # Add fade in at start for visual polish
+        fade_stream = self.ffmpeg.video_with_filters(
+            input_path=temp_concat,
+            output_path=output_path,
+            vf="fade=t=in:st=0:d=0.1",
+            fps=self.config.fps,
+            crf=self.config.crf,
+            preset=self.config.preset,
+        )
+        await self.ffmpeg.run(fade_stream)
         return output_path
 
     async def _add_audio(
@@ -1249,23 +1098,15 @@ class FFmpegCompositor:
             audio_path: Audio path
             output_path: Output path
         """
-        cmd = [
-            "-y",
-            "-i",
-            str(video_path),
-            "-i",
-            str(audio_path),
-            "-c:v",
-            "copy",
-            "-c:a",
-            self.config.audio_codec,
-            "-b:a",
-            self.config.audio_bitrate,
-            "-shortest",
-            str(output_path),
-        ]
-
-        await self._run_ffmpeg(cmd)
+        stream = self.ffmpeg.add_audio_to_video(
+            video_path=video_path,
+            audio_path=audio_path,
+            output_path=output_path,
+            audio_codec=self.config.audio_codec,
+            audio_bitrate=self.config.audio_bitrate,
+            shortest=True,
+        )
+        await self.ffmpeg.run(stream)
 
     async def _add_background_music(
         self,
@@ -1280,31 +1121,15 @@ class FFmpegCompositor:
             music_path: Background music path
             output_path: Output path
         """
-        volume = self.config.background_music_volume
-
-        cmd = [
-            "-y",
-            "-i",
-            str(video_path),
-            "-i",
-            str(music_path),
-            "-filter_complex",
-            f"[1:a]volume={volume}[music];[0:a][music]amix=inputs=2:duration=first[aout]",
-            "-map",
-            "0:v",
-            "-map",
-            "[aout]",
-            "-c:v",
-            "copy",
-            "-c:a",
-            self.config.audio_codec,
-            "-b:a",
-            self.config.audio_bitrate,
-            "-shortest",
-            str(output_path),
-        ]
-
-        await self._run_ffmpeg(cmd)
+        stream = self.ffmpeg.mix_background_audio(
+            video_path=video_path,
+            bg_audio_path=music_path,
+            output_path=output_path,
+            bg_volume=self.config.background_music_volume,
+            audio_codec=self.config.audio_codec,
+            audio_bitrate=self.config.audio_bitrate,
+        )
+        await self.ffmpeg.run(stream)
 
     async def _burn_subtitles(
         self,
@@ -1319,27 +1144,14 @@ class FFmpegCompositor:
             subtitle_path: Subtitle file path (ASS)
             output_path: Output path
         """
-        # Escape path for FFmpeg filter
-        escaped_path = str(subtitle_path).replace(":", r"\:").replace("'", r"\'")
-
-        cmd = [
-            "-y",
-            "-i",
-            str(video_path),
-            "-vf",
-            f"ass={escaped_path}",
-            "-c:v",
-            self.config.video_codec,
-            "-crf",
-            str(self.config.crf),
-            "-preset",
-            self.config.preset,
-            "-c:a",
-            "copy",
-            str(output_path),
-        ]
-
-        await self._run_ffmpeg(cmd)
+        stream = self.ffmpeg.burn_ass_subtitles(
+            video_path=video_path,
+            subtitle_path=subtitle_path,
+            output_path=output_path,
+            crf=self.config.crf,
+            preset=self.config.preset,
+        )
+        await self.ffmpeg.run(stream)
 
     def _build_scale_filter(self, apply_color_grade: bool = False) -> str:
         """Build FFmpeg scale filter string.
@@ -1385,23 +1197,6 @@ class FFmpegCompositor:
         """
         return await self.ffmpeg.get_duration(video_path)
 
-    async def _run_ffmpeg(self, cmd: list[str]) -> None:
-        """Run FFmpeg command.
-
-        Args:
-            cmd: Command list (without 'ffmpeg' prefix)
-
-        Raises:
-            FFmpegError: If FFmpeg fails
-        """
-        logger.debug(f"Running FFmpeg: ffmpeg {' '.join(cmd)}")
-
-        try:
-            await self.ffmpeg.run_raw(cmd)
-        except FFmpegError as e:
-            # Re-raise with truncated message for logging
-            raise FFmpegError(f"FFmpeg failed: {str(e)[:500]}", stderr=e.stderr) from e
-
     def _should_add_headline(self) -> bool:
         """Check if 2-line headline should be added based on template.
 
@@ -1427,8 +1222,6 @@ class FFmpegCompositor:
         Returns:
             Path to font file, or fallback font if not found
         """
-        import subprocess
-
         # Try to find font using fc-match
         try:
             result = subprocess.run(
@@ -1624,24 +1417,14 @@ class FFmpegCompositor:
         # Join all filter parts
         drawtext_filter = ",".join(filter_parts)
 
-        cmd = [
-            "-y",
-            "-i",
-            str(video_path),
-            "-vf",
-            drawtext_filter,
-            "-c:v",
-            self.config.video_codec,
-            "-crf",
-            str(self.config.crf),
-            "-preset",
-            self.config.preset,
-            "-c:a",
-            "copy",
-            str(output_path),
-        ]
-
-        await self._run_ffmpeg(cmd)
+        stream = self.ffmpeg.video_with_drawtext(
+            video_path=video_path,
+            output_path=output_path,
+            drawtext_filter=drawtext_filter,
+            crf=self.config.crf,
+            preset=self.config.preset,
+        )
+        await self.ffmpeg.run(stream)
         logger.debug(f"Added headline overlay: '{line1_text}' / '{line2_text}'")
 
 

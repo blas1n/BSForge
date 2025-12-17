@@ -1,10 +1,9 @@
 """Thumbnail generation service.
 
 Generates YouTube thumbnail images using PIL.
+Uses FFmpegWrapper SDK for video frame extraction.
 """
 
-import logging
-import subprocess
 import tempfile
 import textwrap
 from io import BytesIO
@@ -14,9 +13,11 @@ import httpx
 from PIL import Image, ImageDraw, ImageFont
 
 from app.config.video import ThumbnailConfig
+from app.core.logging import get_logger
+from app.services.generator.ffmpeg import FFmpegWrapper, get_ffmpeg_wrapper
 from app.services.generator.visual.base import VisualAsset
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class ThumbnailGenerator:
@@ -37,13 +38,19 @@ class ThumbnailGenerator:
         ... )
     """
 
-    def __init__(self, config: ThumbnailConfig | None = None) -> None:
+    def __init__(
+        self,
+        config: ThumbnailConfig | None = None,
+        ffmpeg_wrapper: FFmpegWrapper | None = None,
+    ) -> None:
         """Initialize ThumbnailGenerator.
 
         Args:
             config: Thumbnail configuration
+            ffmpeg_wrapper: FFmpeg wrapper for video operations
         """
         self.config = config or ThumbnailConfig()
+        self.ffmpeg = ffmpeg_wrapper or get_ffmpeg_wrapper()
         self._font_cache: dict[str, ImageFont.FreeTypeFont | ImageFont.ImageFont] = {}
 
     async def generate(
@@ -111,7 +118,7 @@ class ThumbnailGenerator:
             # Check if it's a video file
             video_extensions = {".mp4", ".mov", ".avi", ".webm", ".mkv"}
             if asset.path.suffix.lower() in video_extensions:
-                return self._extract_frame_from_video(asset.path)
+                return await self._extract_frame_from_video(asset.path)
             return Image.open(asset.path)
 
         if asset.url:
@@ -122,8 +129,8 @@ class ThumbnailGenerator:
 
         raise ValueError("Asset has no valid path or URL")
 
-    def _extract_frame_from_video(self, video_path: Path) -> Image.Image:
-        """Extract a frame from video using FFmpeg.
+    async def _extract_frame_from_video(self, video_path: Path) -> Image.Image:
+        """Extract a frame from video using FFmpeg SDK.
 
         Extracts a frame from 1 second into the video for better content.
 
@@ -137,20 +144,13 @@ class ThumbnailGenerator:
             tmp_path = Path(tmp.name)
 
         try:
-            cmd = [
-                "ffmpeg",
-                "-y",
-                "-ss",
-                "1",  # Seek to 1 second
-                "-i",
-                str(video_path),
-                "-vframes",
-                "1",
-                "-q:v",
-                "2",
-                str(tmp_path),
-            ]
-            subprocess.run(cmd, capture_output=True, check=True)
+            stream = self.ffmpeg.extract_frame(
+                video_path=video_path,
+                output_path=tmp_path,
+                seek_seconds=1.0,
+                quality=2,
+            )
+            await self.ffmpeg.run(stream)
             return Image.open(tmp_path)
         finally:
             if tmp_path.exists():

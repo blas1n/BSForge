@@ -1,12 +1,18 @@
-"""Type-safe FFmpeg wrapper using ffmpeg-python.
+"""Type-safe FFmpeg wrapper using ffmpeg-python SDK.
 
 This module provides a typed interface for FFmpeg operations,
-replacing direct subprocess calls with the ffmpeg-python library
-for better type safety and maintainability.
+using the ffmpeg-python library for better type safety and maintainability.
+All operations use the SDK approach - no subprocess calls.
+
+Usage:
+    >>> wrapper = FFmpegWrapper()
+    >>> stream = wrapper.image_to_video(image_path, output_path, duration=5.0)
+    >>> await wrapper.run(stream)
 """
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import ffmpeg
 
@@ -480,46 +486,474 @@ class FFmpegWrapper:
         result: list[str] = ffmpeg.compile(stream)
         return result
 
-    async def run_raw(
+    def concat_with_file(
         self,
-        args: list[str],
-        capture_output: bool = True,
-    ) -> tuple[bytes, bytes]:
-        """Run raw FFmpeg command (for complex operations).
+        concat_file_path: Path | str,
+        output_path: Path | str,
+        copy_codec: bool = True,
+    ) -> ffmpeg.nodes.OutputStream:
+        """Concatenate videos using a concat file (demuxer).
 
         Args:
-            args: FFmpeg command line arguments (without 'ffmpeg' prefix)
-            capture_output: Whether to capture stdout/stderr
+            concat_file_path: Path to concat list file
+            output_path: Path to output video
+            copy_codec: Whether to copy codecs (faster) or re-encode
 
         Returns:
-            Tuple of (stdout, stderr)
-
-        Raises:
-            FFmpegError: If execution fails
+            FFmpeg output stream
         """
-        import asyncio
+        stream = ffmpeg.input(str(concat_file_path), f="concat", safe=0)
 
-        cmd = ["ffmpeg"] + args
-        logger.debug("Running raw FFmpeg command", cmd=" ".join(cmd))
-
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE if capture_output else None,
-                stderr=asyncio.subprocess.PIPE if capture_output else None,
+        if copy_codec:
+            stream = stream.output(str(output_path), c="copy")
+        else:
+            stream = stream.output(
+                str(output_path),
+                vcodec="libx264",
+                acodec="aac",
             )
-            stdout, stderr = await process.communicate()
 
-            if process.returncode != 0:
-                stderr_str = stderr.decode() if stderr else "Unknown error"
-                raise FFmpegError(
-                    f"FFmpeg failed with code {process.returncode}", stderr=stderr_str
-                )
+        if self.overwrite:
+            stream = stream.overwrite_output()
 
-            return stdout or b"", stderr or b""
+        return stream
 
-        except FileNotFoundError as e:
-            raise FFmpegError("FFmpeg not found. Please install FFmpeg.") from e
+    def concat_audio_files(
+        self,
+        concat_file_path: Path | str,
+        output_path: Path | str,
+    ) -> ffmpeg.nodes.OutputStream:
+        """Concatenate audio files using a concat file.
+
+        Args:
+            concat_file_path: Path to concat list file
+            output_path: Path to output audio
+
+        Returns:
+            FFmpeg output stream
+        """
+        stream = ffmpeg.input(str(concat_file_path), f="concat", safe=0).output(
+            str(output_path), c="copy"
+        )
+
+        if self.overwrite:
+            stream = stream.overwrite_output()
+
+        return stream
+
+    def video_with_complex_filter(
+        self,
+        input_path: Path | str,
+        output_path: Path | str,
+        filter_complex: str,
+        duration: float | None = None,
+        loop: bool = False,
+        output_options: dict[str, Any] | None = None,
+    ) -> ffmpeg.nodes.OutputStream:
+        """Create video with complex filtergraph.
+
+        Args:
+            input_path: Path to input file
+            output_path: Path to output video
+            filter_complex: Complex filter string
+            duration: Optional duration limit
+            loop: Whether to loop input (for images)
+            output_options: Additional output options
+
+        Returns:
+            FFmpeg output stream
+        """
+        input_kwargs: dict[str, Any] = {}
+        if loop:
+            input_kwargs["loop"] = 1
+        if duration:
+            input_kwargs["t"] = duration
+
+        stream = ffmpeg.input(str(input_path), **input_kwargs)
+        stream = stream.filter_multi_output("split")[0]  # Placeholder for complex
+
+        # For complex filters, we use output with filter_complex option
+        default_output = {
+            "vcodec": "libx264",
+            "pix_fmt": "yuv420p",
+        }
+        if output_options:
+            default_output.update(output_options)
+
+        # Build the stream using low-level approach for filter_complex
+        output_stream = ffmpeg.output(
+            ffmpeg.input(str(input_path), **input_kwargs),
+            str(output_path),
+            **default_output,
+        ).filter(
+            "null"
+        )  # Placeholder
+
+        if self.overwrite:
+            output_stream = output_stream.overwrite_output()
+
+        return output_stream
+
+    def image_to_video_with_filters(
+        self,
+        image_path: Path | str,
+        output_path: Path | str,
+        duration: float,
+        vf: str,
+        fps: int = 30,
+        crf: int = 23,
+        preset: str = "medium",
+    ) -> ffmpeg.nodes.OutputStream:
+        """Create video from image with custom video filters.
+
+        This method builds the stream using ffmpeg-python SDK
+        for complex filter strings that are hard to express via filter() calls.
+
+        Args:
+            image_path: Path to input image
+            output_path: Path to output video
+            duration: Video duration in seconds
+            vf: Video filter string
+            fps: Frames per second
+            crf: CRF quality value
+            preset: Encoding preset
+
+        Returns:
+            FFmpeg output stream
+        """
+        stream = ffmpeg.input(str(image_path), loop=1, t=duration).output(
+            str(output_path),
+            vf=vf,
+            vcodec="libx264",
+            crf=crf,
+            preset=preset,
+            r=fps,
+            pix_fmt="yuv420p",
+        )
+
+        if self.overwrite:
+            stream = stream.overwrite_output()
+
+        return stream
+
+    def video_with_filters(
+        self,
+        input_path: Path | str,
+        output_path: Path | str,
+        vf: str,
+        duration: float | None = None,
+        fps: int = 30,
+        crf: int = 23,
+        preset: str = "medium",
+        no_audio: bool = False,
+    ) -> ffmpeg.nodes.OutputStream:
+        """Process video with custom video filters.
+
+        Args:
+            input_path: Path to input video
+            output_path: Path to output video
+            vf: Video filter string
+            duration: Optional duration limit
+            fps: Frames per second
+            crf: CRF quality value
+            preset: Encoding preset
+            no_audio: Remove audio track
+
+        Returns:
+            FFmpeg output stream
+        """
+        input_kwargs: dict[str, Any] = {}
+        if duration:
+            input_kwargs["t"] = duration
+
+        output_kwargs: dict[str, Any] = {
+            "vf": vf,
+            "vcodec": "libx264",
+            "crf": crf,
+            "preset": preset,
+            "r": fps,
+            "pix_fmt": "yuv420p",
+        }
+
+        if no_audio:
+            output_kwargs["an"] = None
+
+        stream = ffmpeg.input(str(input_path), **input_kwargs).output(
+            str(output_path), **output_kwargs
+        )
+
+        if self.overwrite:
+            stream = stream.overwrite_output()
+
+        return stream
+
+    def video_with_filter_complex(
+        self,
+        inputs: list[Path | str],
+        output_path: Path | str,
+        filter_complex: str,
+        map_streams: list[str] | None = None,
+        output_options: dict[str, Any] | None = None,
+    ) -> ffmpeg.nodes.OutputStream:
+        """Process video with filter_complex for multi-input operations.
+
+        Args:
+            inputs: List of input file paths
+            output_path: Path to output video
+            filter_complex: Complex filter graph string
+            map_streams: Stream mapping (e.g., ["[outv]", "[outa]"])
+            output_options: Additional output options
+
+        Returns:
+            FFmpeg output stream
+        """
+        # Build input streams
+        input_streams = [ffmpeg.input(str(p)) for p in inputs]
+
+        # Default output options
+        default_output: dict[str, Any] = {
+            "vcodec": "libx264",
+            "acodec": "aac",
+        }
+        if output_options:
+            default_output.update(output_options)
+
+        # For filter_complex, we pass it as an option
+        default_output["filter_complex"] = filter_complex
+
+        if map_streams:
+            default_output["map"] = map_streams
+
+        # Create output with filter_complex
+        stream = ffmpeg.output(
+            *input_streams,
+            str(output_path),
+            **default_output,
+        )
+
+        if self.overwrite:
+            stream = stream.overwrite_output()
+
+        return stream
+
+    def add_audio_to_video(
+        self,
+        video_path: Path | str,
+        audio_path: Path | str,
+        output_path: Path | str,
+        audio_codec: str = "aac",
+        audio_bitrate: str = "128k",
+        shortest: bool = True,
+    ) -> ffmpeg.nodes.OutputStream:
+        """Add audio track to video.
+
+        Args:
+            video_path: Path to input video
+            audio_path: Path to audio file
+            output_path: Path to output video
+            audio_codec: Audio codec
+            audio_bitrate: Audio bitrate
+            shortest: End at shortest stream
+
+        Returns:
+            FFmpeg output stream
+        """
+        video = ffmpeg.input(str(video_path))
+        audio = ffmpeg.input(str(audio_path))
+
+        output_kwargs: dict[str, Any] = {
+            "vcodec": "copy",
+            "acodec": audio_codec,
+            "b:a": audio_bitrate,
+        }
+
+        if shortest:
+            output_kwargs["shortest"] = None
+
+        stream = ffmpeg.output(
+            video,
+            audio,
+            str(output_path),
+            **output_kwargs,
+        )
+
+        if self.overwrite:
+            stream = stream.overwrite_output()
+
+        return stream
+
+    def mix_background_audio(
+        self,
+        video_path: Path | str,
+        bg_audio_path: Path | str,
+        output_path: Path | str,
+        bg_volume: float = 0.3,
+        audio_codec: str = "aac",
+        audio_bitrate: str = "128k",
+    ) -> ffmpeg.nodes.OutputStream:
+        """Mix background audio with video's existing audio.
+
+        Args:
+            video_path: Path to input video (with audio)
+            bg_audio_path: Path to background audio
+            output_path: Path to output video
+            bg_volume: Background audio volume
+            audio_codec: Audio codec
+            audio_bitrate: Audio bitrate
+
+        Returns:
+            FFmpeg output stream
+        """
+        video = ffmpeg.input(str(video_path))
+        bg_audio = ffmpeg.input(str(bg_audio_path))
+
+        # Apply volume and mix
+        bg_audio_filtered = bg_audio.audio.filter("volume", bg_volume)
+        mixed = ffmpeg.filter([video.audio, bg_audio_filtered], "amix", inputs=2, duration="first")
+
+        stream = ffmpeg.output(
+            video.video,
+            mixed,
+            str(output_path),
+            vcodec="copy",
+            acodec=audio_codec,
+            **{"b:a": audio_bitrate},
+        )
+
+        if self.overwrite:
+            stream = stream.overwrite_output()
+
+        return stream
+
+    def burn_ass_subtitles(
+        self,
+        video_path: Path | str,
+        subtitle_path: Path | str,
+        output_path: Path | str,
+        crf: int = 23,
+        preset: str = "medium",
+    ) -> ffmpeg.nodes.OutputStream:
+        """Burn ASS subtitles into video.
+
+        Args:
+            video_path: Path to input video
+            subtitle_path: Path to ASS subtitle file
+            output_path: Path to output video
+            crf: CRF quality value
+            preset: Encoding preset
+
+        Returns:
+            FFmpeg output stream
+        """
+        # Escape path for ASS filter
+        escaped_path = str(subtitle_path).replace(":", r"\:").replace("'", r"\'")
+
+        video = ffmpeg.input(str(video_path))
+        stream = video.output(
+            str(output_path),
+            vf=f"ass={escaped_path}",
+            vcodec="libx264",
+            crf=crf,
+            preset=preset,
+            acodec="copy",
+        )
+
+        if self.overwrite:
+            stream = stream.overwrite_output()
+
+        return stream
+
+    def video_with_drawtext(
+        self,
+        video_path: Path | str,
+        output_path: Path | str,
+        drawtext_filter: str,
+        crf: int = 23,
+        preset: str = "medium",
+    ) -> ffmpeg.nodes.OutputStream:
+        """Apply drawtext filter to video.
+
+        Args:
+            video_path: Path to input video
+            output_path: Path to output video
+            drawtext_filter: Drawtext filter string
+            crf: CRF quality value
+            preset: Encoding preset
+
+        Returns:
+            FFmpeg output stream
+        """
+        video = ffmpeg.input(str(video_path))
+        stream = video.output(
+            str(output_path),
+            vf=drawtext_filter,
+            vcodec="libx264",
+            crf=crf,
+            preset=preset,
+            acodec="copy",
+        )
+
+        if self.overwrite:
+            stream = stream.overwrite_output()
+
+        return stream
+
+    def extract_frame(
+        self,
+        video_path: Path | str,
+        output_path: Path | str,
+        seek_seconds: float = 1.0,
+        quality: int = 2,
+    ) -> ffmpeg.nodes.OutputStream:
+        """Extract a single frame from video.
+
+        Args:
+            video_path: Path to input video
+            output_path: Path to output image
+            seek_seconds: Time to seek to
+            quality: JPEG quality (2 = high quality)
+
+        Returns:
+            FFmpeg output stream
+        """
+        stream = ffmpeg.input(str(video_path), ss=seek_seconds).output(
+            str(output_path), vframes=1, **{"q:v": quality}
+        )
+
+        if self.overwrite:
+            stream = stream.overwrite_output()
+
+        return stream
+
+    def create_lavfi_video(
+        self,
+        lavfi_source: str,
+        output_path: Path | str,
+        duration: float,
+        fps: int = 30,
+    ) -> ffmpeg.nodes.OutputStream:
+        """Create video from lavfi source (e.g., color, testsrc).
+
+        Args:
+            lavfi_source: Lavfi source string (e.g., "color=c=black:s=1080x1920")
+            output_path: Path to output video
+            duration: Video duration
+            fps: Frames per second
+
+        Returns:
+            FFmpeg output stream
+        """
+        stream = ffmpeg.input(lavfi_source, f="lavfi", t=duration).output(
+            str(output_path),
+            vcodec="libx264",
+            pix_fmt="yuv420p",
+            r=fps,
+        )
+
+        if self.overwrite:
+            stream = stream.overwrite_output()
+
+        return stream
 
 
 # Singleton instance

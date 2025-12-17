@@ -1,6 +1,6 @@
 """Tests for FFmpegWrapper."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import ffmpeg
 import pytest
@@ -647,57 +647,6 @@ class TestGetCommand:
             cmd = wrapper.get_command(mock_stream)
 
         assert cmd == ["ffmpeg", "-i", "input.mp4", "output.mp4"]
-
-
-class TestRunRaw:
-    """Tests for run_raw method."""
-
-    @pytest.fixture
-    def wrapper(self) -> FFmpegWrapper:
-        """Create FFmpegWrapper instance."""
-        return FFmpegWrapper()
-
-    @pytest.mark.unit
-    @pytest.mark.asyncio
-    async def test_run_raw_success(self, wrapper: FFmpegWrapper) -> None:
-        """Test successful raw command execution."""
-        mock_process = AsyncMock()
-        mock_process.returncode = 0
-        mock_process.communicate = AsyncMock(return_value=(b"stdout", b"stderr"))
-
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            stdout, stderr = await wrapper.run_raw(["-i", "input.mp4", "output.mp4"])
-
-        assert stdout == b"stdout"
-        assert stderr == b"stderr"
-
-    @pytest.mark.unit
-    @pytest.mark.asyncio
-    async def test_run_raw_failure(self, wrapper: FFmpegWrapper) -> None:
-        """Test raw command execution failure."""
-        mock_process = AsyncMock()
-        mock_process.returncode = 1
-        mock_process.communicate = AsyncMock(return_value=(b"", b"Error message"))
-
-        with (
-            patch("asyncio.create_subprocess_exec", return_value=mock_process),
-            pytest.raises(FFmpegError) as exc_info,
-        ):
-            await wrapper.run_raw(["-i", "input.mp4", "output.mp4"])
-
-        assert "FFmpeg failed with code 1" in str(exc_info.value)
-
-    @pytest.mark.unit
-    @pytest.mark.asyncio
-    async def test_run_raw_not_found(self, wrapper: FFmpegWrapper) -> None:
-        """Test FFmpeg not found error."""
-        with (
-            patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError()),
-            pytest.raises(FFmpegError) as exc_info,
-        ):
-            await wrapper.run_raw(["-version"])
-
-        assert "FFmpeg not found" in str(exc_info.value)
 
 
 class TestGetFFmpegWrapper:
