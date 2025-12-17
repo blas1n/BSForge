@@ -4,6 +4,11 @@ set -e
 echo "BSForge DevContainer Post-Create Setup"
 echo "======================================"
 
+# 0. Configure git safe directory (required for devcontainer)
+echo "Configuring git safe directory..."
+git config --global --add safe.directory /workspace
+echo "[OK] Git safe directory configured"
+
 # 1. Install uv (fast Python package installer)
 echo "Installing uv..."
 if ! command -v uv &> /dev/null; then
