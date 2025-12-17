@@ -34,21 +34,24 @@ services:
     networks:
       - bsforge-network
 
-  # PostgreSQL Database with pgvector extension
+  # PostgreSQL Database with pgvector + pg_search (BM25) extension
   postgres:
-    image: pgvector/pgvector:pg16
+    image: paradedb/paradedb:latest-pg16
     container_name: postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: bsforge
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
+    command: >
+      postgres
+      -c shared_preload_libraries=pg_search
     volumes:
       - postgres-data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      test: [ "CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -67,7 +70,7 @@ services:
     ports:
       - "6379:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -79,6 +82,7 @@ volumes:
   claude-code-config:
   postgres-data:
   redis-data:
+
 
 networks:
   bsforge-network:

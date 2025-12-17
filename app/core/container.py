@@ -106,6 +106,15 @@ class InfrastructureContainer(containers.DeclarativeContainer):
     )
 
     # ============================================
+    # BM25 Search (ParadeDB pg_search)
+    # ============================================
+
+    bm25_search = providers.Singleton(
+        "app.infrastructure.bm25_search.BM25Search",
+        db_session_factory=db_session_factory,
+    )
+
+    # ============================================
     # LLM Clients
     # ============================================
 
@@ -304,6 +313,7 @@ class ServiceContainer(containers.DeclarativeContainer):
         db_session_factory=infrastructure.db_session_factory,
         retrieval_config=configs.retrieval_config,
         query_config=configs.query_expansion_config,
+        bm25_search=infrastructure.bm25_search,
         llm_client=infrastructure.anthropic_client,
     )
 

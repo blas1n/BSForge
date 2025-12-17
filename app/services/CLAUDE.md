@@ -37,12 +37,12 @@ services/
 
 ## RAG System
 
-**Current**: Semantic search only (pgvector)
-**Planned**: Hybrid search (70% semantic + 30% BM25) - BM25 not yet implemented
+**Current**: Hybrid search (70% semantic + 30% BM25) via ParadeDB pg_search
 
 Key components:
 - `ContentEmbedder` - BGE-M3 embeddings with metadata tags
-- `RAGRetriever` - Semantic search with query expansion
+- `RAGRetriever` - Hybrid search (semantic + BM25) with query expansion
+- `BM25Search` - ParadeDB pg_search for keyword matching
 - `RAGReranker` - BGE-Reranker + MMR diversity
 - `ScriptGenerator` - Full pipeline with quality gates
 
@@ -50,8 +50,6 @@ Key components:
 
 ### RAG TODOs
 
-- [ ] Implement BM25 keyword search
-- [ ] Hybrid search combining semantic + BM25
 - [ ] Performance tuning for larger corpus
 
 ## Generator Pipeline
