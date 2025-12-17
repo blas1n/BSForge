@@ -13,6 +13,7 @@ from sqlalchemy import and_, select
 from app.config.rag import QueryExpansionConfig, RetrievalConfig
 from app.core.logging import get_logger
 from app.core.types import SessionFactory
+from app.infrastructure.bm25_search import BM25Search
 from app.infrastructure.pgvector_db import PgVectorDB
 from app.models.content_chunk import ChunkPosition, ContentChunk
 from app.prompts.manager import PromptManager, PromptType, get_prompt_manager
@@ -96,12 +97,13 @@ class RAGRetriever:
 
     Implements hybrid search combining:
     - Semantic search (70%): Vector similarity using embeddings
-    - Keyword search (30%): BM25-style keyword matching (future)
+    - Keyword search (30%): BM25 keyword matching via ParadeDB pg_search
 
     Supports query expansion using Claude API to generate related queries.
 
     Attributes:
         vector_db: PgVectorDB instance
+        bm25_search: BM25Search instance for keyword search
         db_session_factory: AsyncSession factory
         retrieval_config: Retrieval configuration
         query_config: Query expansion configuration
@@ -114,6 +116,7 @@ class RAGRetriever:
         db_session_factory: SessionFactory,
         retrieval_config: RetrievalConfig,
         query_config: QueryExpansionConfig,
+        bm25_search: BM25Search | None = None,
         llm_client: AsyncAnthropic | None = None,
         prompt_manager: PromptManager | None = None,
     ):
@@ -124,10 +127,12 @@ class RAGRetriever:
             db_session_factory: SQLAlchemy async session factory
             retrieval_config: Retrieval configuration
             query_config: Query expansion configuration
+            bm25_search: Optional BM25Search instance for keyword search
             llm_client: Optional Anthropic client for query expansion
             prompt_manager: Optional PromptManager for centralized prompt management
         """
         self.vector_db = vector_db
+        self.bm25_search = bm25_search
         self.db_session_factory = db_session_factory
         self.retrieval_config = retrieval_config
         self.query_config = query_config
@@ -195,9 +200,22 @@ class RAGRetriever:
                 weighted_score = score * self.retrieval_config.semantic_weight
                 all_results[chunk_id] = all_results.get(chunk_id, 0.0) + weighted_score
 
-        # TODO: Add BM25 keyword search (weighted by keyword_weight = 0.3)
-        # This requires full-text search implementation in PostgreSQL
-        # For now, semantic search only
+        # BM25 keyword search (weighted by keyword_weight = 0.3)
+        if self.bm25_search and self.retrieval_config.keyword_weight > 0:
+            for q in queries:
+                bm25_results = await self.bm25_search.search(
+                    query=q,
+                    channel_id=channel_id,
+                    top_k=self.retrieval_config.keyword_top_k,
+                    filter_after=filter_after,
+                )
+
+                # Merge BM25 results with semantic results
+                for chunk_id_str, score in bm25_results:
+                    chunk_id = uuid.UUID(chunk_id_str)
+                    # Weight by keyword_weight (default 0.3)
+                    weighted_score = score * self.retrieval_config.keyword_weight
+                    all_results[chunk_id] = all_results.get(chunk_id, 0.0) + weighted_score
 
         # Sort by score and take top_k
         sorted_results = sorted(all_results.items(), key=lambda x: x[1], reverse=True)[:top_k]

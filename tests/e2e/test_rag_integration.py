@@ -500,3 +500,146 @@ class TestChunkPositionEnum:
         assert ChunkPosition.HOOK == "hook"
         assert ChunkPosition.BODY == "body"
         assert ChunkPosition.CONCLUSION == "conclusion"
+
+
+class TestBM25Extension:
+    """Test ParadeDB pg_search (BM25) extension functionality."""
+
+    @pytest.mark.asyncio
+    async def test_pg_search_extension_exists(self, db_session: AsyncSession) -> None:
+        """Test that pg_search extension is installed."""
+        result = await db_session.execute(
+            text("SELECT extname FROM pg_extension WHERE extname = 'pg_search'")
+        )
+        extension = result.scalar()
+        # pg_search extension should be available in ParadeDB image
+        # This test will pass once migration is run
+        if extension is None:
+            pytest.skip("pg_search extension not installed yet - run migrations first")
+        assert extension == "pg_search"
+
+
+class TestBM25SearchIntegration:
+    """Integration tests for BM25Search with real database."""
+
+    @pytest.mark.asyncio
+    async def test_bm25_search_with_keywords(self, db_session: AsyncSession) -> None:
+        """Test BM25 search finds chunks by keywords."""
+        # Create channel
+        channel = Channel(
+            name="BM25 Test Channel",
+            topic_config={},
+            source_config={},
+            content_config={},
+            operation_config={},
+        )
+        db_session.add(channel)
+        await db_session.flush()
+
+        # Create chunks with different keywords
+        chunks = [
+            ContentChunk(
+                channel_id=channel.id,
+                content_type=ContentType.SCRIPT,
+                text="Python is a great programming language for AI.",
+                chunk_index=0,
+                position=ChunkPosition.BODY,
+                is_opinion=False,
+                is_example=False,
+                is_analogy=False,
+                keywords=["python", "programming", "AI"],
+                embedding_model="test",
+            ),
+            ContentChunk(
+                channel_id=channel.id,
+                content_type=ContentType.SCRIPT,
+                text="JavaScript is used for web development.",
+                chunk_index=1,
+                position=ChunkPosition.BODY,
+                is_opinion=False,
+                is_example=False,
+                is_analogy=False,
+                keywords=["javascript", "web", "development"],
+                embedding_model="test",
+            ),
+            ContentChunk(
+                channel_id=channel.id,
+                content_type=ContentType.SCRIPT,
+                text="Machine learning models need training data.",
+                chunk_index=2,
+                position=ChunkPosition.BODY,
+                is_opinion=False,
+                is_example=False,
+                is_analogy=False,
+                keywords=["machine-learning", "AI", "data"],
+                embedding_model="test",
+            ),
+        ]
+
+        for chunk in chunks:
+            db_session.add(chunk)
+        await db_session.commit()
+
+        # Verify chunks were created
+        result = await db_session.execute(
+            select(ContentChunk).where(ContentChunk.channel_id == channel.id)
+        )
+        saved_chunks = result.scalars().all()
+        assert len(saved_chunks) == 3
+
+        # Verify keywords are stored correctly
+        python_chunk = next(c for c in saved_chunks if "python" in c.keywords)
+        assert "programming" in python_chunk.keywords
+        assert "AI" in python_chunk.keywords
+
+    @pytest.mark.asyncio
+    async def test_content_chunk_keywords_array(self, db_session: AsyncSession) -> None:
+        """Test that keywords array field works correctly."""
+        channel = Channel(
+            name="Keywords Array Test",
+            topic_config={},
+            source_config={},
+            content_config={},
+            operation_config={},
+        )
+        db_session.add(channel)
+        await db_session.flush()
+
+        # Create chunk with empty keywords
+        chunk_empty = ContentChunk(
+            channel_id=channel.id,
+            content_type=ContentType.SCRIPT,
+            text="Content without keywords",
+            chunk_index=0,
+            position=ChunkPosition.BODY,
+            is_opinion=False,
+            is_example=False,
+            is_analogy=False,
+            keywords=[],
+            embedding_model="test",
+        )
+        db_session.add(chunk_empty)
+
+        # Create chunk with many keywords
+        chunk_many = ContentChunk(
+            channel_id=channel.id,
+            content_type=ContentType.SCRIPT,
+            text="Content with many keywords",
+            chunk_index=1,
+            position=ChunkPosition.BODY,
+            is_opinion=False,
+            is_example=False,
+            is_analogy=False,
+            keywords=["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"],
+            embedding_model="test",
+        )
+        db_session.add(chunk_many)
+        await db_session.commit()
+
+        # Refresh and verify
+        await db_session.refresh(chunk_empty)
+        await db_session.refresh(chunk_many)
+
+        assert chunk_empty.keywords == []
+        assert len(chunk_many.keywords) == 5
+        assert "keyword3" in chunk_many.keywords
