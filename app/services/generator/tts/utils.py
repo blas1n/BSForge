@@ -2,12 +2,14 @@
 
 This module provides utility functions for TTS processing,
 including audio concatenation for scene-based generation.
+
+All FFmpeg operations use the ffmpeg-python SDK via FFmpegWrapper.
 """
 
-import asyncio
 from pathlib import Path
 
 from app.core.logging import get_logger
+from app.services.generator.ffmpeg import FFmpegWrapper, get_ffmpeg_wrapper
 from app.services.generator.tts.base import SceneTTSResult, TTSResult, WordTimestamp
 
 logger = get_logger(__name__)
@@ -17,16 +19,18 @@ async def concatenate_scene_audio(
     scene_results: list[SceneTTSResult],
     output_path: Path,
     gap_duration: float = 0.0,
+    ffmpeg_wrapper: FFmpegWrapper | None = None,
 ) -> TTSResult:
     """Concatenate scene audio files into a single audio file.
 
-    Uses FFmpeg to concatenate individual scene audio files
+    Uses FFmpeg SDK to concatenate individual scene audio files
     while preserving word timestamps with offset adjustment.
 
     Args:
         scene_results: List of SceneTTSResult from synthesize_scenes()
         output_path: Output file path (without extension)
         gap_duration: Optional gap between scenes in seconds (default 0)
+        ffmpeg_wrapper: Optional FFmpegWrapper instance
 
     Returns:
         Combined TTSResult with merged audio and adjusted timestamps
@@ -34,6 +38,7 @@ async def concatenate_scene_audio(
     if not scene_results:
         raise ValueError("No scene results to concatenate")
 
+    ffmpeg = ffmpeg_wrapper or get_ffmpeg_wrapper()
     output_path = output_path.with_suffix(".mp3")
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -47,33 +52,14 @@ async def concatenate_scene_audio(
                 escaped_path = str(result.audio_path).replace("'", "'\\''")
                 f.write(f"file '{escaped_path}'\n")
 
-        # Concatenate with FFmpeg
-        cmd = [
-            "ffmpeg",
-            "-y",
-            "-f",
-            "concat",
-            "-safe",
-            "0",
-            "-i",
-            str(concat_file),
-            "-c",
-            "copy",
-            str(output_path),
-        ]
-
         logger.info(f"Concatenating {len(scene_results)} scene audio files")
 
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+        # Concatenate with FFmpeg SDK
+        stream = ffmpeg.concat_audio_files(
+            concat_file_path=concat_file,
+            output_path=output_path,
         )
-        stdout, stderr = await process.communicate()
-
-        if process.returncode != 0:
-            error_msg = stderr.decode() if stderr else "Unknown error"
-            raise RuntimeError(f"FFmpeg concatenation failed: {error_msg}")
+        await ffmpeg.run(stream)
 
         # Merge word timestamps with offset adjustment
         all_timestamps: list[WordTimestamp] = []
@@ -112,38 +98,21 @@ async def concatenate_scene_audio(
             concat_file.unlink()
 
 
-async def get_audio_duration_ffprobe(audio_path: Path) -> float:
-    """Get audio duration using ffprobe.
+async def get_audio_duration_ffprobe(
+    audio_path: Path,
+    ffmpeg_wrapper: FFmpegWrapper | None = None,
+) -> float:
+    """Get audio duration using FFmpeg SDK probe.
 
     Args:
         audio_path: Path to audio file
+        ffmpeg_wrapper: Optional FFmpegWrapper instance
 
     Returns:
         Duration in seconds
     """
-    cmd = [
-        "ffprobe",
-        "-v",
-        "error",
-        "-show_entries",
-        "format=duration",
-        "-of",
-        "default=noprint_wrappers=1:nokey=1",
-        str(audio_path),
-    ]
-
-    process = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, stderr = await process.communicate()
-
-    if process.returncode != 0:
-        error_msg = stderr.decode() if stderr else "Unknown error"
-        raise RuntimeError(f"ffprobe failed: {error_msg}")
-
-    return float(stdout.decode().strip())
+    ffmpeg = ffmpeg_wrapper or get_ffmpeg_wrapper()
+    return await ffmpeg.get_duration(audio_path)
 
 
 def adjust_scene_offsets(
