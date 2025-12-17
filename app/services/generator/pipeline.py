@@ -22,6 +22,7 @@ from app.core.template_loader import VideoTemplateLoader, get_template_loader
 from app.core.types import SessionFactory
 from app.models.script import Script
 from app.models.video import Video, VideoStatus
+from app.services.generator.bgm import BGMManager
 from app.services.generator.compositor import FFmpegCompositor
 from app.services.generator.subtitle import SubtitleGenerator
 from app.services.generator.thumbnail import ThumbnailGenerator
@@ -102,6 +103,7 @@ class VideoGenerationPipeline:
         db_session_factory: SessionFactory,
         config: VideoGenerationConfig | None = None,
         template_loader: VideoTemplateLoader | None = None,
+        bgm_manager: BGMManager | None = None,
     ) -> None:
         """Initialize VideoGenerationPipeline.
 
@@ -114,6 +116,7 @@ class VideoGenerationPipeline:
             db_session_factory: Database session factory
             config: Video generation configuration
             template_loader: Video template loader (optional, uses singleton if not provided)
+            bgm_manager: BGM manager for background music (optional)
         """
         self.tts_factory = tts_factory
         self.visual_manager = visual_manager
@@ -123,6 +126,7 @@ class VideoGenerationPipeline:
         self.db_session_factory = db_session_factory
         self.config = config or VideoGenerationConfig()
         self.template_loader = template_loader or get_template_loader()
+        self.bgm_manager = bgm_manager
 
     async def generate(
         self,
@@ -251,11 +255,19 @@ class VideoGenerationPipeline:
             # Get title text for overlay (if template has title_overlay enabled)
             title_text = self._get_title_text(script)
 
+            # Get BGM path if available
+            background_music_path = None
+            if self.bgm_manager and self.bgm_manager.is_enabled:
+                background_music_path = await self.bgm_manager.get_bgm_for_video()
+                if background_music_path:
+                    logger.info(f"Using BGM: {background_music_path.name}")
+
             composition_result = await self.compositor.compose(
                 audio=tts_result,
                 visuals=visuals,
                 subtitle_file=subtitle_path,
                 output_path=output_dir / "video",
+                background_music_path=background_music_path,
                 title_text=title_text,
             )
 
@@ -521,6 +533,13 @@ class VideoGenerationPipeline:
                 if first_scene.text and len(first_scene.text) < 30:
                     headline_hook = first_scene.text
 
+            # Get BGM path if available
+            background_music_path = None
+            if self.bgm_manager and self.bgm_manager.is_enabled:
+                background_music_path = await self.bgm_manager.get_bgm_for_video()
+                if background_music_path:
+                    logger.info(f"Using BGM: {background_music_path.name}")
+
             composition_result = await self.compositor.compose_scenes(
                 scenes=scene_script.scenes,
                 scene_tts_results=scene_tts_results,
@@ -528,6 +547,7 @@ class VideoGenerationPipeline:
                 combined_audio_path=combined_tts.audio_path,
                 subtitle_file=subtitle_path,
                 output_path=output_dir / "video",
+                background_music_path=background_music_path,
                 persona_style=persona_style,
                 title_text=title_text,
                 headline_keyword=headline_keyword,

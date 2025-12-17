@@ -21,6 +21,9 @@ async def check_dependencies() -> dict[str, bool]:
     # FFmpeg
     deps["ffmpeg"] = shutil.which("ffmpeg") is not None
 
+    # yt-dlp for BGM download
+    deps["yt_dlp"] = shutil.which("yt-dlp") is not None
+
     # Edge TTS (free, no API key)
     try:
         import importlib.util
@@ -231,14 +234,77 @@ async def demo_fallback_visual() -> Path | None:
         return None
 
 
-async def demo_full_video() -> Path | None:
-    """Demo full video generation pipeline."""
+async def demo_bgm() -> Path | None:
+    """Demo BGM download and selection."""
     print("\n" + "=" * 50)
-    print("5. Full Video Generation Demo")
+    print("5. BGM (Background Music) Demo")
     print("=" * 50)
 
     try:
+        from app.config.bgm import BGMConfig, BGMTrack
+        from app.services.generator.bgm import BGMManager
+
+        # Create BGM config with real YouTube Audio Library tracks
+        bgm_config = BGMConfig(
+            enabled=True,
+            volume=0.08,
+            cache_dir="/workspace/data/bgm",
+            selection_mode="random",
+            tracks=[
+                BGMTrack(
+                    name="upbeat_corporate",
+                    youtube_url="https://www.youtube.com/watch?v=cxWhnfQtcug",
+                ),
+                BGMTrack(
+                    name="modern_technology",
+                    youtube_url="https://www.youtube.com/watch?v=Hiq53IyRnGI",
+                ),
+            ],
+        )
+
+        print("\nBGM Config:")
+        print(f"  Enabled: {bgm_config.enabled}")
+        print(f"  Volume: {bgm_config.volume}")
+        print(f"  Cache dir: {bgm_config.cache_dir}")
+        print(f"  Tracks: {len(bgm_config.tracks)}")
+
+        # Initialize BGM manager (downloads tracks if not cached)
+        print("\nInitializing BGM Manager (downloading if needed)...")
+        bgm_manager = BGMManager(bgm_config)
+        await bgm_manager.initialize()
+
+        print(f"  Cached: {bgm_manager.cached_track_count}/{bgm_manager.track_count}")
+
+        # Select a BGM track
+        bgm_path = await bgm_manager.get_bgm_for_video()
+        if bgm_path:
+            print(f"\nSelected BGM: {bgm_path.name}")
+            print(f"  Path: {bgm_path}")
+            size_mb = bgm_path.stat().st_size / (1024 * 1024)
+            print(f"  Size: {size_mb:.2f} MB")
+            return bgm_path
+        else:
+            print("\nNo BGM available")
+            return None
+
+    except Exception as e:
+        print(f"BGM Error: {e}")
+        import traceback
+
+        traceback.print_exc()
+        return None
+
+
+async def demo_full_video(with_bgm: bool = True) -> Path | None:
+    """Demo full video generation pipeline with optional BGM."""
+    print("\n" + "=" * 50)
+    print("6. Full Video Generation Demo" + (" (with BGM)" if with_bgm else ""))
+    print("=" * 50)
+
+    try:
+        from app.config.bgm import BGMConfig, BGMTrack
         from app.config.video import CompositionConfig
+        from app.services.generator.bgm import BGMManager
         from app.services.generator.compositor import FFmpegCompositor
         from app.services.generator.subtitle import SubtitleGenerator
         from app.services.generator.tts.base import TTSConfig
@@ -248,12 +314,41 @@ async def demo_full_video() -> Path | None:
         output_dir = Path("/tmp/bsforge_demo")
         output_dir.mkdir(exist_ok=True)
 
-        # Step 1: Generate TTS
-        print("\nStep 1: Generating TTS audio...")
-        tts_engine = EdgeTTSEngine()
-        tts_config = TTSConfig(voice_id="ko-KR-SunHiNeural")
+        # Step 1: Initialize BGM if enabled
+        bgm_path = None
+        bgm_volume = 0.08
+        if with_bgm:
+            print("\nStep 1: Initializing BGM...")
+            bgm_config = BGMConfig(
+                enabled=True,
+                volume=bgm_volume,
+                cache_dir="/workspace/data/bgm",
+                selection_mode="random",
+                tracks=[
+                    BGMTrack(
+                        name="upbeat_corporate",
+                        youtube_url="https://www.youtube.com/watch?v=cxWhnfQtcug",
+                    ),
+                ],
+            )
+            bgm_manager = BGMManager(bgm_config)
+            await bgm_manager.initialize()
+            bgm_path = await bgm_manager.get_bgm_for_video()
+            if bgm_path:
+                print(f"  BGM: {bgm_path.name}")
+            else:
+                print("  BGM: Not available (will generate without music)")
 
-        script_text = "안녕하세요! 이것은 BSForge로 자동 생성된 YouTube Shorts 영상입니다. AI가 음성, 자막, 배경까지 모두 만들어냈습니다."
+        # Step 2: Generate TTS
+        print("\nStep 2: Generating TTS audio...")
+        tts_engine = EdgeTTSEngine()
+        tts_config = TTSConfig(voice_id="ko-KR-InJoonNeural", speed=1.1)
+
+        script_text = """안녕하세요, AI테크브로입니다!
+오늘은 최신 AI 트렌드에 대해 알아보겠습니다.
+ChatGPT, Claude, Gemini까지,
+AI가 우리 일상을 어떻게 바꾸고 있는지 살펴볼게요.
+이 영상도 AI가 자동으로 만들어낸 거랍니다!"""
 
         tts_result = await tts_engine.synthesize(
             text=script_text,
@@ -262,8 +357,8 @@ async def demo_full_video() -> Path | None:
         )
         print(f"  Audio: {tts_result.audio_path} ({tts_result.duration_seconds:.1f}s)")
 
-        # Step 2: Generate subtitles from word timestamps
-        print("\nStep 2: Generating subtitles...")
+        # Step 3: Generate subtitles from word timestamps
+        print("\nStep 3: Generating subtitles...")
         subtitle_gen = SubtitleGenerator()
 
         if tts_result.word_timestamps:
@@ -277,40 +372,46 @@ async def demo_full_video() -> Path | None:
         subtitle_gen.to_ass(subtitle_file, subtitle_path)
         print(f"  Subtitles: {subtitle_path} ({len(subtitle_file.segments)} segments)")
 
-        # Step 3: Generate background visual
-        print("\nStep 3: Generating background visual...")
+        # Step 4: Generate background visual
+        print("\nStep 4: Generating background visual...")
         fallback_gen = FallbackGenerator()
         visual_assets = await fallback_gen.search("AI technology", max_results=1)
 
         if visual_assets:
-            # download() takes output_dir (directory), not output_path (file)
             downloaded_asset = await fallback_gen.download(visual_assets[0], output_dir)
             print(f"  Background: {downloaded_asset.path}")
         else:
             print("  ERROR: No visual assets generated")
             return None
 
-        # Step 4: Compose video with FFmpeg
-        print("\nStep 4: Composing video with FFmpeg...")
-        compositor = FFmpegCompositor(CompositionConfig())
+        # Step 5: Compose video with FFmpeg (with BGM if available)
+        print("\nStep 5: Composing video with FFmpeg...")
+        composition_config = CompositionConfig(background_music_volume=bgm_volume)
+        compositor = FFmpegCompositor(composition_config)
 
-        final_video_path = output_dir / "final_video.mp4"
+        final_video_path = (
+            output_dir / "final_video_with_bgm.mp4" if bgm_path else output_dir / "final_video.mp4"
+        )
 
-        # Use compose() method with proper parameters
-        await compositor.compose(
+        result = await compositor.compose(
             audio=tts_result,
             visuals=[downloaded_asset],
             subtitle_file=subtitle_path,
             output_path=final_video_path,
+            background_music_path=bgm_path,
         )
 
-        if final_video_path.exists():
-            size_mb = final_video_path.stat().st_size / (1024 * 1024)
-            print("\n  VIDEO GENERATED SUCCESSFULLY!")
-            print(f"  Output: {final_video_path}")
+        if result.video_path.exists():
+            size_mb = result.video_path.stat().st_size / (1024 * 1024)
+            print("\n" + "=" * 50)
+            print("  VIDEO GENERATED SUCCESSFULLY!")
+            print("=" * 50)
+            print(f"  Output: {result.video_path}")
             print(f"  Size: {size_mb:.2f} MB")
-            print(f"  Duration: {tts_result.duration_seconds:.1f} seconds")
-            return final_video_path
+            print(f"  Duration: {result.duration_seconds:.1f} seconds")
+            if bgm_path:
+                print(f"  BGM: {bgm_path.name} (volume: {bgm_volume*100:.0f}%)")
+            return result.video_path
         else:
             print("  Video generation failed!")
             return None
@@ -342,9 +443,16 @@ async def main() -> None:
     await demo_thumbnail()
     await demo_fallback_visual()
 
+    # BGM demo (only if yt-dlp available)
+    if deps["yt_dlp"]:
+        await demo_bgm()
+    else:
+        print("\n[Skip] BGM demo - yt-dlp not installed")
+
     # Full video generation (only if FFmpeg available)
     if deps["ffmpeg"]:
-        await demo_full_video()
+        # Generate with BGM if yt-dlp available
+        await demo_full_video(with_bgm=deps["yt_dlp"])
 
     # Summary
     print("\n" + "=" * 50)
@@ -360,12 +468,29 @@ async def main() -> None:
                 size = f.stat().st_size
                 print(f"  - {f.name} ({size:,} bytes)")
 
+    # BGM cache directory
+    bgm_dir = Path("/workspace/data/bgm")
+    if bgm_dir.exists():
+        print("\nBGM cache directory: /workspace/data/bgm/")
+        for f in sorted(bgm_dir.iterdir()):
+            if f.is_file():
+                size = f.stat().st_size
+                print(f"  - {f.name} ({size:,} bytes)")
+
     # FFmpeg status
     if not deps["ffmpeg"]:
         print("\n" + "-" * 50)
         print("NOTE: FFmpeg is not installed.")
         print("Full video composition requires FFmpeg.")
         print("In DevContainer, FFmpeg should be pre-installed.")
+        print("-" * 50)
+
+    # yt-dlp status
+    if not deps["yt_dlp"]:
+        print("\n" + "-" * 50)
+        print("NOTE: yt-dlp is not installed.")
+        print("BGM download requires yt-dlp.")
+        print("Install with: pip install yt-dlp")
         print("-" * 50)
 
 

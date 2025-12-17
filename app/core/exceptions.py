@@ -609,6 +609,77 @@ class VideoRenderError(VideoError):
         super().__init__(message, video_id=video_id, context=ctx)
 
 
+class BGMError(VideoError):
+    """Base exception for BGM-related errors."""
+
+    def __init__(
+        self,
+        message: str,
+        track_name: str | None = None,
+        context: dict[str, Any] | None = None,
+    ) -> None:
+        """Initialize BGMError.
+
+        Args:
+            message: Error message
+            track_name: Name of the BGM track
+            context: Additional context
+        """
+        ctx = context or {}
+        if track_name:
+            ctx["track_name"] = track_name
+        super().__init__(message, context=ctx)
+
+
+class BGMDownloadError(BGMError):
+    """Raised when BGM download fails.
+
+    Attributes:
+        track_name: Name of the track
+        youtube_url: URL that failed
+    """
+
+    def __init__(
+        self,
+        message: str,
+        track_name: str,
+        youtube_url: str,
+        context: dict[str, Any] | None = None,
+    ) -> None:
+        """Initialize BGMDownloadError.
+
+        Args:
+            message: Error message
+            track_name: Name of the track
+            youtube_url: URL that failed
+            context: Additional context
+        """
+        ctx = context or {}
+        ctx["youtube_url"] = youtube_url
+
+        self.track_name = track_name
+        self.youtube_url = youtube_url
+
+        super().__init__(message, track_name=track_name, context=ctx)
+
+
+class BGMNotFoundError(BGMError):
+    """Raised when no BGM tracks are available."""
+
+    def __init__(
+        self,
+        message: str = "No BGM tracks available",
+        context: dict[str, Any] | None = None,
+    ) -> None:
+        """Initialize BGMNotFoundError.
+
+        Args:
+            message: Error message
+            context: Additional context
+        """
+        super().__init__(message, context=context)
+
+
 # ============================================
 # Upload Errors
 # ============================================

@@ -354,7 +354,6 @@ class FFmpegCompositor:
         if asset.is_video:
             # Video asset
             cmd = [
-                "ffmpeg",
                 "-y",
                 "-i",
                 str(asset.path),
@@ -378,7 +377,6 @@ class FFmpegCompositor:
         else:
             # Image asset - loop and apply Ken Burns
             cmd = [
-                "ffmpeg",
                 "-y",
                 "-loop",
                 "1",
@@ -450,8 +448,13 @@ class FFmpegCompositor:
         else:
             zoom_expr = f"if(eq(on,1),1.15,zoom-{zoom_speed})"
 
+        # Scale to 2x output resolution for zoompan headroom (safer than 8000)
+        scale_w = w * 2
+        scale_h = h * 2
+
         base_filter = (
-            f"scale=8000:-1,"
+            f"scale={scale_w}:{scale_h}:force_original_aspect_ratio=increase,"
+            f"crop={scale_w}:{scale_h},"
             f"zoompan=z='{zoom_expr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
             f"d={total_frames}:s={w}x{h}:fps={fps},"
             f"setsar=1"
@@ -543,7 +546,6 @@ class FFmpegCompositor:
             output_path = temp_dir / "sequence.mp4"
 
             cmd = [
-                "ffmpeg",
                 "-y",
                 "-f",
                 "concat",
@@ -570,7 +572,6 @@ class FFmpegCompositor:
 
         # Add fade in at start for visual polish
         cmd = [
-            "ffmpeg",
             "-y",
             "-f",
             "concat",
@@ -608,7 +609,6 @@ class FFmpegCompositor:
             output_path: Output path
         """
         cmd = [
-            "ffmpeg",
             "-y",
             "-i",
             str(video_path),
@@ -718,7 +718,6 @@ class FFmpegCompositor:
         scale_filter = self._build_scale_filter()
 
         cmd = [
-            "ffmpeg",
             "-y",
             "-i",
             str(asset.path),
@@ -786,7 +785,6 @@ class FFmpegCompositor:
             # Use filter_complex for frame layout
             vf = self._build_frame_layout_filter(duration, segment_index)
             cmd = [
-                "ffmpeg",
                 "-y",
                 "-loop",
                 "1",
@@ -821,7 +819,6 @@ class FFmpegCompositor:
                 vf = self._build_scale_filter()
 
             cmd = [
-                "ffmpeg",
                 "-y",
                 "-loop",
                 "1",
@@ -915,9 +912,14 @@ class FFmpegCompositor:
         # 4. Create background
         # 5. Overlay image on background
 
+        # Scale to 2x content size for zoompan headroom (safer than 8000)
+        scale_w = content_w * 2
+        scale_h = content_h * 2
+
         # Scale image and apply Ken Burns to content size
         image_filter = (
-            f"scale=8000:-1,"
+            f"scale={scale_w}:{scale_h}:force_original_aspect_ratio=increase,"
+            f"crop={scale_w}:{scale_h},"
             f"zoompan=z='{zoom_expr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
             f"d={total_frames}:s={content_w}x{content_h}:fps={fps},"
             f"setsar=1"
@@ -993,7 +995,6 @@ class FFmpegCompositor:
         vf = self._build_frame_layout_filter(duration, segment_index)
 
         cmd = [
-            "ffmpeg",
             "-y",
             "-loop",
             "1",
@@ -1067,9 +1068,15 @@ class FFmpegCompositor:
         else:
             zoom_expr = f"if(eq(on,1),{start_scale},zoom-{zoom_speed})"
 
+        # Scale to 2x output resolution for zoompan headroom (safer than 8000)
+        # This provides enough room for Ken Burns effect without memory issues
+        scale_w = w * 2
+        scale_h = h * 2
+
         # Scale up first (to allow room for zooming), then apply zoompan
         base_filter = (
-            f"scale=8000:-1,"
+            f"scale={scale_w}:{scale_h}:force_original_aspect_ratio=increase,"
+            f"crop={scale_w}:{scale_h},"
             f"zoompan=z='{zoom_expr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
             f"d={total_frames}:s={w}x{h}:fps={fps},"
             f"setsar=1"
@@ -1109,7 +1116,6 @@ class FFmpegCompositor:
         output_path = temp_dir / f"black{suffix}.mp4"
 
         cmd = [
-            "ffmpeg",
             "-y",
             "-f",
             "lavfi",
@@ -1158,7 +1164,6 @@ class FFmpegCompositor:
             output_path = temp_dir / "sequence.mp4"
 
             cmd = [
-                "ffmpeg",
                 "-y",
                 "-f",
                 "concat",
@@ -1208,7 +1213,6 @@ class FFmpegCompositor:
 
         # Add flash frames between segments by re-encoding with fade
         cmd = [
-            "ffmpeg",
             "-y",
             "-f",
             "concat",
@@ -1246,7 +1250,6 @@ class FFmpegCompositor:
             output_path: Output path
         """
         cmd = [
-            "ffmpeg",
             "-y",
             "-i",
             str(video_path),
@@ -1280,7 +1283,6 @@ class FFmpegCompositor:
         volume = self.config.background_music_volume
 
         cmd = [
-            "ffmpeg",
             "-y",
             "-i",
             str(video_path),
@@ -1321,7 +1323,6 @@ class FFmpegCompositor:
         escaped_path = str(subtitle_path).replace(":", r"\:").replace("'", r"\'")
 
         cmd = [
-            "ffmpeg",
             "-y",
             "-i",
             str(video_path),
@@ -1624,7 +1625,6 @@ class FFmpegCompositor:
         drawtext_filter = ",".join(filter_parts)
 
         cmd = [
-            "ffmpeg",
             "-y",
             "-i",
             str(video_path),
