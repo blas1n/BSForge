@@ -191,6 +191,7 @@ class PexelsClient(BaseVisualSource):
         query: str,
         max_results: int = 10,
         orientation: Literal["portrait", "landscape", "square"] = "portrait",
+        exclude_ids: set[str] | None = None,
     ) -> list[VisualAsset]:
         """Search for stock images.
 
@@ -198,6 +199,7 @@ class PexelsClient(BaseVisualSource):
             query: Search query
             max_results: Maximum number of results
             orientation: Image orientation
+            exclude_ids: Set of source_ids to exclude (to avoid duplicates)
 
         Returns:
             List of image assets
@@ -208,9 +210,12 @@ class PexelsClient(BaseVisualSource):
 
         client = await self._get_client()
 
+        # Request more results to have room for filtering out excluded IDs
+        request_count = max_results + (len(exclude_ids) if exclude_ids else 0) + 5
+
         params: dict[str, str | int] = {
             "query": query,
-            "per_page": max_results,
+            "per_page": min(request_count, 80),
             "orientation": orientation,
         }
 
@@ -228,6 +233,13 @@ class PexelsClient(BaseVisualSource):
         assets: list[VisualAsset] = []
 
         for photo in data.get("photos", []):
+            photo_id = str(photo.get("id"))
+
+            # Skip if this ID is in the exclude list
+            if exclude_ids and photo_id in exclude_ids:
+                logger.debug(f"Skipping excluded image ID: {photo_id}")
+                continue
+
             # Use large2x size for quality
             src = photo.get("src", {})
             url = src.get("large2x") or src.get("large") or src.get("original")
@@ -252,6 +264,10 @@ class PexelsClient(BaseVisualSource):
                     },
                 )
             )
+
+            # Stop once we have enough
+            if len(assets) >= max_results:
+                break
 
         logger.info(f"Found {len(assets)} Pexels images for query: {query}")
         return assets

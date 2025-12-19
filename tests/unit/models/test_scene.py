@@ -116,6 +116,7 @@ class TestScene:
 
         assert scene.scene_type == SceneType.CONTENT
         assert scene.text == "이것은 테스트 장면입니다."
+        assert scene.tts_text is None
         assert scene.keyword is None
         assert scene.visual_hint == VisualHintType.STOCK_IMAGE
         assert scene.visual_style is None
@@ -123,6 +124,46 @@ class TestScene:
         assert scene.transition_out == TransitionType.FADE
         assert scene.emphasis_words == []
         assert scene.subtitle_segments is None
+
+    def test_tts_content_without_tts_text(self) -> None:
+        """Test tts_content returns text when tts_text is not set."""
+        scene = Scene(
+            scene_type=SceneType.CONTENT,
+            text="GPT-4를 넘은 AI가 나왔어요.",
+        )
+
+        # When tts_text is None, tts_content should return text
+        assert scene.tts_text is None
+        assert scene.tts_content == "GPT-4를 넘은 AI가 나왔어요."
+
+    def test_tts_content_with_tts_text(self) -> None:
+        """Test tts_content returns tts_text when set."""
+        scene = Scene(
+            scene_type=SceneType.CONTENT,
+            text="GPT-4를 넘은 AI가 나왔어요.",
+            tts_text="GPT 사를 넘은 AI가 나왔어요.",
+        )
+
+        # When tts_text is set, tts_content should return it
+        assert scene.text == "GPT-4를 넘은 AI가 나왔어요."
+        assert scene.tts_text == "GPT 사를 넘은 AI가 나왔어요."
+        assert scene.tts_content == "GPT 사를 넘은 AI가 나왔어요."
+
+    def test_tts_text_and_text_separate(self) -> None:
+        """Test that text (for subtitles) and tts_text (for TTS) are separate."""
+        scene = Scene(
+            scene_type=SceneType.CONTENT,
+            text="Claude 3.5 Sonnet, 코딩 벤치마크 92점.",
+            tts_text="클로드 삼점오 Sonnet, 코딩 벤치마크 92점.",
+            emphasis_words=["92점"],
+        )
+
+        # text should keep original notation for subtitles
+        assert "Claude 3.5" in scene.text
+        # tts_text should have Korean pronunciation for TTS
+        assert "클로드 삼점오" in scene.tts_text
+        # tts_content property returns tts_text for TTS engines
+        assert scene.tts_content == scene.tts_text
 
     def test_create_full_scene(self) -> None:
         """Test creating a scene with all fields."""

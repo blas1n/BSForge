@@ -9,7 +9,8 @@ Usage:
     /home/vscode/.local/bin/uv run python scripts/generate_video.py
 
     # With template
-    /home/vscode/.local/bin/uv run python scripts/generate_video.py --template korean_shorts_standard
+    /home/vscode/.local/bin/uv run python scripts/generate_video.py
+        --template korean_shorts_standard
 
     # Custom output directory
     /home/vscode/.local/bin/uv run python scripts/generate_video.py --output ./my_output
@@ -49,78 +50,100 @@ logger = logging.getLogger(__name__)
 def create_sample_scenes() -> tuple[list, str, str]:
     """Create sample scenes for demonstration.
 
+    Updated for Korean Shorts style:
+    - High information density (8+ scenes)
+    - Specific numbers and data
+    - Deep commentary with reasoning (not shallow reactions)
+    - Scene-specific keywords for relevant visuals
+
     Returns:
         Tuple of (scenes list, headline_keyword, headline_hook)
     """
     from app.models.scene import Scene, SceneType, VisualHintType
 
-    headline_keyword = "AI 기술"
-    headline_hook = "미래가 어떻게 바뀔까?"
+    headline_keyword = "Claude 3.5"
+    headline_hook = "GPT-4 넘었다"
 
     scenes = [
         Scene(
             scene_type=SceneType.HOOK,
-            text="AI가 우리 일상을 완전히 바꾸고 있습니다",
-            keyword="AI technology future",
+            text="GPT-4를 넘은 AI가 나왔어요",
+            keyword="anthropic claude AI logo",
             visual_hint=VisualHintType.STOCK_IMAGE,
-            emphasis_words=["AI", "일상"],
-            subtitle_segments=[
-                "AI가 우리 일상을",
-                "완전히 바꾸고 있습니다",
-            ],
+            emphasis_words=["GPT-4"],
+            subtitle_segments=["GPT-4를 넘은", "AI가 나왔어요"],
         ),
         Scene(
             scene_type=SceneType.CONTENT,
-            text="2024년 기준 전 세계 기업의 70%가 AI를 도입했습니다",
-            keyword="business AI adoption",
+            text="Claude 3.5 Sonnet, 코딩 벤치마크 92점",
+            keyword="coding benchmark score chart",
             visual_hint=VisualHintType.STOCK_IMAGE,
-            emphasis_words=["70%"],
-            subtitle_segments=[
-                "2024년 기준",
-                "전 세계 기업의",
-                "70%가 AI를",
-                "도입했습니다",
-            ],
+            emphasis_words=["92점"],
+            subtitle_segments=["Claude 3.5 Sonnet", "코딩 벤치마크 92점"],
         ),
         Scene(
-            scene_type=SceneType.COMMENTARY,  # ← AI 페르소나 의견 (BSForge 차별점)
-            text="솔직히 이 속도면 5년 후엔 상상도 못할 세상이 올 것 같아요",
-            keyword="futuristic technology innovation",
+            scene_type=SceneType.CONTENT,
+            text="GPT-4는 84점이었거든요",
+            keyword="openai GPT-4 logo comparison",
             visual_hint=VisualHintType.STOCK_IMAGE,
-            emphasis_words=["5년"],
-            subtitle_segments=[
-                "솔직히 이 속도면",
-                "5년 후엔",
-                "상상도 못할 세상이",
-                "올 것 같아요",
-            ],
+            emphasis_words=["84점"],
+            subtitle_segments=["GPT-4는", "84점이었거든요"],
         ),
         Scene(
-            scene_type=SceneType.REACTION,  # ← 짧은 리액션
-            text="와, 진짜 대박 아닌가요?",
-            keyword="surprised reaction",
-            visual_hint=VisualHintType.SOLID_COLOR,
-            emphasis_words=["대박"],
-            subtitle_segments=["와, 진짜", "대박 아닌가요?"],
+            scene_type=SceneType.COMMENTARY,  # Deep analysis, not shallow reaction
+            text="8점 차이, 이게 왜 큰 거냐면요",
+            keyword="developer thinking laptop code",
+            visual_hint=VisualHintType.STOCK_IMAGE,
+            emphasis_words=["8점"],
+            subtitle_segments=["8점 차이", "이게 왜 큰 거냐면요"],
+        ),
+        Scene(
+            scene_type=SceneType.CONTENT,
+            text="복잡한 알고리즘 문제에서 차이가 나요",
+            keyword="algorithm code screen programming",
+            visual_hint=VisualHintType.STOCK_IMAGE,
+            emphasis_words=["알고리즘"],
+            subtitle_segments=["복잡한 알고리즘", "문제에서 차이가 나요"],
+        ),
+        Scene(
+            scene_type=SceneType.EXAMPLE,
+            text="LeetCode Hard 문제 정답률이 2배예요",
+            keyword="leetcode coding challenge screen",
+            visual_hint=VisualHintType.STOCK_IMAGE,
+            emphasis_words=["2배"],
+            subtitle_segments=["LeetCode Hard 문제", "정답률이 2배예요"],
+        ),
+        Scene(
+            scene_type=SceneType.COMMENTARY,  # Second commentary with practical insight
+            text="근데 진짜 중요한 건 가격이에요",
+            keyword="money cost dollar price",
+            visual_hint=VisualHintType.STOCK_IMAGE,
+            emphasis_words=["가격"],
+            subtitle_segments=["근데 진짜 중요한 건", "가격이에요"],
+        ),
+        Scene(
+            scene_type=SceneType.CONTENT,
+            text="GPT-4 대비 5분의 1 가격이거든요",
+            keyword="price comparison chart discount",
+            visual_hint=VisualHintType.STOCK_IMAGE,
+            emphasis_words=["5분의 1"],
+            subtitle_segments=["GPT-4 대비", "5분의 1 가격이거든요"],
         ),
         Scene(
             scene_type=SceneType.CONCLUSION,
-            text="여러분은 AI 시대 어떻게 준비하고 계신가요?",
-            keyword="AI preparation",
+            text="성능은 높고 가격은 낮아요",
+            keyword="thumbs up success approval",
             visual_hint=VisualHintType.STOCK_IMAGE,
-            emphasis_words=["준비"],
-            subtitle_segments=[
-                "여러분은 AI 시대",
-                "어떻게 준비하고 계신가요?",
-            ],
+            emphasis_words=["성능", "가격"],
+            subtitle_segments=["성능은 높고", "가격은 낮아요"],
         ),
         Scene(
             scene_type=SceneType.CTA,
-            text="좋아요와 구독 부탁드려요!",
-            keyword="subscribe like",
+            text="구독!",
+            keyword="subscribe button youtube red",
             visual_hint=VisualHintType.STOCK_IMAGE,
-            emphasis_words=["좋아요", "구독"],
-            subtitle_segments=["좋아요와 구독", "부탁드려요!"],
+            emphasis_words=["구독"],
+            subtitle_segments=["구독!"],
         ),
     ]
 
@@ -208,7 +231,7 @@ async def generate_video(
         logger.info("\n[1/6] Generating TTS...")
         tts_config = TTSConfig(
             voice_id="ko-KR-InJoonNeural",
-            speed=1.0,
+            speed=1.2,  # 한국 쇼츠 스타일: 빠른 전달
             pitch=0,
             volume=0,
         )

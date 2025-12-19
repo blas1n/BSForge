@@ -217,9 +217,11 @@ class CompositionConfig(BaseModel):
 class ThumbnailConfig(BaseModel):
     """Thumbnail generation configuration.
 
+    Default values are optimized for YouTube Shorts (1080x1920 portrait).
+
     Attributes:
-        width: Thumbnail width
-        height: Thumbnail height
+        width: Thumbnail width (default: 1080 for Shorts)
+        height: Thumbnail height (default: 1920 for Shorts)
         title_font: Title font name
         title_size: Title font size
         title_color: Title text color (hex)
@@ -233,21 +235,21 @@ class ThumbnailConfig(BaseModel):
         quality: JPEG quality (1-100)
     """
 
-    width: int = Field(default=1280, description="Thumbnail width")
-    height: int = Field(default=720, description="Thumbnail height")
-    title_font: str = Field(default="Pretendard-Bold", description="Title font")
-    title_size: int = Field(default=72, ge=24, le=144, description="Title size")
+    width: int = Field(default=1080, description="Thumbnail width (Shorts: 1080)")
+    height: int = Field(default=1920, description="Thumbnail height (Shorts: 1920)")
+    title_font: str = Field(default="Noto Sans CJK KR", description="Title font")
+    title_size: int = Field(default=90, ge=24, le=200, description="Title size")
     title_color: str = Field(default="#FFFFFF", description="Title color")
     title_stroke_color: str = Field(default="#000000", description="Stroke color")
-    title_stroke_width: int = Field(default=3, ge=0, le=10, description="Stroke width")
+    title_stroke_width: int = Field(default=5, ge=0, le=15, description="Stroke width")
     overlay_color: str = Field(default="#000000", description="Overlay color")
-    overlay_opacity: float = Field(default=0.4, ge=0.0, le=1.0, description="Overlay opacity")
+    overlay_opacity: float = Field(default=0.3, ge=0.0, le=1.0, description="Overlay opacity")
     text_position: Literal["center", "bottom"] = Field(
         default="center", description="Text position"
     )
-    padding: int = Field(default=40, ge=0, le=100, description="Edge padding")
-    max_title_lines: int = Field(default=3, ge=1, le=5, description="Max title lines")
-    quality: int = Field(default=90, ge=1, le=100, description="JPEG quality")
+    padding: int = Field(default=60, ge=0, le=150, description="Edge padding")
+    max_title_lines: int = Field(default=4, ge=1, le=6, description="Max title lines")
+    quality: int = Field(default=95, ge=1, le=100, description="JPEG quality")
 
 
 class VideoGenerationConfig(BaseModel):

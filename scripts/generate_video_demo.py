@@ -402,7 +402,7 @@ async def main() -> None:
     print("🚀 BSForge Full Production Pipeline")
     print("=" * 70)
 
-    config_path = Path(sys.argv[1] if len(sys.argv) > 1 else "config/channels/ai_tech.yaml")
+    config_path = Path(sys.argv[1] if len(sys.argv) > 1 else "config/channels/entertainments.yaml")
 
     if not config_path.exists():
         print(f"❌ Channel config not found: {config_path}")

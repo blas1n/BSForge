@@ -62,18 +62,20 @@ layout:
     # Line 1: 키워드 (컬러)
     line1:
       color: "#FF69B4"  # Hot pink
-      font_size: 72     # 줄임 (120 → 72)
+      font_size: 110
       bold: true
+      italic: true
       outline_width: 0  # 검은 배경이라 외곽선 불필요
 
     # Line 2: 설명 (흰색)
     line2:
       color: "#FFFFFF"
-      font_size: 56     # 줄임 (90 → 56)
+      font_size: 80
       bold: true
+      italic: true
       outline_width: 0
 
-    font_name: "Noto Sans CJK KR"
+    font_name: "NotoSansCJK KR"
     outline_color: "#000000"
     line_spacing: 1.3   # 줄 간격
     letter_spacing: -0.02  # 자간 좁게
@@ -94,14 +96,16 @@ layout:
   caption:
     enabled: true
     position_y_ratio: 0.55  # 중앙보다 약간 아래 (55%)
-    font_name: "Noto Sans CJK KR"
+    font_name: "NotoSansCJK KR"
     font_size: 90  # 자막 폰트 키움 (72 → 90)
+    bold: true
+    italic: true
     primary_color: "#FFFFFF"
     outline_color: "#000000"
     outline_width: 5  # 외곽선도 키움
     emphasis_enabled: true
     emphasis_color: "#FFFF00"  # 노랑 강조
-    max_chars_per_line: 14  # 글자수 줄임 (18 → 14)
+    max_chars_per_line: 20  # 글자수 늘림 (14 → 20) - 자연스러운 문장 단위
     max_lines: 2
     fade_in_ms: 100
     fade_out_ms: 80
@@ -115,9 +119,10 @@ layout:
     enabled: false
 
 subtitle:
-  font_name: "Noto Sans CJK KR"
-  font_size: 90  # 자막 폰트 키움 (72 → 90)
+  font_name: "Noto Sans CJK KR Bold"
+  font_size: 90
   bold: true
+  italic: true
   primary_color: "#FFFFFF"
   outline_color: "#000000"
   outline_width: 5  # 외곽선도 키움
@@ -127,7 +132,7 @@ subtitle:
   fade_in_ms: 100
   fade_out_ms: 80
   karaoke_enabled: false  # 카라오케 효과 꺼둠
-  max_chars_per_line: 14  # 글자수 줄임 (18 → 14)
+  max_chars_per_line: 20  # 글자수 늘림 (14 → 20) - 자연스러운 문장 단위
   max_lines: 2
 
 visual_effects:
@@ -154,3 +159,19 @@ audio:
   bgm_volume: 0.08
   tts_speed: 1.0
   normalize_audio: true
+
+# 썸네일 설정 - 쇼츠 규격 (9:16 portrait)
+thumbnail:
+  width: 1080
+  height: 1920
+  title_font: "Noto Sans CJK KR"
+  title_size: 100
+  title_color: "#FFFFFF"
+  title_stroke_color: "#000000"
+  title_stroke_width: 6
+  overlay_color: "#000000"
+  overlay_opacity: 0.25  # 이미지가 더 잘 보이게
+  text_position: center
+  padding: 60
+  max_title_lines: 4
+  quality: 95

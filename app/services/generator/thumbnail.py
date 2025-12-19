@@ -59,6 +59,7 @@ class ThumbnailGenerator:
         output_path: Path,
         background: VisualAsset | None = None,
         background_color: str = "#1a1a2e",
+        config_override: ThumbnailConfig | None = None,
     ) -> Path:
         """Generate thumbnail image.
 
@@ -67,15 +68,19 @@ class ThumbnailGenerator:
             output_path: Output path (without extension)
             background: Optional background visual asset
             background_color: Fallback background color
+            config_override: Optional config to override instance config (from template)
 
         Returns:
             Path to generated thumbnail
         """
+        # Use override config if provided, otherwise use instance config
+        config = config_override or self.config
+
         output_path = output_path.with_suffix(".jpg")
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        width = self.config.width
-        height = self.config.height
+        width = config.width
+        height = config.height
 
         # Create or load background
         if background and (background.path or background.url):
@@ -88,16 +93,16 @@ class ThumbnailGenerator:
         bg_image = self._resize_and_crop(bg_image, width, height)
 
         # Apply overlay
-        bg_image = self._apply_overlay(bg_image)
+        bg_image = self._apply_overlay(bg_image, config)
 
         # Add title text
-        bg_image = self._add_title(bg_image, title)
+        bg_image = self._add_title(bg_image, title, config)
 
         # Save
         bg_image.convert("RGB").save(
             output_path,
             "JPEG",
-            quality=self.config.quality,
+            quality=config.quality,
         )
 
         logger.info(f"Generated thumbnail: {output_path}")
@@ -198,11 +203,12 @@ class ThumbnailGenerator:
 
         return image.crop((left, top, right, bottom))
 
-    def _apply_overlay(self, image: Image.Image) -> Image.Image:
+    def _apply_overlay(self, image: Image.Image, config: ThumbnailConfig) -> Image.Image:
         """Apply semi-transparent overlay.
 
         Args:
             image: Source image
+            config: Thumbnail configuration
 
         Returns:
             Image with overlay
@@ -212,8 +218,8 @@ class ThumbnailGenerator:
             image = image.convert("RGBA")
 
         # Create overlay
-        overlay_color = self._hex_to_rgb(self.config.overlay_color)
-        alpha = int(self.config.overlay_opacity * 255)
+        overlay_color = self._hex_to_rgb(config.overlay_color)
+        alpha = int(config.overlay_opacity * 255)
 
         overlay = Image.new("RGBA", image.size, (*overlay_color, alpha))
 
@@ -224,12 +230,14 @@ class ThumbnailGenerator:
         self,
         image: Image.Image,
         title: str,
+        config: ThumbnailConfig,
     ) -> Image.Image:
         """Add title text to image.
 
         Args:
             image: Source image
             title: Title text
+            config: Thumbnail configuration
 
         Returns:
             Image with title
@@ -237,26 +245,26 @@ class ThumbnailGenerator:
         draw = ImageDraw.Draw(image)
 
         # Load font
-        font = self._get_font(self.config.title_font, self.config.title_size)
+        font = self._get_font(config.title_font, config.title_size)
 
         # Wrap text
-        wrapped = self._wrap_text(title, font, image.width - 2 * self.config.padding)
+        wrapped = self._wrap_text(title, font, image.width - 2 * config.padding, config)
 
         # Calculate text position
         text_bbox = draw.multiline_textbbox((0, 0), wrapped, font=font)
         text_width = text_bbox[2] - text_bbox[0]
         text_height = text_bbox[3] - text_bbox[1]
 
-        if self.config.text_position == "center":
+        if config.text_position == "center":
             x = (image.width - text_width) // 2
             y = (image.height - text_height) // 2
         else:  # bottom
             x = (image.width - text_width) // 2
-            y = image.height - text_height - self.config.padding
+            y = image.height - text_height - config.padding
 
         # Draw stroke (text outline)
-        stroke_color = self._hex_to_rgb(self.config.title_stroke_color)
-        stroke_width = self.config.title_stroke_width
+        stroke_color = self._hex_to_rgb(config.title_stroke_color)
+        stroke_width = config.title_stroke_width
 
         if stroke_width > 0:
             for dx in range(-stroke_width, stroke_width + 1):
@@ -271,7 +279,7 @@ class ThumbnailGenerator:
                         )
 
         # Draw main text
-        text_color = self._hex_to_rgb(self.config.title_color)
+        text_color = self._hex_to_rgb(config.title_color)
         draw.multiline_text(
             (x, y),
             wrapped,
@@ -287,6 +295,7 @@ class ThumbnailGenerator:
         text: str,
         font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
         max_width: int,
+        config: ThumbnailConfig,
     ) -> str:
         """Wrap text to fit within max width.
 
@@ -294,6 +303,7 @@ class ThumbnailGenerator:
             text: Text to wrap
             font: Font to use
             max_width: Maximum width in pixels
+            config: Thumbnail configuration
 
         Returns:
             Wrapped text with newlines
@@ -311,8 +321,8 @@ class ThumbnailGenerator:
         )
 
         # Limit to max lines
-        if len(lines) > self.config.max_title_lines:
-            lines = lines[: self.config.max_title_lines]
+        if len(lines) > config.max_title_lines:
+            lines = lines[: config.max_title_lines]
             lines[-1] = lines[-1][:-3] + "..."
 
         return "\n".join(lines)

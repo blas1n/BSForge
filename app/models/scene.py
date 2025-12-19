@@ -129,7 +129,8 @@ class Scene(BaseModel):
 
     Attributes:
         scene_type: Classification of the scene (hook, content, commentary, etc.)
-        text: Spoken text for TTS
+        text: Display text for subtitles (original notation: GPT-4, Claude 3.5)
+        tts_text: TTS pronunciation text (optional, only when differs from text)
         keyword: Primary keyword for visual search
         visual_hint: Hint for visual sourcing strategy
         visual_style: Override visual style (auto-inferred from scene_type if None)
@@ -141,14 +142,19 @@ class Scene(BaseModel):
     Example:
         Scene(
             scene_type=SceneType.CONTENT,
-            text="2024년 기준 전 세계 기업의 70%가 AI를 도입했습니다",
-            subtitle_segments=["2024년 기준", "전 세계 기업의", "70%가 AI를", "도입했습니다"],
-            emphasis_words=["70%"],
+            text="GPT-4 대비 5분의 1 가격이거든요.",
+            tts_text="GPT 사 대비 5분의 1 가격이거든요.",
+            emphasis_words=["5분의 1"],
         )
     """
 
     scene_type: SceneType
-    text: str = Field(..., min_length=1, description="TTS text for this scene")
+    text: str = Field(..., min_length=1, description="Display text for subtitles")
+    tts_text: str | None = Field(
+        default=None,
+        description="TTS pronunciation text (only when different from text). "
+        "E.g., 'GPT 사' for 'GPT-4', '클로드 삼점오' for 'Claude 3.5'",
+    )
 
     # Visual
     keyword: str | None = Field(default=None, description="Visual search keyword")
@@ -181,6 +187,11 @@ class Scene(BaseModel):
         description="Manual subtitle segment breaks (문맥에 맞게 끊기). "
         "If None, auto-split based on TTS word boundaries or character count.",
     )
+
+    @property
+    def tts_content(self) -> str:
+        """Get text for TTS synthesis (tts_text if set, else text)."""
+        return self.tts_text if self.tts_text else self.text
 
     @property
     def inferred_visual_style(self) -> VisualStyle:

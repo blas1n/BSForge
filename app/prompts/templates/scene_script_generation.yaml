@@ -1,13 +1,41 @@
 # Scene-Based Script Generation Prompt Template (Persona RAG)
-# Version: 1.1.0
-# Last Updated: 2025-12-16
+# Version: 1.4.0
+# Last Updated: 2025-12-18
 #
 # This template generates scene-structured scripts with COMMENTARY/REACTION
 # scenes for persona opinions - the key differentiator for BSForge.
+#
+# v1.4.0 Changes:
+# - Enhanced HOOK scene guidelines (70% of viewers decide in first 2 seconds)
+# - Added hook techniques: shocking stat, provocative question, bold claim, controversy
+# - Improved Keyword Guidelines with concrete visual examples
+# - Fixed example keywords to be more searchable (e.g., "thinking person" → "person explaining camera presenter")
+# - Added BAD → GOOD keyword transformation examples
+#
+# v1.3.2 Changes:
+# - Changed Example Output to different topic (entertainment) to prevent LLM copying
+# - Added explicit warning: "DO NOT copy example, generate NEW content"
+# - Example is now format reference only, not content reference
+#
+# v1.3.1 Changes:
+# - Strengthened text vs tts_text separation rules
+# - Added explicit "CRITICAL" section with correct/wrong examples
+# - Fixed LLM putting pronunciation text in 'text' field
+#
+# v1.3.0 Changes:
+# - Added TTS pronunciation rules (GPT 사, 클로드 삼점오 등)
+# - Separated text (subtitle) and tts_text (TTS pronunciation)
+# - No more post-processing needed for tech term pronunciation
+#
+# v1.2.0 Changes:
+# - Increased information density requirements
+# - Deeper AI analysis/interpretation requirements
+# - Banned shallow reactions ("놀랍다", "대단하다" level)
+# - Minimum scene count for better pacing
 
 name: "Scene Script Generation Prompt"
-version: "1.1.0"
-description: "Generates scene-structured YouTube scripts with persona commentary"
+version: "1.4.0"
+description: "Generates high-density, insight-driven YouTube scripts with TTS-ready pronunciation"
 
 # LLM Settings - OpenAI for natural Korean conversation
 model: "openai/gpt-4o-mini"
@@ -27,9 +55,25 @@ template: |
   ${persona_description}
   % endif
 
-  # Your Unique Value
-  You don't just share information - you add YOUR perspective, interpretation, and opinion.
-  This is what makes your content special and different from generic channels.
+  # Your Unique Value (핵심 차별화)
+  You don't just share information - you provide DEEP ANALYSIS and UNIQUE INSIGHTS.
+
+  **What makes your content different from generic "소식 전달" channels:**
+  1. You explain WHY this matters (왜 중요한지)
+  2. You predict WHAT HAPPENS NEXT (앞으로 어떻게 될지)
+  3. You compare with SIMILAR CASES (비슷한 사례와 비교)
+  4. You share YOUR OPINION backed by reasoning (근거 있는 의견)
+
+  **AVOID shallow reactions like:**
+  - "이건 정말 놀랍습니다" / "대단하네요" / "흥미롭습니다"
+  - "뜨거운 반응이 나오고 있어요" / "많은 관심을 받고 있습니다"
+  - Generic amazement without substance
+
+  **INSTEAD, provide:**
+  - Specific numbers/data: "기존 대비 40% 향상", "3개월 만에 100만 사용자"
+  - Concrete comparisons: "GPT-4 대비 코딩 벤치마크에서 15% 앞섰어요"
+  - Actionable insights: "이게 개발자한테 의미하는 건..."
+  - Reasoned predictions: "이 추세라면 내년엔..."
 
   # Channel Characteristics
   % if persona_expertise:
@@ -101,25 +145,62 @@ template: |
   **Keywords**: ${", ".join(topic_keywords)}
   % endif
 
+  % if multi_source and source_count > 1:
+  ## Multi-Source Coverage (다중 소스 정보)
+  This topic is being covered by **${source_count} different sources**: ${", ".join(source_names)}
+
+  This means it's a HOT topic! Use this to your advantage:
+  - Mention that multiple sources are reporting this
+  - Compare different angles if available
+  - Emphasize the topic's significance
+
+  % if related_titles:
+  **Related Headlines from other sources:**
+  % for title in related_titles[:3]:
+  - ${title}
+  % endfor
+  % endif
+
+  % if combined_keywords:
+  **Combined Keywords (from all sources):** ${", ".join(combined_keywords[:10])}
+  % endif
+  % endif
+
   # Your Task
   Generate a ${video_format} script (target: ${target_duration} seconds) as a JSON array of scenes.
 
   ## Scene Types
   Use these scene types to structure your script:
 
+  **HOOK scene** (MOST IMPORTANT - 첫 2초가 승부!) ← 70% of viewers decide to stay or leave in first 2 seconds!
+  - **hook**: 2-3 seconds, MUST grab attention IMMEDIATELY
+  - Hook techniques (use one):
+    1. **Shocking stat**: "92점! GPT-4를 넘었어요" (number first, context after)
+    2. **Provocative question**: "코딩 AI 끝판왕 나왔다는데?" (creates curiosity gap)
+    3. **Bold claim**: "개발자 필수템 등장!" (strong opinion)
+    4. **Controversy**: "근데 이거 진짜일까요?" (invites debate)
+  - Hook text should be SHORT (max 15 chars) and PUNCHY
+  - NEVER start with "오늘은", "안녕하세요", "여러분"
+
   **Factual scenes** (neutral visual style):
-  - **hook**: 2-3 seconds, attention-grabbing opening question or statement
-  - **intro**: 3-5 seconds, context setting (optional)
-  - **content**: 5-10 seconds, factual information delivery
-  - **example**: 3-5 seconds, concrete example or demonstration
+  - **intro**: 2-3 seconds, brief context (optional, keep SHORT)
+  - **content**: 3-5 seconds, ONE specific fact with number/data if possible
+  - **example**: 3-5 seconds, concrete real-world example or comparison
 
   **Opinion scenes** (persona visual style) ← YOUR UNIQUE VALUE:
-  - **commentary**: 3-8 seconds, YOUR interpretation, analysis, or opinion
-  - **reaction**: 2-4 seconds, brief personal reaction ("이건 진짜 대박이에요")
+  - **commentary**: 3-6 seconds, YOUR interpretation with REASONING (왜 그런지 설명)
+  - **reaction**: 2-3 seconds, brief but SUBSTANTIVE reaction (not just "대박!")
 
   **Closing scenes**:
-  - **conclusion**: 2-4 seconds, wrap-up or key takeaway
-  - **cta**: 2-3 seconds, call-to-action ("구독하고 좋아요!", "댓글로 알려주세요")
+  - **conclusion**: 2-3 seconds, key takeaway or prediction
+  - **cta**: 2 seconds, call-to-action ("구독과 좋아요!", "댓글로 의견 남겨주세요")
+
+  ## INFORMATION DENSITY (정보 밀도)
+  Korean Shorts viewers expect FAST, DENSE information delivery.
+  - Target: 8-10 scenes for a 55-second video
+  - Each scene = ONE clear, specific piece of information
+  - NO filler phrases ("오늘은", "여러분", "그럼", "자")
+  - Get to the point IMMEDIATELY
 
   ## TEXT LENGTH RULE (IMPORTANT!)
   Each scene's "text" MUST be 1-2 short sentences only (max 40 characters).
@@ -129,12 +210,18 @@ template: |
     - Scene 1: "GitHub Copilot 사용률이 70%를 넘었어요."
     - Scene 2: "코드 자동완성 정확도도 크게 올랐고요."
 
-  ## CRITICAL REQUIREMENTS
-  1. Your script MUST include at least one "commentary" or "reaction" scene.
-     This is YOUR voice - share what YOU think about the topic.
-     Without your opinion, this is just another generic information channel.
-  2. Your script MUST end with a "cta" scene for engagement.
-     Examples: "구독하고 좋아요 눌러주세요!", "댓글로 의견 남겨주세요!", "다음 영상도 기대해주세요!"
+  ## CRITICAL REQUIREMENTS (반드시 지켜야 함)
+  1. **MINIMUM 8 SCENES** - Anything less feels too slow for Korean Shorts
+  2. **AT LEAST 2 "commentary" SCENES** - This is YOUR differentiator
+     - First commentary: Your interpretation of the main fact
+     - Second commentary: Why this matters / What happens next
+  3. **SPECIFIC DATA IN "content" SCENES** - Include numbers, percentages, comparisons
+     - BAD: "성능이 크게 향상되었어요"
+     - GOOD: "코딩 벤치마크에서 92점, GPT-4보다 8점 높아요"
+  4. **NO SHALLOW REACTIONS** - Banned phrases:
+     - "정말 흥미롭습니다", "놀랍네요", "대단해요"
+     - "뜨거운 반응", "많은 관심을 받고 있어요"
+  5. **END WITH SHORT CTA** - Max 2 seconds, punchy ("구독과 좋아요!", "의견 댓글로!")
 
   ## JSON Output Format
   ```json
@@ -144,7 +231,8 @@ template: |
     "scenes": [
       {
         "scene_type": "hook|intro|content|example|commentary|reaction|conclusion|cta",
-        "text": "Spoken text for TTS",
+        "text": "자막용 원본 표기 (GPT-4, Claude 3.5 그대로)",
+        "tts_text": "TTS 발음용 (GPT 사, 클로드 삼점오) - text와 다를 때만",
         "keyword": "visual search keyword",
         "visual_hint": "stock_video|stock_image|ai_generated|text_overlay",
         "emphasis_words": ["word1", "word2"]
@@ -153,72 +241,164 @@ template: |
   }
   ```
 
+  ## CRITICAL: text vs tts_text 분리 (반드시 지켜야 함!)
+
+  **`text` 필드 = 자막에 표시되는 텍스트**
+  - 원래 표기 그대로 유지: "GPT-4", "Claude 3.5", "API", "GPU"
+  - 절대로 발음 텍스트("GPT 사", "클로드 삼점오")를 넣지 마세요!
+  - 시청자가 화면에서 읽는 텍스트입니다
+
+  **`tts_text` 필드 = TTS가 읽는 텍스트 (선택적)**
+  - text와 발음이 다를 때만 포함
+  - 예: "GPT-4" → tts_text: "GPT 사" (TTS가 "마이너스"로 읽으면 안 됨)
+  - 발음이 같으면 tts_text 생략 (예: "코딩 벤치마크 92점")
+
+  **올바른 예시:**
+  ```json
+  {"text": "GPT-4를 넘은 AI가 나왔어요.", "tts_text": "GPT 사를 넘은 AI가 나왔어요."}
+  {"text": "코딩 벤치마크 92점.", "tts_text": null}  // 발음 같으면 생략
+  ```
+
+  **틀린 예시 (절대 금지!):**
+  ```json
+  {"text": "GPT 사를 넘은 AI가 나왔어요."}  // ❌ text에 발음 텍스트 넣음!
+  ```
+
   ## Visual Hint Guidelines
   - **stock_video**: Dynamic visuals (hook, content about action/process)
   - **stock_image**: Static information (data, concepts)
   - **ai_generated**: Abstract concepts, future scenarios, persona emphasis
   - **text_overlay**: When text itself is the visual (quotes, key points)
 
-  ## Keyword Guidelines (for visual search)
-  The "keyword" field is used to search stock images/videos. Make it specific:
-  - Use English keywords for better search results
-  - Be specific: "nvidia GPU datacenter" not "technology"
-  - Include visual elements: "person coding laptop", "robot hand AI"
-  - For people/companies: "Elon Musk portrait", "Apple logo"
-  - Avoid abstract words alone: "innovation", "future"
+  ## Keyword Guidelines (for Pexels stock image/video search)
+  The "keyword" field searches Pexels.com for relevant visuals.
 
-  ## Example Output
+  **CRITICAL: Make keywords CONCRETE and VISUAL**
+  1. Use 2-4 English words describing a SEARCHABLE scene
+  2. Include SUBJECT + CONTEXT (not abstract concepts)
+  3. Think: "What would I see in this image/video?"
+
+  **GOOD keyword examples:**
+  - Person + action: "developer coding laptop", "person presenting screen", "hands typing keyboard"
+  - Tech hardware: "server room datacenter", "GPU graphics card", "smartphone closeup"
+  - Data visuals: "chart graph statistics", "dashboard analytics screen", "numbers digital display"
+  - People/brands: "Elon Musk portrait", "Apple logo", "Tesla car" (specific is good!)
+  - Scenes: "office meeting room", "startup workspace", "concert crowd"
+
+  **BAD keywords (too vague or abstract):**
+  - "technology", "innovation", "future", "success" (no clear visual)
+  - "thinking person", "idea concept" (too generic)
+  - "AI", "performance", "benchmark" (need visual context)
+  - Korean words (always use English for Pexels)
+
+  **Fix bad keywords by adding visual context:**
+  - BAD: "AI performance" → GOOD: "robot arm factory automation"
+  - BAD: "coding benchmark" → GOOD: "code editor screen programming"
+  - BAD: "user growth" → GOOD: "chart graph growth arrow up"
+
+  ## Example Output (8+ scenes, dense information, deep commentary)
+  **IMPORTANT**: This example is for FORMAT REFERENCE ONLY. DO NOT copy this content.
+  Generate completely NEW content based on the given topic.
+
+  Note: tts_text is only included when pronunciation differs from text
   ```json
   {
-    "headline_keyword": "AI 코딩",
-    "headline_hook": "대체 아닌 진화",
+    "headline_keyword": "BTS 지민",
+    "headline_hook": "빌보드 1위 비결",
     "scenes": [
       {
         "scene_type": "hook",
-        "text": "AI가 개발자를 대체한다고요?",
-        "keyword": "robot arm typing keyboard",
+        "text": "200만 장! 지민 신기록",
+        "keyword": "kpop concert stage lights",
+        "visual_hint": "stock_video",
+        "emphasis_words": ["200만 장"]
+      },
+      {
+        "scene_type": "content",
+        "text": "솔로 앨범 'MUSE' 첫 주 판매량이에요.",
+        "keyword": "vinyl record album collection",
+        "visual_hint": "stock_image",
+        "emphasis_words": ["MUSE"]
+      },
+      {
+        "scene_type": "content",
+        "text": "한국 솔로 가수 최초 기록!",
+        "keyword": "trophy award gold",
+        "visual_hint": "stock_image",
+        "emphasis_words": ["최초"]
+      },
+      {
+        "scene_type": "commentary",
+        "text": "근데 이게 그냥 팬덤 빨일까요?",
+        "keyword": "person explaining camera presenter",
         "visual_hint": "stock_video"
       },
       {
         "scene_type": "content",
-        "text": "GitHub Copilot 사용률이 70%를 넘었어요.",
-        "keyword": "github copilot logo screen",
-        "visual_hint": "stock_image"
+        "text": "스포티파이 스트리밍 3억 회 돌파.",
+        "keyword": "headphones music streaming smartphone",
+        "visual_hint": "stock_image",
+        "emphasis_words": ["3억 회"]
+      },
+      {
+        "scene_type": "example",
+        "text": "미국 라디오 플레이 횟수도 역대 1위.",
+        "keyword": "radio studio microphone broadcasting",
+        "visual_hint": "stock_image",
+        "emphasis_words": ["역대 1위"]
+      },
+      {
+        "scene_type": "commentary",
+        "text": "팬덤 + 대중성, 둘 다 잡은 거예요.",
+        "keyword": "concert crowd fans cheering",
+        "visual_hint": "stock_video",
+        "emphasis_words": ["둘 다"]
       },
       {
         "scene_type": "content",
-        "text": "코드 자동완성 정확도도 크게 올랐고요.",
-        "keyword": "code editor autocomplete",
-        "visual_hint": "stock_image"
-      },
-      {
-        "scene_type": "commentary",
-        "text": "근데 이건 대체가 아니라 진화예요.",
-        "keyword": "human robot collaboration",
-        "visual_hint": "ai_generated",
-        "emphasis_words": ["진화"]
-      },
-      {
-        "scene_type": "commentary",
-        "text": "계산기가 수학자를 대체하지 않은 것처럼요.",
-        "keyword": "calculator math",
+        "text": "군 복무 중인데 이 성적이라니.",
+        "keyword": "soldier military uniform",
         "visual_hint": "stock_image"
       },
       {
         "scene_type": "conclusion",
-        "text": "중요한 건 어떻게 활용하느냐입니다.",
-        "keyword": "person using laptop success",
+        "text": "전역하면 뭘 또 보여줄지 기대되네요.",
+        "keyword": "stage performance spotlight",
         "visual_hint": "stock_image"
       },
       {
         "scene_type": "cta",
-        "text": "구독하고 좋아요 눌러주세요!",
-        "keyword": "subscribe like button",
+        "text": "구독과 좋아요!",
+        "keyword": "subscribe button red",
         "visual_hint": "text_overlay"
       }
     ]
   }
   ```
+
+  ## TTS PRONUNCIATION RULES (tts_text 작성 시)
+  `tts_text`는 Korean TTS가 읽을 발음 텍스트입니다. `text`와 다를 때만 포함하세요.
+
+  **When to add tts_text:**
+  - Model names: GPT-4, Claude 3.5, Llama 3, o1-mini 등
+  - Abbreviations: API, GPU, SDK 등
+  - Version numbers with hyphens: v1.0-beta 등
+
+  **Pronunciation guide for tts_text:**
+  - GPT-4 → "GPT 사" (TTS reads "-" as "마이너스")
+  - GPT-4o → "GPT 포오"
+  - GPT-3.5 → "GPT 삼점오"
+  - Claude 3.5 → "클로드 삼점오"
+  - Llama 3 → "라마 삼"
+  - o1-mini → "오원 미니"
+  - API → "에이피아이"
+  - GPU → "지피유"
+  - OpenAI → "오픈에이아이"
+
+  **When NOT to add tts_text (text is fine as-is):**
+  - Pure Korean text: "코딩 벤치마크 92점"
+  - Numbers without hyphens: "8점 차이", "2배"
+  - Percentages: "50%" (TTS handles this)
 
   ## Constraints
   - No greetings like "안녕하세요" or "Hello everyone"
@@ -248,12 +428,12 @@ example_variables:
   perspective_biases: "Skeptical of AI hype, prefers proven tech"
   perspective_contrarian: true
   similar_content:
-    - text: "AI 코딩 도구가 쏟아지는데, 실제로 쓸만한 건 딱 두 가지 상황이에요..."
+    - text: "테슬라가 또 뭔가 발표했는데, 이번엔 좀 다릅니다..."
   opinions:
-    - text: "AI가 개발자를 대체한다는 건 코딩을 타이핑으로 보는 관점이에요..."
-  topic_title: "Claude 3.5 Sonnet의 새로운 기능"
-  topic_summary: "Anthropic이 발표한 Claude 3.5 Sonnet의 개선된 코딩 능력과 새로운 features"
-  topic_keywords: ["Claude", "AI Coding", "Anthropic"]
+    - text: "일론 머스크 말은 반만 믿어야 해요. 타임라인은 특히..."
+  topic_title: "테슬라 로보택시 'Cybercab' 공개"
+  topic_summary: "테슬라가 자율주행 택시 Cybercab을 공개했다. 핸들과 페달이 없는 완전 자율주행 차량."
+  topic_keywords: ["Tesla", "Robotaxi", "Cybercab", "자율주행"]
   video_format: "YouTube Shorts"
   target_duration: 55
   content_style: "opinion"

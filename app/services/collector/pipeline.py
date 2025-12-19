@@ -28,12 +28,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import DedupConfig, ScoringConfig
-from app.config.filtering import (
-    ExcludeFilters,
-    IncludeFilters,
-    KeywordFilter,
-    TopicFilterConfig,
-)
 from app.config.sources import (
     HackerNewsConfig,
     RedditConfig,
@@ -43,11 +37,11 @@ from app.models.channel import Channel
 from app.models.topic import Topic, TopicStatus
 from app.services.collector.base import NormalizedTopic, RawTopic, ScoredTopic
 from app.services.collector.deduplicator import TopicDeduplicator
-from app.services.collector.filter import TopicFilter
 from app.services.collector.normalizer import TopicNormalizer
 from app.services.collector.scorer import TopicScorer
 from app.services.collector.sources.hackernews import HackerNewsSource
 from app.services.collector.sources.reddit import RedditSource
+from app.services.collector.term_filter import TermFilter
 
 logger = get_logger(__name__)
 
@@ -83,9 +77,8 @@ class CollectionConfig:
     Attributes:
         enabled_sources: List of enabled source types
         source_overrides: Per-source configuration overrides
-        include_keywords: Keywords to include
-        exclude_keywords: Keywords to exclude
-        include_categories: Categories to include
+        include_terms: Terms to include (unified keywords + categories)
+        exclude_terms: Terms to exclude
         target_language: Target language for translation
         max_topics: Maximum topics to process
         save_to_db: Whether to save topics to database
@@ -93,9 +86,8 @@ class CollectionConfig:
 
     enabled_sources: list[str] = field(default_factory=lambda: ["hackernews"])
     source_overrides: dict[str, Any] = field(default_factory=dict)
-    include_keywords: list[str] = field(default_factory=list)
-    exclude_keywords: list[str] = field(default_factory=list)
-    include_categories: list[str] = field(default_factory=list)
+    include_terms: list[str] = field(default_factory=list)
+    exclude_terms: list[str] = field(default_factory=list)
     target_language: str = "ko"
     max_topics: int = 20
     save_to_db: bool = True
@@ -116,9 +108,8 @@ class CollectionConfig:
         return cls(
             enabled_sources=topic_collection.get("enabled_sources", ["hackernews"]),
             source_overrides=topic_collection.get("source_overrides", {}),
-            include_keywords=filtering.get("include_keywords", []),
-            exclude_keywords=filtering.get("exclude_keywords", []),
-            include_categories=filtering.get("include_categories", []),
+            include_terms=filtering.get("include_terms", []),
+            exclude_terms=filtering.get("exclude_terms", []),
             target_language="ko",
             max_topics=20,
             save_to_db=True,
@@ -185,7 +176,7 @@ class TopicCollectionPipeline:
         logger.info(f"Starting collection for channel: {channel.name}")
 
         # Step 1: Collect raw topics
-        raw_topics = await self._collect_raw_topics(channel, config, stats)
+        raw_topics = await self._collect_raw_topics(config, stats)
 
         if not raw_topics:
             logger.warning(f"No raw topics collected for {channel.name}")
@@ -205,7 +196,7 @@ class TopicCollectionPipeline:
         logger.info(f"Normalized {len(normalized)} topics")
 
         # Step 3: Filter topics
-        filtered = self._filter_topics(normalized, config, stats)
+        filtered = self._filter_topics(normalized, config)
 
         if not filtered:
             logger.warning(f"No topics after filtering for {channel.name}")
@@ -228,7 +219,7 @@ class TopicCollectionPipeline:
 
         # Step 6: Save to DB
         if config.save_to_db:
-            saved_topics = await self._save_topics_to_db(channel, scored, stats)
+            saved_topics = await self._save_topics_to_db(channel, scored)
             stats.saved_count = len(saved_topics)
             logger.info(f"Saved {len(saved_topics)} topics to DB")
             return saved_topics, stats
@@ -239,14 +230,12 @@ class TopicCollectionPipeline:
 
     async def _collect_raw_topics(
         self,
-        channel: Channel,
         config: CollectionConfig,
         stats: CollectionStats,
     ) -> list[RawTopic]:
         """Collect raw topics from all configured sources.
 
         Args:
-            channel: Channel model
             config: Collection configuration
             stats: Stats to update
 
@@ -335,38 +324,27 @@ class TopicCollectionPipeline:
         self,
         normalized: list[tuple[RawTopic, NormalizedTopic]],
         config: CollectionConfig,
-        stats: CollectionStats,
     ) -> list[tuple[RawTopic, NormalizedTopic]]:
-        """Filter topics by keywords and categories.
+        """Filter topics by terms (unified keywords + categories).
 
         Args:
             normalized: List of (raw, normalized) tuples
             config: Collection configuration
-            stats: Stats to update
 
         Returns:
             Filtered list of (raw, normalized) tuples
         """
-        if not config.include_keywords and not config.exclude_keywords:
+        if not config.include_terms and not config.exclude_terms:
             return normalized
 
-        # Build TopicFilterConfig with nested structure
-        include_filters = IncludeFilters(
-            keywords=[KeywordFilter(keyword=kw) for kw in config.include_keywords],
+        term_filter = TermFilter(
+            include_terms=config.include_terms,
+            exclude_terms=config.exclude_terms,
         )
-        exclude_filters = ExcludeFilters(
-            keywords=config.exclude_keywords,
-            categories=config.include_categories,  # Note: include_categories used as exclude
-        )
-        filter_config = TopicFilterConfig(
-            include=include_filters,
-            exclude=exclude_filters,
-        )
-        topic_filter = TopicFilter(config=filter_config)
 
         filtered = []
         for raw, norm in normalized:
-            if topic_filter.filter(norm):
+            if term_filter.matches(norm):
                 filtered.append((raw, norm))
 
         return filtered
@@ -436,14 +414,12 @@ class TopicCollectionPipeline:
         self,
         channel: Channel,
         scored_topics: list[tuple[RawTopic, NormalizedTopic, ScoredTopic]],
-        stats: CollectionStats,
     ) -> list[Topic]:
         """Save scored topics to database.
 
         Args:
             channel: Channel model
             scored_topics: List of (raw, normalized, scored) tuples
-            stats: Stats to update
 
         Returns:
             List of saved Topic models
