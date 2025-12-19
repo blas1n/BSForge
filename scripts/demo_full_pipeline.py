@@ -1,11 +1,13 @@
 #!/usr/bin/env python
 """Full pipeline demo: Topic Collection → Script → Video Generation.
 
-This script demonstrates the complete BSForge pipeline:
-1. Collect topics from sources (mocked for demo)
+This script demonstrates the complete BSForge pipeline using channel config:
+1. Collect topics from configured sources (HackerNews, Reddit)
 2. Normalize, filter, and score topics
-3. Generate script from top topic
+3. Generate scene-based script from top topic using LLM
 4. Generate video with TTS, subtitles, and visuals
+
+All settings are driven by channel config YAML.
 
 Run with: uv run python scripts/demo_full_pipeline.py
 """
@@ -13,279 +15,390 @@ Run with: uv run python scripts/demo_full_pipeline.py
 from __future__ import annotations
 
 import asyncio
+import json
+import re
 import shutil
-import sys
-import uuid
-from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, MagicMock
+from typing import Any
+from uuid import uuid4
 
-# Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+import yaml
 
-if TYPE_CHECKING:
-    from app.services.collector.base import ScoredTopic
+# ============================================
+# CONFIGURABLE VARIABLES
+# ============================================
+
+CHANNEL_CONFIG_PATH = Path(__file__).parent.parent / "config/channels/subculture.yaml"
+VIDEO_TEMPLATE_NAME = "korean_shorts_standard"
+OUTPUT_DIR = Path("/tmp/bsforge_full_demo")
+
+# ============================================
 
 
-async def demo_topic_collection() -> dict:
-    """Demo topic collection pipeline."""
+def load_channel_config(config_path: Path) -> dict[str, Any]:
+    """Load channel configuration from YAML file.
+
+    Args:
+        config_path: Path to channel config YAML file
+
+    Returns:
+        Parsed channel configuration dictionary
+
+    Raises:
+        FileNotFoundError: If config file doesn't exist
+        yaml.YAMLError: If YAML parsing fails
+    """
+    if not config_path.exists():
+        raise FileNotFoundError(f"Channel config not found: {config_path}")
+
+    with open(config_path, encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+
+    print(f"   Loaded channel config: {config_path.name}")
+    print(f"   Channel: {config.get('channel', {}).get('name', 'Unknown')}")
+
+    return config
+
+
+async def collect_and_process_topics(channel_config: dict[str, Any]) -> dict[str, Any]:
+    """Collect and process topics using channel configuration.
+
+    Uses the existing collector services with config-driven settings.
+    Clusters similar topics from multiple sources for richer information.
+
+    Args:
+        channel_config: Loaded channel configuration dictionary
+
+    Returns:
+        Dictionary with 'topic' (best ScoredTopic), 'cluster' (TopicCluster),
+        and 'all_clusters' (list)
+    """
+    from app.config import ScoringConfig
+    from app.infrastructure.llm import get_llm_client
+    from app.services.collector.clusterer import TopicClusterer
+    from app.services.collector.normalizer import TopicNormalizer
+    from app.services.collector.scorer import TopicScorer
+    from app.services.collector.sources.factory import create_source
+    from app.services.collector.term_filter import TermFilter
+
     print("\n" + "=" * 60)
     print("PHASE 1: Topic Collection")
     print("=" * 60)
 
-    from app.config import DedupConfig, ScoringConfig
-    from app.config.filtering import (
-        CategoryFilter,
-        ExcludeFilters,
-        IncludeFilters,
-        KeywordFilter,
-        TopicFilterConfig,
-    )
-    from app.services.collector.base import RawTopic
-    from app.services.collector.deduplicator import TopicDeduplicator
-    from app.services.collector.filter import TopicFilter
-    from app.services.collector.normalizer import TopicNormalizer
-    from app.services.collector.scorer import TopicScorer
+    # Extract config values
+    topic_collection = channel_config.get("topic_collection", {})
+    filtering = channel_config.get("filtering", {})
 
-    # 1. Simulate raw topics from various sources
+    enabled_sources = topic_collection.get("enabled_sources", ["hackernews"])
+    source_overrides = topic_collection.get("source_overrides", {})
+    include_terms = filtering.get("include_terms", [])
+    exclude_terms = filtering.get("exclude_terms", [])
+
+    print(f"\n   Enabled sources: {enabled_sources}")
+    if include_terms:
+        print(f"   Include terms: {include_terms[:5]}...")
+    if exclude_terms:
+        print(f"   Exclude terms: {exclude_terms[:5]}...")
+
+    # 1. Collect raw topics from configured sources
     print("\n[1/4] Collecting raw topics from sources...")
+    raw_topics = []
 
-    raw_topics = [
-        RawTopic(
-            source_id="hackernews",
-            source_url="https://news.ycombinator.com/item?id=12345",  # type: ignore
-            title="Claude 3.5 Sonnet Achieves New Benchmarks in Coding Tasks",
-            content="Anthropic's latest model shows remarkable improvements...",
-            published_at=datetime.now(UTC),
-            metrics={"score": 850, "comments": 234},
-        ),
-        RawTopic(
-            source_id="reddit_tech",
-            source_url="https://reddit.com/r/technology/comments/abc123",  # type: ignore
-            title="OpenAI GPT-5 Leaked: What We Know So Far",
-            content="Rumors suggest GPT-5 will feature...",
-            published_at=datetime.now(UTC),
-            metrics={"upvotes": 5200, "comments": 890},
-        ),
-        RawTopic(
-            source_id="google_trends",
-            source_url="https://trends.google.com/trends/trendingsearches",  # type: ignore
-            title="AI 규제 법안 국회 통과",
-            content="인공지능 관련 규제 법안이 오늘 국회를 통과했습니다...",
-            published_at=datetime.now(UTC),
-            metrics={"search_volume": 50000},
-        ),
-        RawTopic(
-            source_id="youtube_trending",
-            source_url="https://youtube.com/watch?v=xyz789",  # type: ignore
-            title="이 AI 도구 하나면 영상 제작 끝! (무료)",
-            content="영상 제작을 자동화하는 AI 도구를 소개합니다...",
-            published_at=datetime.now(UTC),
-            metrics={"views": 120000, "likes": 8500},
-        ),
-    ]
+    for source_name in enabled_sources:
+        overrides = source_overrides.get(source_name, {})
+        print(f"   Fetching from {source_name}...")
 
-    print(f"   Collected {len(raw_topics)} raw topics:")
-    for t in raw_topics:
+        source = create_source(source_name, overrides)
+        if source is None:
+            print(f"      Unknown or invalid source: {source_name}, skipping...")
+            continue
+
+        try:
+            topics = await source.collect()
+            raw_topics.extend(topics)
+            print(f"      Got {len(topics)} topics from {source_name}")
+        except Exception as e:
+            print(f"      {source_name} failed: {e}")
+
+    if not raw_topics:
+        print("   ERROR: No topics collected from any source")
+        return {"topic": None, "cluster": None, "all_clusters": []}
+
+    print(f"\n   Total collected: {len(raw_topics)} raw topics")
+    for t in raw_topics[:5]:
         print(f"   - [{t.source_id}] {t.title[:50]}...")
+    if len(raw_topics) > 5:
+        print(f"   ... and {len(raw_topics) - 5} more")
 
-    # 2. Normalize topics (mock LLM for demo)
+    # 2. Normalize topics using LLM
     print("\n[2/4] Normalizing topics (translation, classification)...")
 
-    # Create enough mock responses for all LLM calls (translation + classification per topic)
-    llm_client = AsyncMock()
-    llm_responses = [
-        # Topic 1: Claude (translation)
-        MagicMock(content="Claude 3.5 Sonnet이 코딩 작업에서 새로운 벤치마크 달성"),
-        # Topic 1: Claude (classification)
-        MagicMock(
-            content='{"categories": ["tech", "ai"], "keywords": ["claude", "anthropic", "coding", "benchmark"], "entities": {"organizations": ["Anthropic"]}, "summary": "Claude 3.5 Sonnet achieves new coding benchmarks"}'
-        ),
-        # Topic 2: GPT-5 (translation)
-        MagicMock(content="OpenAI GPT-5 유출: 지금까지 알려진 것들"),
-        # Topic 2: GPT-5 (classification)
-        MagicMock(
-            content='{"categories": ["tech", "ai"], "keywords": ["openai", "gpt-5", "leak"], "entities": {"organizations": ["OpenAI"]}, "summary": "GPT-5 leak rumors and speculation"}'
-        ),
-        # Topic 3: AI 규제 (no translation needed, classification only)
-        MagicMock(
-            content='{"categories": ["tech", "politics"], "keywords": ["ai", "regulation", "korea", "law"], "entities": {"locations": ["Korea"]}, "summary": "AI regulation bill passes Korean parliament"}'
-        ),
-        # Topic 4: AI 도구 (no translation needed, classification only)
-        MagicMock(
-            content='{"categories": ["tech", "content"], "keywords": ["ai", "video", "automation", "free"], "entities": {}, "summary": "Free AI tool for video production automation"}'
-        ),
-    ]
-    llm_client.complete = AsyncMock(side_effect=llm_responses)
-
+    llm_client = get_llm_client()
     normalizer = TopicNormalizer(llm_client=llm_client)
     normalized = []
 
     for topic in raw_topics:
-        source_uuid = uuid.uuid4()
-        result = await normalizer.normalize(topic, source_uuid)
-        normalized.append(result)
-        print(f"   - {result.title_normalized[:40]}... → categories: {result.categories}")
+        try:
+            source_uuid = uuid4()
+            result = await normalizer.normalize(topic, source_uuid)
+            normalized.append(result)
+            print(f"   - {result.title_normalized[:40]}... → {result.categories}")
+        except Exception as e:
+            print(f"   - SKIP: {topic.title[:40]}... (error: {e})")
 
-    # 3. Filter topics
-    print("\n[3/4] Filtering topics (tech category only)...")
+    if not normalized:
+        print("   ERROR: No topics normalized successfully")
+        return {"topic": None, "cluster": None, "all_clusters": []}
 
-    filter_config = TopicFilterConfig(
-        include=IncludeFilters(
-            categories=[
-                CategoryFilter(name="tech"),
-                CategoryFilter(name="ai"),
-            ],
-            keywords=[
-                KeywordFilter(keyword="ai"),
-                KeywordFilter(keyword="claude"),
-                KeywordFilter(keyword="gpt"),
-                KeywordFilter(keyword="영상"),
-            ],
-        ),
-        exclude=ExcludeFilters(
-            keywords=["politics", "regulation", "법안"],
-        ),
-        require_category_match=True,
+    # 3. Filter topics using channel config
+    print("\n[3/4] Filtering topics using channel config...")
+
+    # Use unified TermFilter
+    term_filter = TermFilter(
+        include_terms=include_terms,
+        exclude_terms=exclude_terms,
     )
-    topic_filter = TopicFilter(filter_config)
 
     filtered = []
     for topic in normalized:
-        result = topic_filter.filter(topic)
-        if result.passed:
+        if term_filter.matches(topic):
             filtered.append(topic)
             print(f"   PASS: {topic.title_normalized[:50]}...")
         else:
-            print(f"   FAIL: {topic.title_normalized[:50]}... (reason: {result.reason})")
+            print(f"   FAIL: {topic.title_normalized[:50]}...")
 
-    # 4. Deduplicate (mock Redis)
-    print("\n[4/4] Deduplicating topics...")
+    if not filtered:
+        print("   WARNING: No topics passed filtering, using all normalized topics")
+        filtered = normalized
 
-    redis_mock = AsyncMock()
-    redis_mock.get = AsyncMock(return_value=None)
-    redis_mock.setex = AsyncMock()
+    # 4. Score topics
+    print("\n[4/5] Scoring topics...")
 
-    deduplicator = TopicDeduplicator(redis=redis_mock, config=DedupConfig())
-
-    unique = []
-    for topic in filtered:
-        result = await deduplicator.is_duplicate(topic, "demo_channel")
-        if not result.is_duplicate:
-            unique.append(topic)
-            await deduplicator.mark_as_seen(topic, "demo_channel")
-            print(f"   UNIQUE: {topic.title_normalized[:50]}...")
-        else:
-            print(f"   DUPLICATE: {topic.title_normalized[:50]}...")
-
-    # 5. Score topics
-    print("\n[5/4] Scoring topics...")
-
-    scorer = TopicScorer(config=ScoringConfig())
-    scored = [scorer.score(t) for t in unique]
-
-    # Sort by score
+    # Build scoring config with channel's target terms
+    scoring_config = ScoringConfig(
+        target_categories=[],  # Categories now unified into terms
+        target_keywords=include_terms,
+    )
+    scorer = TopicScorer(config=scoring_config)
+    scored = [scorer.score(t) for t in filtered]
     scored.sort(key=lambda x: x.score_total, reverse=True)
 
-    print("\n   Final ranked topics:")
-    for i, topic in enumerate(scored, 1):
+    print("\n   Scored topics:")
+    for i, topic in enumerate(scored[:5], 1):
         print(f"   {i}. [Score: {topic.score_total}] {topic.title_normalized[:45]}...")
 
-    if scored:
-        top_topic = scored[0]
-        print(f"\n   Selected topic: {top_topic.title_normalized}")
+    # 5. Cluster similar topics
+    print("\n[5/5] Clustering similar topics from multiple sources...")
+
+    clusterer = TopicClusterer(
+        similarity_threshold=0.45,  # Higher threshold for better precision
+        min_keyword_overlap=3,  # Require more keyword overlap
+    )
+    clusters = clusterer.cluster(scored, total_sources=len(enabled_sources))
+
+    # Show clustering results
+    multi_source_clusters = [c for c in clusters if c.source_count > 1]
+    print(f"\n   Total clusters: {len(clusters)}")
+    print(f"   Multi-source clusters: {len(multi_source_clusters)}")
+
+    if clusters:
+        print("\n   Top clusters:")
+        for i, cluster in enumerate(clusters[:5], 1):
+            sources_str = ", ".join(cluster.sources)
+            topic_count = cluster.topic_count
+            print(
+                f"   {i}. [{cluster.primary_topic.score_total}점] "
+                f"{cluster.primary_topic.title_normalized[:35]}..."
+            )
+            print(f"      Sources: {sources_str} ({topic_count} topics)")
+
+        # Select best cluster (prefer multi-source if available)
+        best_cluster = None
+        for cluster in clusters:
+            if cluster.source_count > 1:
+                best_cluster = cluster
+                break
+        if not best_cluster:
+            best_cluster = clusters[0]
+
+        print(f"\n   Selected cluster: {best_cluster.primary_topic.title_normalized}")
+        print(f"   - Sources: {', '.join(best_cluster.sources)}")
+        print(f"   - Topics in cluster: {best_cluster.topic_count}")
+        print(f"   - Combined keywords: {best_cluster.combined_keywords[:10]}")
+
         return {
-            "topic": top_topic,
-            "all_scored": scored,
+            "topic": best_cluster.primary_topic,
+            "cluster": best_cluster,
+            "all_clusters": clusters,
         }
 
-    return {"topic": None, "all_scored": []}
+    return {"topic": None, "cluster": None, "all_clusters": []}
 
 
-async def demo_script_generation(topic: ScoredTopic) -> str:
-    """Demo script generation from topic."""
+async def generate_scene_script(
+    topic: Any,
+    channel_config: dict[str, Any],
+    cluster: Any | None = None,
+) -> dict[str, Any]:
+    """Generate scene-based script from topic using LLM.
+
+    Args:
+        topic: ScoredTopic to generate script for
+        channel_config: Loaded channel configuration dictionary
+        cluster: Optional TopicCluster with multi-source info
+
+    Returns:
+        Dictionary with 'scene_script' (SceneScript) and 'raw_response'
+    """
+    from app.infrastructure.llm import LLMConfig, get_llm_client
+    from app.models.scene import Scene, SceneScript, SceneType, VisualHintType
+    from app.prompts.manager import PromptType, get_prompt_manager
+    from app.services.rag.utils import build_template_vars_from_channel_config
+
     print("\n" + "=" * 60)
-    print("PHASE 2: Script Generation")
+    print("PHASE 2: Scene-Based Script Generation (LLM)")
     print("=" * 60)
 
-    # In production, this would use the RAG system with persona
-    # For demo, we'll generate a mock script
-
-    print(f"\n[1/2] Analyzing topic: {topic.title_normalized}")
+    print(f"\n[1/3] Analyzing topic: {topic.title_normalized}")
     print(f"   Keywords: {topic.keywords}")
     print(f"   Categories: {topic.categories}")
 
-    print("\n[2/2] Generating script with persona voice...")
+    if cluster and cluster.source_count > 1:
+        print("\n   [Multi-Source Coverage]")
+        print(f"   - Sources: {', '.join(cluster.sources)}")
+        print(f"   - Related topics: {cluster.topic_count - 1}")
+        if cluster.related_topics:
+            for rt in cluster.related_topics[:3]:
+                print(f"     • {rt.title_original[:50]}...")
 
-    # Demo script based on topic
-    if "claude" in topic.title_normalized.lower():
-        script = """안녕하세요 여러분! 오늘은 정말 흥미로운 AI 소식을 가져왔습니다.
+    # Get prompt manager and LLM client
+    prompt_manager = get_prompt_manager()
+    llm_client = get_llm_client()
 
-Anthropic의 Claude 3.5 Sonnet이 코딩 벤치마크에서 새로운 기록을 세웠다고 합니다!
+    # Get LLM config from scene_script_generation.yaml
+    llm_settings = prompt_manager.get_llm_settings(PromptType.SCENE_SCRIPT_GENERATION)
+    llm_config = LLMConfig.from_prompt_settings(llm_settings)
 
-기존 모델들과 비교했을 때 코드 생성 능력이 크게 향상되었는데요,
-특히 복잡한 알고리즘 문제 해결에서 뛰어난 성능을 보여줬습니다.
+    print("\n[2/3] Generating scene-based script with LLM...")
+    print(f"   Model: {llm_config.model}")
+    print(f"   Temperature: {llm_config.temperature}")
 
-AI 개발자들 사이에서는 벌써 뜨거운 반응이 나오고 있어요.
-여러분도 한번 사용해보시는 건 어떨까요?
+    # Build template variables from channel config (with cluster info)
+    template_vars = build_template_vars_from_channel_config(channel_config, topic, cluster)
 
-다음 영상에서 더 자세한 내용을 다뤄볼게요. 구독과 좋아요 부탁드립니다!"""
+    print(f"   Persona: {template_vars['persona_name']}")
+    print(f"   Tone: {template_vars['communication_tone']}")
 
-    elif "gpt" in topic.title_normalized.lower():
-        script = """여러분, GPT-5에 대한 새로운 소문이 돌고 있습니다!
+    # Render prompt and call LLM
+    prompt = prompt_manager.render(PromptType.SCENE_SCRIPT_GENERATION, **template_vars)
+    response = await llm_client.complete(
+        config=llm_config,
+        messages=[{"role": "user", "content": prompt}],
+    )
 
-아직 공식 발표는 없지만, 여러 소스에서 흥미로운 정보가 나오고 있는데요.
+    raw_response = response.content.strip()
+    print(f"   LLM Response: {len(raw_response)} characters")
 
-멀티모달 성능이 크게 향상될 것이라는 예측과 함께,
-추론 능력도 한층 업그레이드될 것으로 보입니다.
+    # Parse JSON response
+    print("\n[3/3] Parsing scene response...")
 
-물론 루머이기 때문에 확정된 건 아니지만,
-OpenAI의 다음 행보가 정말 기대되지 않나요?
+    headline_keyword = None
+    headline_hook = None
+    raw_scenes = None
 
-새로운 소식이 나오면 바로 전해드릴게요!"""
+    json_obj_match = re.search(r"\{[\s\S]*\}", raw_response)
+    if json_obj_match:
+        try:
+            parsed = json.loads(json_obj_match.group())
+            if isinstance(parsed, dict) and "scenes" in parsed:
+                headline_keyword = parsed.get("headline_keyword")
+                headline_hook = parsed.get("headline_hook")
+                raw_scenes = parsed["scenes"]
+        except json.JSONDecodeError:
+            pass
 
-    else:
-        script = """안녕하세요! 오늘도 흥미로운 AI 소식을 가져왔습니다.
+    if raw_scenes is None:
+        json_arr_match = re.search(r"\[[\s\S]*\]", raw_response)
+        if json_arr_match:
+            try:
+                raw_scenes = json.loads(json_arr_match.group())
+            except json.JSONDecodeError as e:
+                print(f"   ERROR: Failed to parse JSON: {e}")
+                return {"scene_script": None, "raw_response": raw_response}
 
-요즘 AI 기술이 정말 빠르게 발전하고 있죠.
-특히 영상 제작 분야에서 혁신적인 변화가 일어나고 있는데요.
+    if not raw_scenes:
+        print("   ERROR: No valid scenes in response")
+        return {"scene_script": None, "raw_response": raw_response}
 
-이제는 AI 도구 하나로 기획부터 편집까지 자동화할 수 있게 되었습니다.
-직접 사용해본 결과, 정말 놀라운 효율성을 보여줬어요.
+    # Parse scenes
+    scenes: list[Scene] = []
+    for i, raw in enumerate(raw_scenes):
+        try:
+            scene_type_str = raw.get("scene_type", "content")
+            try:
+                scene_type = SceneType(scene_type_str)
+            except ValueError:
+                scene_type = SceneType.CONTENT
 
-앞으로 더 많은 AI 도구들을 리뷰해드릴 예정이니
-구독과 알림 설정 잊지 마세요!"""
+            visual_hint_str = raw.get("visual_hint", "stock_image")
+            try:
+                visual_hint = VisualHintType(visual_hint_str)
+            except ValueError:
+                visual_hint = VisualHintType.STOCK_IMAGE
 
-    print("\n   Generated Script:")
-    print("   " + "-" * 50)
-    for line in script.split("\n"):
-        if line.strip():
-            print(f"   {line}")
-    print("   " + "-" * 50)
-    print(f"\n   Script length: {len(script)} characters")
+            scenes.append(
+                Scene(
+                    scene_type=scene_type,
+                    text=raw.get("text", ""),
+                    tts_text=raw.get("tts_text"),
+                    keyword=raw.get("keyword"),
+                    visual_hint=visual_hint,
+                    emphasis_words=raw.get("emphasis_words", []),
+                )
+            )
+        except Exception as e:
+            print(f"   WARNING: Failed to parse scene {i}: {e}")
 
-    return script
+    if not scenes:
+        print("   ERROR: No valid scenes parsed")
+        return {"scene_script": None, "raw_response": raw_response}
+
+    scene_script = SceneScript(
+        scenes=scenes,
+        headline_keyword=headline_keyword,
+        headline_hook=headline_hook,
+    )
+    scene_script.apply_recommended_transitions()
+
+    print("\n   Generated SceneScript:")
+    print(f"   - Headline: {headline_keyword} / {headline_hook}")
+    print(f"   - Scene count: {len(scenes)}")
+    print(f"   - Estimated duration: {scene_script.total_estimated_duration:.1f}s")
+    print(f"   - Has commentary: {scene_script.has_commentary}")
+
+    print("\n   Scenes:")
+    for i, scene in enumerate(scenes, 1):
+        emphasis = f" [강조: {', '.join(scene.emphasis_words)}]" if scene.emphasis_words else ""
+        print(f"   {i}. [{scene.scene_type.value}] {scene.text[:40]}...{emphasis}")
+
+    return {"scene_script": scene_script, "raw_response": raw_response}
 
 
-async def demo_video_generation(
-    script: str,
+async def generate_video(
+    scene_script: Any,
     topic_title: str,
-    topic_keywords: list[str] | None = None,
-    template_name: str = "korean_viral",
+    channel_config: dict[str, Any],
 ) -> Path | None:
-    """Demo video generation from script.
+    """Generate video from scene-based script.
 
     Args:
-        script: Script text
-        topic_title: Topic title for thumbnail
-        topic_keywords: Keywords for image search
-        template_name: Video template name (e.g., "korean_viral", "minimal")
-    """
-    print("\n" + "=" * 60)
-    print("PHASE 3: Video Generation")
-    print("=" * 60)
+        scene_script: SceneScript object with scenes
+        topic_title: Topic title for thumbnail/overlay
+        channel_config: Loaded channel configuration dictionary
 
+    Returns:
+        Path to generated video file or None if failed
+    """
     from app.config.video import CompositionConfig
     from app.core.template_loader import load_template
     from app.services.generator.compositor import FFmpegCompositor
@@ -293,118 +406,133 @@ async def demo_video_generation(
     from app.services.generator.thumbnail import ThumbnailGenerator
     from app.services.generator.tts.base import TTSConfig
     from app.services.generator.tts.edge import EdgeTTSEngine
+    from app.services.generator.tts.utils import concatenate_scene_audio
     from app.services.generator.visual.base import VisualAsset
     from app.services.generator.visual.fallback import FallbackGenerator
+    from app.services.generator.visual.manager import SceneVisualResult
     from app.services.generator.visual.pexels import PexelsClient
 
+    print("\n" + "=" * 60)
+    print("PHASE 3: Video Generation (Scene-Based)")
+    print("=" * 60)
+
     # Load video template
-    print(f"\n[0/6] Loading video template: {template_name}")
+    print(f"\n[0/6] Loading video template: {VIDEO_TEMPLATE_NAME}")
     try:
-        template = load_template(template_name)
+        template = load_template(VIDEO_TEMPLATE_NAME)
         print(f"   Template: {template.name}")
         print(f"   Description: {template.description}")
-        if template.layout.title_overlay and template.layout.title_overlay.enabled:
-            print("   Title overlay: ENABLED")
+        if template.layout.headline and template.layout.headline.enabled:
+            print("   Headline overlay: ENABLED")
         if template.visual_effects.ken_burns_enabled:
             print("   Ken Burns effect: ENABLED")
         if template.visual_effects.color_grading_enabled:
             print("   Color grading: ENABLED")
     except Exception as e:
-        print(f"   Warning: Failed to load template '{template_name}': {e}")
+        print(f"   Warning: Failed to load template '{VIDEO_TEMPLATE_NAME}': {e}")
         print("   Using default settings")
         template = None
 
-    output_dir = Path("/tmp/bsforge_full_demo")
+    output_dir = OUTPUT_DIR
     output_dir.mkdir(exist_ok=True)
 
-    # 1. TTS Generation
-    print("\n[1/5] Generating TTS audio...")
+    # Extract TTS config from channel config
+    persona_voice = channel_config.get("persona", {}).get("voice", {})
+    voice_id = persona_voice.get("voice_id", "ko-KR-InJoonNeural")
+    voice_speed = persona_voice.get("settings", {}).get("speed", 1.1)
+
+    # 1. Per-scene TTS Generation
+    print(f"\n[1/6] Generating TTS audio for {len(scene_script.scenes)} scenes...")
     tts_engine = EdgeTTSEngine()
-    tts_config = TTSConfig(voice_id="ko-KR-InJoonNeural", speed=1.0)
+    tts_config = TTSConfig(voice_id=voice_id, speed=voice_speed)
+    print(f"   Voice: {voice_id}, Speed: {voice_speed}x")
 
-    tts_result = await tts_engine.synthesize(
-        text=script,
+    scene_tts_results = await tts_engine.synthesize_scenes(
+        scenes=scene_script.scenes,
         config=tts_config,
-        output_path=output_dir / "script_audio",
+        output_dir=output_dir / "audio_scenes",
     )
-    print(f"   Audio: {tts_result.audio_path}")
-    print(f"   Duration: {tts_result.duration_seconds:.1f} seconds")
-    print(f"   Word timestamps: {len(tts_result.word_timestamps or [])} words")
 
-    # 2. Subtitle Generation
-    print("\n[2/5] Generating subtitles...")
+    total_duration = sum(r.duration_seconds for r in scene_tts_results)
+    print(f"   Scene audio generated: {total_duration:.1f}s total")
+
+    # 2. Concatenate audio
+    print("\n[2/6] Concatenating scene audio...")
+    combined_tts = await concatenate_scene_audio(
+        scene_results=scene_tts_results,
+        output_path=output_dir / "combined_audio",
+    )
+    print(f"   Combined audio: {combined_tts.duration_seconds:.1f}s")
+
+    # 3. Subtitle Generation
+    print("\n[3/6] Generating scene-aware subtitles...")
     subtitle_gen = SubtitleGenerator()
 
-    if tts_result.word_timestamps:
-        subtitle_file = subtitle_gen.generate_from_timestamps(
-            tts_result.word_timestamps,
-            template=template,
-        )
-    else:
-        subtitle_file = subtitle_gen.generate_from_script(script, tts_result.duration_seconds)
+    subtitle_file = subtitle_gen.generate_from_scene_results(
+        scene_results=scene_tts_results,
+        scenes=scene_script.scenes,
+        template=template,
+    )
 
     subtitle_path = output_dir / "script_subtitles.ass"
-    subtitle_gen.to_ass(subtitle_file, subtitle_path, template=template)
+    subtitle_gen.to_ass_with_scene_styles(
+        subtitle=subtitle_file,
+        output_path=subtitle_path,
+        scenes=scene_script.scenes,
+        scene_results=scene_tts_results,
+        template=template,
+    )
     print(f"   Subtitles: {subtitle_path}")
     print(f"   Segments: {len(subtitle_file.segments)}")
 
-    # 3. Visual Generation - Use Pexels for multiple stock images (양산형 스타일)
-    print("\n[3/5] Fetching background images from Pexels...")
-
-    # 양산형 스타일: 여러 이미지로 장면 전환 (2-3초마다) - 빠른 컷
-    num_images = max(5, int(tts_result.duration_seconds / 2.5))  # 2.5초당 1개 이미지
-    print(f"   Fetching {num_images} images for {tts_result.duration_seconds:.1f}s video...")
+    # 4. Per-scene Visual Generation
+    print("\n[4/6] Fetching images for each scene from Pexels...")
 
     downloaded_assets: list[VisualAsset] = []
+    used_image_ids: set[str] = set()
+
     try:
         pexels = PexelsClient()
 
-        # AI/테크 관련 이미지 검색 - 내용과 관련된 범용 검색어 사용
-        # 토픽 키워드가 너무 구체적이면 관련 없는 이미지가 나오므로 범용 테크 키워드 사용
-        search_queries = [
-            "artificial intelligence robot",  # AI 관련
-            "coding programming laptop",  # 코딩 관련
-            "technology futuristic",  # 테크 관련
-            "computer screen data",  # 컴퓨터 관련
-            "digital network abstract",  # 디지털 관련
-        ]
+        for i, (scene, tts_result) in enumerate(
+            zip(scene_script.scenes, scene_tts_results, strict=False)
+        ):
+            search_query = scene.keyword or "technology abstract"
+            print(f"   Scene {i + 1} [{scene.scene_type.value}]: Searching '{search_query}'")
 
-        for query in search_queries:
-            if len(downloaded_assets) >= num_images:
-                break
+            assets = await pexels.search_images(
+                search_query,
+                max_results=1,
+                exclude_ids=used_image_ids,
+            )
 
-            remaining = num_images - len(downloaded_assets)
-            print(f"   Searching: '{query}' (need {remaining} more)")
-
-            assets = await pexels.search_images(query, max_results=remaining)
             for asset in assets:
-                if len(downloaded_assets) >= num_images:
-                    break
                 try:
-                    downloaded = await pexels.download(asset, output_dir)
-                    # 각 이미지의 재생 시간 설정 (2-3초 빠른 컷)
-                    downloaded.duration = min(3.0, tts_result.duration_seconds / num_images)
+                    downloaded = await pexels.download(asset, output_dir / "visuals")
+                    downloaded.duration = tts_result.duration_seconds
                     downloaded_assets.append(downloaded)
-                    print(
-                        f"   Downloaded: {downloaded.path.name} ({downloaded.metadata.get('photographer', 'Unknown')})"
-                    )
+                    used_image_ids.add(asset.source_id)
+                    photographer = downloaded.metadata.get("photographer", "Unknown")
+                    print(f"      Downloaded: {downloaded.path.name} ({photographer})")
                 except Exception as e:
-                    print(f"   Download failed: {e}")
+                    print(f"      Download failed: {e}")
 
         await pexels.close()
     except Exception as e:
         print(f"   Pexels failed: {e}")
 
-    # Fallback to solid color if not enough images
-    if len(downloaded_assets) < 1:
-        print("   Falling back to solid color background...")
+    # Fallback
+    if len(downloaded_assets) < len(scene_script.scenes):
+        print("   Falling back to fallback images for remaining scenes...")
         fallback_gen = FallbackGenerator()
-        fallback_assets = await fallback_gen.search("fallback", max_results=1)
-        if fallback_assets:
-            downloaded = await fallback_gen.download(fallback_assets[0], output_dir)
-            downloaded.duration = tts_result.duration_seconds
-            downloaded_assets.append(downloaded)
-            print(f"   Background: {downloaded.path} (fallback)")
+        while len(downloaded_assets) < len(scene_script.scenes):
+            idx = len(downloaded_assets)
+            fallback_assets = await fallback_gen.search("fallback", max_results=1)
+            if fallback_assets:
+                downloaded = await fallback_gen.download(fallback_assets[0], output_dir / "visuals")
+                downloaded.duration = scene_tts_results[idx].duration_seconds
+                downloaded_assets.append(downloaded)
+                print(f"   Added fallback for scene {idx + 1}")
 
     if not downloaded_assets:
         print("   ERROR: Failed to generate any visuals")
@@ -412,23 +540,76 @@ async def demo_video_generation(
 
     print(f"   Total images: {len(downloaded_assets)}")
 
-    # 4. Thumbnail Generation
-    print("\n[4/5] Generating thumbnail...")
+    # 5. Thumbnail Generation
+    print("\n[5/6] Generating thumbnail...")
     thumb_gen = ThumbnailGenerator()
     thumb_path = output_dir / "thumbnail.jpg"
 
-    # Create short title for thumbnail
     thumb_title = topic_title[:30] + "..." if len(topic_title) > 30 else topic_title
-    await thumb_gen.generate(title=thumb_title, output_path=thumb_path)
+
+    # Use first scene's image as thumbnail background
+    thumb_background = downloaded_assets[0] if downloaded_assets else None
+    if thumb_background:
+        print(f"   Using scene 1 image as background: {thumb_background.path.name}")
+
+    # Use thumbnail config from template if available
+    thumb_config = template.thumbnail if template else None
+    if thumb_config:
+        print(f"   Overlay opacity: {thumb_config.overlay_opacity}")
+
+    await thumb_gen.generate(
+        title=thumb_title,
+        output_path=thumb_path,
+        background=thumb_background,
+        config_override=thumb_config,
+    )
     print(f"   Thumbnail: {thumb_path}")
 
-    # 5. Video Composition (양산형 스타일: Ken Burns 효과 + 장면 전환 + BGM)
-    print("\n[5/5] Composing final video with FFmpeg...")
+    # 6. Video Composition
+    print("\n[6/6] Composing scene-based video with FFmpeg...")
     print(f"   Using {len(downloaded_assets)} images with Ken Burns zoom effect...")
 
-    # BGM 설정
-    bgm_path = Path("/workspace/assets/bgm/tech_vibe.mp3")
-    if bgm_path.exists():
+    # BGM setup from channel config (download if needed)
+    from app.config.bgm import BGMConfig, BGMTrack
+    from app.services.generator.bgm.downloader import BGMDownloader
+
+    bgm_dict = channel_config.get("bgm", {})
+    bgm_path: Path | None = None
+
+    if bgm_dict.get("enabled", False):
+        # Build BGMConfig from channel config
+        tracks_data = bgm_dict.get("tracks", [])
+        bgm_tracks = [
+            BGMTrack(name=t["name"], youtube_url=t["youtube_url"])
+            for t in tracks_data
+            if t.get("name") and t.get("youtube_url")
+        ]
+
+        bgm_config = BGMConfig(
+            enabled=True,
+            tracks=bgm_tracks,
+            volume=bgm_dict.get("volume", 0.1),
+            cache_dir=bgm_dict.get("cache_dir", "/workspace/data/bgm"),
+        )
+
+        if bgm_tracks:
+            downloader = BGMDownloader(bgm_config)
+            # Download first track (or pick random in future)
+            track = bgm_tracks[0]
+            cache_path = bgm_config.get_cache_path(track)
+
+            if cache_path.exists():
+                bgm_path = cache_path
+                print(f"   BGM cached: {track.name}")
+            else:
+                print(f"   Downloading BGM: {track.name}...")
+                try:
+                    bgm_path = await downloader.download(track)
+                    print(f"   BGM downloaded: {bgm_path.name}")
+                except Exception as e:
+                    print(f"   BGM download failed: {e}")
+
+    if bgm_path and bgm_path.exists():
         print(f"   Adding background music: {bgm_path.name}")
     else:
         print("   No BGM found, proceeding without background music")
@@ -436,23 +617,36 @@ async def demo_video_generation(
 
     compositor = FFmpegCompositor(CompositionConfig(), template=template)
 
-    # Prepare title text for overlay (from topic title)
-    title_text = (
-        topic_title[:50]
-        if template and template.layout.title_overlay and template.layout.title_overlay.enabled
-        else None
-    )
-    if title_text:
-        print(f"   Adding title overlay: {title_text[:30]}...")
+    headline_keyword = scene_script.headline_keyword
+    headline_hook = scene_script.headline_hook
+
+    current_offset = 0.0
+    scene_visuals = []
+    for i, (scene, asset, tts_result) in enumerate(
+        zip(scene_script.scenes, downloaded_assets, scene_tts_results, strict=False)
+    ):
+        scene_visuals.append(
+            SceneVisualResult(
+                scene_index=i,
+                scene_type=scene.scene_type.value,
+                asset=asset,
+                duration=tts_result.duration_seconds,
+                start_offset=current_offset,
+            )
+        )
+        current_offset += tts_result.duration_seconds
 
     final_path = output_dir / "final_shorts.mp4"
-    await compositor.compose(
-        audio=tts_result,
-        visuals=downloaded_assets,  # 여러 이미지 전달
+    await compositor.compose_scenes(
+        scenes=scene_script.scenes,
+        scene_tts_results=scene_tts_results,
+        scene_visuals=scene_visuals,
+        combined_audio_path=combined_tts.audio_path,
         subtitle_file=subtitle_path,
         output_path=final_path,
-        background_music_path=bgm_path,  # BGM 추가
-        title_text=title_text,  # 상단 제목 오버레이
+        background_music_path=bgm_path,
+        headline_keyword=headline_keyword,
+        headline_hook=headline_hook,
     )
 
     if final_path.exists():
@@ -460,7 +654,7 @@ async def demo_video_generation(
         print("\n   VIDEO GENERATED SUCCESSFULLY!")
         print(f"   Output: {final_path}")
         print(f"   Size: {size_mb:.2f} MB")
-        print(f"   Duration: {tts_result.duration_seconds:.1f} seconds")
+        print(f"   Duration: {combined_tts.duration_seconds:.1f} seconds")
         return final_path
 
     return None
@@ -469,8 +663,8 @@ async def demo_video_generation(
 async def main() -> None:
     """Run full pipeline demo."""
     print("=" * 60)
-    print("BSForge Full Pipeline Demo")
-    print("Topic Collection → Script Generation → Video Production")
+    print("BSForge Full Pipeline Demo (Scene-Based)")
+    print("Topic Collection → Scene Script Generation → Video Production")
     print("=" * 60)
 
     # Check FFmpeg
@@ -479,32 +673,50 @@ async def main() -> None:
         print("Please install FFmpeg or use DevContainer.")
         return
 
-    # Phase 1: Topic Collection
-    result = await demo_topic_collection()
+    # Load channel config
+    print("\n[0/3] Loading channel configuration...")
+    try:
+        channel_config = load_channel_config(CHANNEL_CONFIG_PATH)
+    except FileNotFoundError as e:
+        print(f"\nERROR: {e}")
+        print("Please check CHANNEL_CONFIG_PATH at the top of this file.")
+        return
+
+    # Phase 1: Topic Collection + Clustering
+    result = await collect_and_process_topics(channel_config)
 
     if not result["topic"]:
-        print("\nNo topics passed filtering. Demo ended.")
+        print("\nNo topics available. Demo ended.")
         return
 
     topic = result["topic"]
+    cluster = result.get("cluster")
 
-    # Phase 2: Script Generation
-    script = await demo_script_generation(topic)
+    # Phase 2: Scene-Based Script Generation (LLM with cluster info)
+    script_result = await generate_scene_script(topic, channel_config, cluster)
 
-    # Phase 3: Video Generation (pass topic keywords for image search)
-    # Use Korean title for overlay (title_translated if available, else title_normalized)
+    if not script_result["scene_script"]:
+        print("\nFailed to generate scene script. Demo ended.")
+        return
+
+    scene_script = script_result["scene_script"]
+
+    # Phase 3: Video Generation
     title_for_overlay = topic.title_translated or topic.title_normalized
-    video_path = await demo_video_generation(script, title_for_overlay, topic.keywords)
+    video_path = await generate_video(
+        scene_script,
+        title_for_overlay,
+        channel_config,
+    )
 
     # Summary
     print("\n" + "=" * 60)
     print("PIPELINE COMPLETE")
     print("=" * 60)
 
-    output_dir = Path("/tmp/bsforge_full_demo")
-    if output_dir.exists():
+    if OUTPUT_DIR.exists():
         print("\nGenerated files:")
-        for f in sorted(output_dir.iterdir()):
+        for f in sorted(OUTPUT_DIR.iterdir()):
             if f.is_file():
                 size = f.stat().st_size
                 print(f"  - {f.name} ({size:,} bytes)")

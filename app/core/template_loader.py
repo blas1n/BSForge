@@ -9,8 +9,8 @@ This module provides a loader for video style templates that supports:
 Example:
     ```python
     loader = VideoTemplateLoader()
-    template = loader.load("korean_viral")
-    print(template.layout.title_overlay.enabled)  # True
+    template = loader.load("korean_shorts_standard")
+    print(template.layout.headline.enabled)  # True
     ```
 """
 

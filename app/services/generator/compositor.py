@@ -342,6 +342,11 @@ class FFmpegCompositor:
         if not asset.path:
             raise ValueError("Asset has no local path")
 
+        logger.info(
+            f"Creating segment {segment_index}: asset.path={asset.path}, "
+            f"source_id={asset.source_id}, exists={asset.path.exists() if asset.path else False}"
+        )
+
         output_path = temp_dir / f"scene_segment_{segment_index}.mp4"
 
         # Build style-specific filter

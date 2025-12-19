@@ -629,6 +629,7 @@ class FFmpegWrapper:
             preset=preset,
             r=fps,
             pix_fmt="yuv420p",
+            t=duration,  # Limit output duration (zoompan may produce longer video)
         )
 
         if self.overwrite:

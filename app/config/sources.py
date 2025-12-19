@@ -140,6 +140,32 @@ class ClienConfig(WebScraperConfig):
     min_score: int = Field(default=10, ge=0)
 
 
+class RuliwebConfig(WebScraperConfig):
+    """Ruliweb community source configuration.
+
+    Attributes:
+        boards: List of board paths to fetch from (e.g., 'best/humor', 'community/humor')
+    """
+
+    base_url: str = Field(default="https://bbs.ruliweb.com")
+    name: str = Field(default="루리웹")
+    boards: list[str] = Field(default_factory=lambda: ["best/humor"])
+    min_score: int = Field(default=10, ge=0)
+
+
+class FmkoreaConfig(WebScraperConfig):
+    """FM Korea community source configuration.
+
+    Attributes:
+        boards: List of board IDs to fetch from
+    """
+
+    base_url: str = Field(default="https://www.fmkorea.com")
+    name: str = Field(default="FM코리아")
+    boards: list[str] = Field(default_factory=lambda: ["best"])
+    min_score: int = Field(default=10, ge=0)
+
+
 __all__ = [
     "HackerNewsConfig",
     "RedditConfig",
@@ -149,4 +175,6 @@ __all__ = [
     "WebScraperConfig",
     "DCInsideConfig",
     "ClienConfig",
+    "RuliwebConfig",
+    "FmkoreaConfig",
 ]

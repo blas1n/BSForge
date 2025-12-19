@@ -167,14 +167,14 @@ class WebScraperSource(BaseSource[WebScraperConfig]):
         )
         return topics
 
-    def _get_list_urls(self, base_url: str, params: dict[str, Any]) -> list[str]:
+    def _get_list_urls(self, base_url: str, _params: dict[str, Any]) -> list[str]:
         """Get list of URLs to scrape.
 
         Override in subclass for pagination or multiple boards.
 
         Args:
             base_url: Base URL from config
-            params: Collection parameters
+            _params: Collection parameters (unused in base, used by subclasses)
 
         Returns:
             List of URLs to scrape

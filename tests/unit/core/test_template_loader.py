@@ -29,20 +29,20 @@ class TestVideoTemplateLoader:
         assert template.subtitle.font_name == "Pretendard"
         assert not template.visual_effects.ken_burns_enabled
 
-    def test_load_korean_viral_template(self) -> None:
-        """Test loading korean_viral template with inheritance."""
+    def test_load_korean_shorts_standard_template(self) -> None:
+        """Test loading korean_shorts_standard template with inheritance."""
         loader = VideoTemplateLoader()
-        template = loader.load("korean_viral")
+        template = loader.load("korean_shorts_standard")
 
-        assert template.name == "korean_viral"
-        # Should have headline enabled (replaces title_overlay)
+        assert template.name == "korean_shorts_standard"
+        # Should have headline enabled
         assert template.layout.headline is not None
         assert template.layout.headline.enabled is True
         # Should have Ken Burns enabled
         assert template.visual_effects.ken_burns_enabled is True
-        # korean_viral overrides font to Noto Sans CJK KR
+        # korean_shorts_standard overrides font to Noto Sans CJK KR
         assert template.subtitle.font_name == "Noto Sans CJK KR"
-        assert template.subtitle.font_size == 48
+        assert template.subtitle.font_size == 90
 
     def test_template_inheritance(self) -> None:
         """Test that template inheritance works correctly."""
@@ -107,7 +107,7 @@ class TestVideoTemplateLoader:
         templates = loader.list_templates()
 
         assert "minimal" in templates
-        assert "korean_viral" in templates
+        assert "korean_shorts_standard" in templates
         assert len(templates) >= 2
 
     def test_template_not_found(self) -> None:
@@ -139,7 +139,7 @@ class TestVideoTemplateLoader:
 
         # Load templates
         loader.load("minimal")
-        loader.load("korean_viral")
+        loader.load("korean_shorts_standard")
         assert len(loader._cache) >= 2
 
         # Reload all (clear)

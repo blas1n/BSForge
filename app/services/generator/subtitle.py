@@ -280,9 +280,11 @@ class SubtitleGenerator:
             font_size = tmpl_sub.font_size
             outline_width = tmpl_sub.outline_width
             bold = 1 if tmpl_sub.bold else 0
+            italic = 1 if getattr(tmpl_sub, "italic", False) else 0
             primary_color = self._hex_to_ass_color(tmpl_sub.primary_color)
             outline_color = self._hex_to_ass_color(tmpl_sub.outline_color)
             highlight_color = self._hex_to_ass_color(tmpl_sub.highlight_color)
+            highlight_color_hex = tmpl_sub.highlight_color  # Keep hex for inline tags
 
             # Background
             if tmpl_sub.background_enabled:
@@ -325,12 +327,14 @@ class SubtitleGenerator:
             primary_color = self._hex_to_ass_color(style.primary_color)
             outline_color = self._hex_to_ass_color(style.outline_color)
             highlight_color = self._hex_to_ass_color(self.config.highlight_color)
+            highlight_color_hex = self.config.highlight_color  # Keep hex for inline tags
             bg_color = self._hex_to_ass_color(
                 style.background_color,
                 opacity=style.background_opacity if style.background_enabled else 0.0,
             )
             border_style = 3 if style.background_enabled else 1
             bold = 0
+            italic = 0
             fade_in_ms = 100
             fade_out_ms = 50
             karaoke_enabled = self.config.highlight_current_word
@@ -344,6 +348,7 @@ class SubtitleGenerator:
             outline_color=outline_color,
             back_color=bg_color,
             bold=bold,
+            italic=italic,
             border_style=border_style,
             outline=outline_width,
             alignment=alignment,
@@ -359,6 +364,7 @@ class SubtitleGenerator:
             outline_color=outline_color,
             back_color=bg_color,
             bold=1,
+            italic=italic,
             border_style=border_style,
             outline=outline_width,
             alignment=alignment,
@@ -383,6 +389,9 @@ class SubtitleGenerator:
                 text = self._apply_karaoke_effect(segment)
             else:
                 text = segment.text
+
+            # Auto-highlight numbers and percentages (Korean Shorts style)
+            text = self._auto_highlight_numbers(text, highlight_color_hex)
 
             # Add fade animation if configured
             if fade_in_ms > 0 or fade_out_ms > 0:
@@ -576,6 +585,162 @@ class SubtitleGenerator:
 
         return "".join(parts)
 
+    def _auto_highlight_numbers(
+        self,
+        text: str,
+        highlight_color: str = "#FFFF00",  # 노란색 기본값
+    ) -> str:
+        """Automatically highlight numbers, percentages, and key data.
+
+        Korean Shorts style: important numbers should pop visually.
+
+        Args:
+            text: Original text
+            highlight_color: Hex color for highlights (default: yellow)
+
+        Returns:
+            Text with ASS color tags for numbers/percentages
+        """
+        # Convert hex to ASS BGR format
+        hex_color = highlight_color.lstrip("#")
+        r, g, b = hex_color[0:2], hex_color[2:4], hex_color[4:6]
+        ass_color = f"&H{b}{g}{r}&"
+
+        # Combined pattern to match all number formats in one pass
+        # Priority: Korean expressions > units > percentages > plain numbers
+        combined_pattern = (
+            r"(\d+분의\s*\d+|\d+(?:만|억|조|배|점|위|개|명|원|달러|불)|\d+(?:\.\d+)?%|\d{2,})"
+        )
+
+        def replacer(match: re.Match[str]) -> str:
+            return f"{{\\c{ass_color}}}{match.group(1)}{{\\c}}"
+
+        return re.sub(combined_pattern, replacer, text)
+
+    def _split_scene_text_with_timing(
+        self,
+        scene_text: str,
+        word_timestamps: list[WordTimestamp],
+        scene_result: "SceneTTSResult",
+        visual_style: "VisualStyle",
+        emphasis_words: list[str],
+        persona_style: "PersonaStyleConfig | None",
+        max_chars: int,
+        max_words: int,
+        start_index: int,
+    ) -> list[SubtitleSegment]:
+        """Split scene.text into segments with timing from word_timestamps.
+
+        This method uses scene.text (original notation like GPT-4, Claude 3.5)
+        for display while deriving timing from TTS word timestamps
+        (which may be based on pronunciation text).
+
+        Args:
+            scene_text: Original text from scene.text (for subtitle display)
+            word_timestamps: Word timing from TTS (may be from tts_text)
+            scene_result: TTS result with timing info
+            visual_style: Visual style for this scene
+            emphasis_words: Words to emphasize
+            persona_style: Optional persona styling
+            max_chars: Maximum characters per line
+            max_words: Maximum words per segment
+            start_index: Starting segment index
+
+        Returns:
+            List of subtitle segments using scene_text with TTS timing
+        """
+        segments: list[SubtitleSegment] = []
+        segment_index = start_index
+
+        # If no word timestamps, create a single segment for entire scene
+        if not word_timestamps:
+            styled_text = self._apply_scene_styling(
+                scene_text, visual_style, emphasis_words, persona_style
+            )
+            segments.append(
+                SubtitleSegment(
+                    index=segment_index,
+                    start=scene_result.start_offset,
+                    end=scene_result.start_offset + scene_result.duration_seconds,
+                    text=styled_text,
+                    words=None,
+                )
+            )
+            return segments
+
+        # Split scene_text into words (Korean-aware)
+        scene_words = scene_text.split()
+        if not scene_words:
+            return segments
+
+        # Use scene duration for timing calculation
+        scene_duration = scene_result.duration_seconds
+
+        # Group scene words into segments
+        current_segment_words: list[str] = []
+
+        for word_idx, word in enumerate(scene_words):
+            word_count = len(current_segment_words) + 1
+
+            # Check if we should break
+            potential_text = " ".join(current_segment_words + [word])
+            should_break = self._should_break_korean(
+                current_text=" ".join(current_segment_words),
+                next_word=word,
+                potential_text=potential_text,
+                word_count=word_count,
+                max_chars=max_chars,
+                max_words=max_words,
+            )
+
+            if should_break and current_segment_words:
+                # Create segment with timing proportional to words processed
+                progress_start = (word_idx - len(current_segment_words)) / len(scene_words)
+                progress_end = word_idx / len(scene_words)
+
+                seg_start = scene_result.start_offset + progress_start * scene_duration
+                seg_end = scene_result.start_offset + progress_end * scene_duration
+
+                segment_text = " ".join(current_segment_words)
+                styled_text = self._apply_scene_styling(
+                    segment_text, visual_style, emphasis_words, persona_style
+                )
+                segments.append(
+                    SubtitleSegment(
+                        index=segment_index,
+                        start=seg_start,
+                        end=seg_end,
+                        text=styled_text,
+                        words=None,  # No word-level timing for original text
+                    )
+                )
+                segment_index += 1
+                current_segment_words = []
+
+            current_segment_words.append(word)
+
+        # Don't forget the last segment
+        if current_segment_words:
+            progress_start = (len(scene_words) - len(current_segment_words)) / len(scene_words)
+            seg_start = scene_result.start_offset + progress_start * scene_duration
+            seg_end = scene_result.start_offset + scene_duration
+
+            segment_text = " ".join(current_segment_words)
+            styled_text = self._apply_scene_styling(
+                segment_text, visual_style, emphasis_words, persona_style
+            )
+            segments.append(
+                SubtitleSegment(
+                    index=segment_index,
+                    start=seg_start,
+                    end=seg_end,
+                    text=styled_text,
+                    words=None,
+                )
+            )
+
+        return segments
+
     def generate_from_scene_results(
         self,
         scene_results: list[SceneTTSResult],
@@ -646,20 +811,28 @@ class SubtitleGenerator:
                 segment_index += len(segments_from_manual)
                 continue
 
-            # Priority 2: Auto-split from word timestamps
+            # Priority 2: Use scene.text (original notation) split by timing
+            # TTS word timestamps are based on tts_text (pronunciation text),
+            # but subtitles should show scene.text (original notation like GPT-4)
+            if scene:
+                # Split scene.text into segments based on timing from word_timestamps
+                scene_segments = self._split_scene_text_with_timing(
+                    scene_text=scene.text,
+                    word_timestamps=word_timestamps,
+                    scene_result=scene_result,
+                    visual_style=visual_style,
+                    emphasis_words=emphasis_words,
+                    persona_style=persona_style,
+                    max_chars=max_chars,
+                    max_words=max_words_per_segment,
+                    start_index=segment_index,
+                )
+                all_segments.extend(scene_segments)
+                segment_index += len(scene_segments)
+                continue
+
+            # Fallback for no scene: use word timestamps directly
             if not word_timestamps:
-                # Fallback: create a single segment for the entire scene
-                if scene:
-                    all_segments.append(
-                        SubtitleSegment(
-                            index=segment_index,
-                            start=scene_result.start_offset,
-                            end=scene_result.start_offset + scene_result.duration_seconds,
-                            text=scene.text,
-                            words=None,
-                        )
-                    )
-                    segment_index += 1
                 continue
 
             # Group words into segments within this scene's boundaries
@@ -674,11 +847,14 @@ class SubtitleGenerator:
                 potential_text = f"{current_text} {word}".strip() if current_text else word
                 word_count = len(current_words) + 1
 
-                # Check if we should create a new segment
-                should_break = (
-                    (len(potential_text) > max_chars and current_words)
-                    or (word_count > max_words_per_segment and current_words)
-                    or (current_text and current_text[-1] in ".!?。！？")
+                # Korean-aware break detection
+                should_break = self._should_break_korean(
+                    current_text=current_text,
+                    next_word=word,
+                    potential_text=potential_text,
+                    word_count=word_count,
+                    max_chars=max_chars,
+                    max_words=max_words_per_segment,
                 )
 
                 if should_break:
@@ -734,6 +910,123 @@ class SubtitleGenerator:
             style=self.config.style,
             format=self.config.format,
         )
+
+    def _should_break_korean(
+        self,
+        current_text: str,
+        next_word: str,
+        potential_text: str,
+        word_count: int,
+        max_chars: int,
+        max_words: int,
+    ) -> bool:
+        """Determine if subtitle should break at this point (Korean-aware).
+
+        Korean subtitle breaking rules:
+        1. Break AFTER sentence-ending markers: ~요, ~다, ~죠, ~네, ~거든요, ~세요
+        2. Break AFTER comma or period
+        3. Break BEFORE connectors: 근데, 그래서, 하지만, 그리고, 사실
+        4. Respect max_chars limit
+        5. Use max_words as soft limit (can be exceeded to complete a phrase)
+
+        Args:
+            current_text: Current segment text so far
+            next_word: Next word to potentially add
+            potential_text: What text would be if we add next_word
+            word_count: How many words would be in segment if we add next_word
+            max_chars: Maximum characters per line
+            max_words: Soft maximum words per segment
+
+        Returns:
+            True if we should break before adding next_word
+        """
+        if not current_text:
+            return False
+
+        # Korean sentence endings that signal natural break points
+        # Check if current_text ends with these patterns
+        sentence_endings = (
+            "요.",
+            "다.",
+            "죠.",
+            "네.",
+            "거든요.",
+            "세요.",
+            "어요.",
+            "아요.",
+            "해요.",
+            "에요.",
+            "래요.",
+            "데요.",
+            "나요.",
+            "군요.",
+            "지요.",
+            "요?",
+            "다?",
+            "죠?",
+            "네?",
+            "나요?",
+            "요!",
+            "다!",
+            "죠!",
+            "네!",
+            # Without punctuation (for edge cases)
+            "거든요",
+            "세요",
+            "해요",
+            "에요",
+            "래요",
+            "데요",
+            "나요",
+        )
+
+        # Connectors that should start a new segment
+        connectors = (
+            "근데",
+            "그래서",
+            "하지만",
+            "그리고",
+            "사실",
+            "솔직히",
+            "그런데",
+            "따라서",
+            "또한",
+            "즉",
+            "왜냐하면",
+        )
+
+        # 1. Hard break: exceeds max_chars
+        if len(potential_text) > max_chars:
+            return True
+
+        # 2. Break after punctuation
+        if current_text and current_text[-1] in ".!?。！？,，":
+            return True
+
+        # 3. Break after Korean sentence endings
+        for ending in sentence_endings:
+            if current_text.endswith(ending):
+                return True
+
+        # 4. Break before connectors (next_word starts a new thought)
+        for connector in connectors:
+            if next_word.startswith(connector):
+                return True
+
+        # 5. Soft break: exceeded word limit, but only if we have a natural point
+        # For karaoke style (max_words=4~5), be a bit more flexible
+        if word_count > max_words:
+            # Check if current_text ends with particles that complete a phrase
+            # (subject markers, topic markers, object markers)
+            complete_particles = ("은", "는", "이", "가", "을", "를", "에서", "에게", "로")
+            for particle in complete_particles:
+                if current_text.endswith(particle):
+                    return True
+            # Also break if we're significantly over the limit
+            if word_count > max_words + 2:
+                return True
+
+        return False
 
     def _create_segments_from_manual(
         self,
@@ -928,6 +1221,7 @@ class SubtitleGenerator:
             font_size = tmpl_sub.font_size
             outline_width = tmpl_sub.outline_width
             bold = 1 if tmpl_sub.bold else 0
+            italic = 1 if getattr(tmpl_sub, "italic", False) else 0
             primary_color = self._hex_to_ass_color(tmpl_sub.primary_color)
             outline_color = self._hex_to_ass_color(tmpl_sub.outline_color)
 
@@ -969,9 +1263,16 @@ class SubtitleGenerator:
             )
             border_style = 3 if style.background_enabled else 1
             bold = 0
+            italic = 0
             fade_in_ms = 100
             fade_out_ms = 50
             karaoke_enabled = self.config.highlight_current_word
+
+        # Get highlight color for auto-highlighting numbers
+        if template and template.subtitle:
+            highlight_color_hex = template.subtitle.highlight_color
+        else:
+            highlight_color_hex = self.config.highlight_color
 
         # Create style params for each visual style
         neutral_style_params = ASSStyleParams(
@@ -982,6 +1283,7 @@ class SubtitleGenerator:
             outline_color=outline_color,
             back_color=bg_color,
             bold=bold,
+            italic=italic,
             border_style=border_style,
             outline=outline_width,
             alignment=alignment,
@@ -997,6 +1299,7 @@ class SubtitleGenerator:
             outline_color=outline_color,
             back_color=bg_color,
             bold=bold,
+            italic=italic,
             border_style=border_style,
             outline=outline_width,
             alignment=alignment,
@@ -1012,6 +1315,7 @@ class SubtitleGenerator:
             outline_color=outline_color,
             back_color=bg_color,
             bold=bold,
+            italic=italic,
             border_style=border_style,
             outline=outline_width,
             alignment=alignment,
@@ -1053,6 +1357,9 @@ class SubtitleGenerator:
                 text = self._apply_karaoke_effect(segment)
             else:
                 text = segment.text
+
+            # Auto-highlight numbers and percentages (Korean Shorts style)
+            text = self._auto_highlight_numbers(text, highlight_color_hex)
 
             # Add fade animation
             if fade_in_ms > 0 or fade_out_ms > 0:

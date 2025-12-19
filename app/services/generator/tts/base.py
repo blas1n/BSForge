@@ -295,9 +295,13 @@ class BaseTTSEngine(ABC):
             # Generate unique output path for each scene
             scene_output = output_dir / f"scene_{i:03d}"
 
+            # Use tts_content (tts_text if set, otherwise text)
+            # This allows proper pronunciation while keeping original text for subtitles
+            tts_text = scene.tts_content
+
             # Synthesize this scene
             tts_result = await self.synthesize(
-                text=scene.text,
+                text=tts_text,
                 config=config,
                 output_path=scene_output,
             )

@@ -5,11 +5,12 @@ configured via YAML files. Templates support inheritance via the 'extends' field
 
 Example usage:
     ```yaml
-    # config/templates/korean_viral.yaml
-    name: korean_viral
+    # config/templates/korean_shorts_standard.yaml
+    name: korean_shorts_standard
     extends: minimal
     layout:
-      title_overlay:
+      fullscreen_image: true
+      headline:
         enabled: true
     ```
 
@@ -28,6 +29,8 @@ Korean Shorts Standard Layout (양산형 쇼츠):
 from typing import Literal
 
 from pydantic import BaseModel, Field
+
+from app.config.video import ThumbnailConfig
 
 
 class HeadlineLineConfig(BaseModel):
@@ -245,6 +248,7 @@ class SubtitleTemplateConfig(BaseModel):
     font_name: str = "Pretendard"
     font_size: int = Field(default=72, ge=12, le=200)
     bold: bool = True
+    italic: bool = False
 
     # Colors (hex format)
     primary_color: str = "#FFFFFF"
@@ -405,6 +409,7 @@ class VideoTemplateConfig(BaseModel):
     visual_effects: VisualEffectsConfig = Field(default_factory=VisualEffectsConfig)
     audio: AudioTemplateConfig = Field(default_factory=AudioTemplateConfig)
     visual_prompt: VisualPromptConfig = Field(default_factory=VisualPromptConfig)
+    thumbnail: ThumbnailConfig = Field(default_factory=ThumbnailConfig)
 
 
 __all__ = [
@@ -418,4 +423,5 @@ __all__ = [
     "VisualEffectsConfig",
     "AudioTemplateConfig",
     "VisualPromptConfig",
+    "ThumbnailConfig",
 ]

@@ -141,7 +141,7 @@ class VideoGenerationPipeline:
             script: Script model instance
             voice_id: Optional TTS voice override
             tts_provider: Optional TTS provider override
-            template_name: Video template name (e.g., "korean_viral", "minimal")
+            template_name: Video template name (e.g., "korean_shorts_standard", "minimal")
 
         Returns:
             VideoGenerationResult with file paths and metadata
@@ -280,10 +280,14 @@ class VideoGenerationPipeline:
             thumbnail_background = visuals[0] if visuals else None
             title = self._get_thumbnail_title(script)
 
+            # Use template thumbnail config if available
+            thumbnail_config = template.thumbnail if template else None
+
             thumbnail_path = await self.thumbnail_generator.generate(
                 title=title,
                 output_path=output_dir / "thumbnail",
                 background=thumbnail_background,
+                config_override=thumbnail_config,
             )
 
             logger.info(f"Thumbnail generated: {thumbnail_path}")
@@ -562,10 +566,14 @@ class VideoGenerationPipeline:
             thumbnail_background = scene_visuals[0].asset if scene_visuals else None
             title = self._get_thumbnail_title(script)
 
+            # Use template thumbnail config if available
+            thumbnail_config = template.thumbnail if template else None
+
             thumbnail_path = await self.thumbnail_generator.generate(
                 title=title,
                 output_path=output_dir / "thumbnail",
                 background=thumbnail_background,
+                config_override=thumbnail_config,
             )
 
             logger.info(f"Thumbnail generated: {thumbnail_path}")
