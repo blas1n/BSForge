@@ -5,8 +5,8 @@ and scoring topics for a channel. Used by both Celery workers and CLI scripts.
 
 The pipeline:
 1. Collect raw topics from sources (global pool + scoped sources)
-2. Normalize (translate, classify, extract keywords)
-3. Filter (include/exclude keywords, categories)
+2. Normalize (translate, classify, extract terms)
+3. Filter (include/exclude terms)
 4. Deduplicate (hash-based)
 5. Score (multi-factor scoring)
 6. Save to database
@@ -27,21 +27,22 @@ from redis.asyncio import Redis as AsyncRedis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import DedupConfig, ScoringConfig
+from app.config import DedupConfig, FilteringConfig, ScoringConfig
 from app.config.sources import (
     HackerNewsConfig,
     RedditConfig,
 )
+from app.core.config_loader import load_defaults
 from app.core.logging import get_logger
 from app.models.channel import Channel
 from app.models.topic import Topic, TopicStatus
 from app.services.collector.base import NormalizedTopic, RawTopic, ScoredTopic
 from app.services.collector.deduplicator import TopicDeduplicator
+from app.services.collector.filter import TopicFilter
 from app.services.collector.normalizer import TopicNormalizer
 from app.services.collector.scorer import TopicScorer
 from app.services.collector.sources.hackernews import HackerNewsSource
 from app.services.collector.sources.reddit import RedditSource
-from app.services.collector.term_filter import TermFilter
 
 logger = get_logger(__name__)
 
@@ -70,26 +71,33 @@ class CollectionStats(BaseModel):
     errors: list[str] = []
 
 
+def _get_collector_defaults() -> dict[str, Any]:
+    """Get collector defaults from config/defaults.yaml."""
+    defaults = load_defaults()
+    collector = defaults.get("collector", {})
+    return collector if isinstance(collector, dict) else {}
+
+
 @dataclass
 class CollectionConfig:
     """Configuration for topic collection.
 
     Attributes:
-        enabled_sources: List of enabled source types
+        enabled_sources: List of enabled source types (required from channel config)
+        target_language: Target language for translation (required from channel config)
         source_overrides: Per-source configuration overrides
-        include_terms: Terms to include (unified keywords + categories)
-        exclude_terms: Terms to exclude
-        target_language: Target language for translation
+        include: Terms to include
+        exclude: Terms to exclude
         max_topics: Maximum topics to process
         save_to_db: Whether to save topics to database
     """
 
-    enabled_sources: list[str] = field(default_factory=lambda: ["hackernews"])
+    enabled_sources: list[str]  # Required - from channel config
+    target_language: str  # Required - from channel config
     source_overrides: dict[str, Any] = field(default_factory=dict)
-    include_terms: list[str] = field(default_factory=list)
-    exclude_terms: list[str] = field(default_factory=list)
-    target_language: str = "ko"
-    max_topics: int = 20
+    include: list[str] = field(default_factory=list)
+    exclude: list[str] = field(default_factory=list)
+    max_topics: int = field(default_factory=lambda: _get_collector_defaults().get("max_topics", 20))
     save_to_db: bool = True
 
     @classmethod
@@ -101,17 +109,27 @@ class CollectionConfig:
 
         Returns:
             CollectionConfig instance
+
+        Raises:
+            ValueError: If required fields are missing from channel config
         """
+        defaults = _get_collector_defaults()
         topic_collection = channel_config.get("topic_collection", {})
         filtering = channel_config.get("filtering", {})
 
+        enabled_sources = topic_collection.get("enabled_sources")
+        if not enabled_sources:
+            raise ValueError("enabled_sources is required in channel config")
+
+        target_language = topic_collection.get("target_language", "ko")
+
         return cls(
-            enabled_sources=topic_collection.get("enabled_sources", ["hackernews"]),
+            enabled_sources=enabled_sources,
+            target_language=target_language,
             source_overrides=topic_collection.get("source_overrides", {}),
-            include_terms=filtering.get("include_terms", []),
-            exclude_terms=filtering.get("exclude_terms", []),
-            target_language="ko",
-            max_topics=20,
+            include=filtering.get("include", []),
+            exclude=filtering.get("exclude", []),
+            max_topics=defaults.get("max_topics", 20),
             save_to_db=True,
         )
 
@@ -122,7 +140,7 @@ class TopicCollectionPipeline:
     This service handles the full topic collection pipeline:
     1. Collect from sources (global pool + direct collection)
     2. Normalize (translate, classify)
-    3. Filter (include/exclude keywords)
+    3. Filter (include/exclude terms)
     4. Deduplicate
     5. Score
     6. Save to DB
@@ -243,15 +261,21 @@ class TopicCollectionPipeline:
             List of raw topics
         """
         all_topics: list[RawTopic] = []
+        defaults = _get_collector_defaults()
+        source_defaults = defaults.get("sources", {})
 
         # Collect from HackerNews
         if "hackernews" in config.enabled_sources:
             logger.info("Collecting from HackerNews...")
             try:
+                hn_defaults = source_defaults.get("hackernews", {})
                 overrides = config.source_overrides.get("hackernews", {})
-                min_score = overrides.get("filters", {}).get("min_score", 30)
+                min_score = overrides.get("filters", {}).get(
+                    "min_score", hn_defaults.get("min_score", 30)
+                )
+                limit = overrides.get("limit", hn_defaults.get("limit", 30))
 
-                hn_config = HackerNewsConfig(limit=30, min_score=min_score)
+                hn_config = HackerNewsConfig(limit=limit, min_score=min_score)
                 hn_source = HackerNewsSource(config=hn_config, source_id=uuid.uuid4())
                 hn_topics = await hn_source.collect()
 
@@ -267,13 +291,22 @@ class TopicCollectionPipeline:
         if "reddit" in config.enabled_sources:
             logger.info("Collecting from Reddit...")
             try:
+                reddit_defaults = source_defaults.get("reddit", {})
                 overrides = config.source_overrides.get("reddit", {})
-                subreddits = overrides.get("params", {}).get(
-                    "subreddits", ["MachineLearning", "artificial"]
+                subreddits = overrides.get("params", {}).get("subreddits")
+                if not subreddits:
+                    raise ValueError(
+                        "reddit.params.subreddits is required in channel config "
+                        "when reddit is in enabled_sources"
+                    )
+                min_score = overrides.get("filters", {}).get(
+                    "min_score", reddit_defaults.get("min_score", 30)
                 )
-                min_score = overrides.get("filters", {}).get("min_score", 30)
+                limit = overrides.get("limit", reddit_defaults.get("limit", 20))
 
-                reddit_config = RedditConfig(subreddits=subreddits, limit=20, min_score=min_score)
+                reddit_config = RedditConfig(
+                    subreddits=subreddits, limit=limit, min_score=min_score
+                )
                 reddit_source = RedditSource(config=reddit_config, source_id=uuid.uuid4())
                 reddit_topics = await reddit_source.collect()
 
@@ -325,7 +358,7 @@ class TopicCollectionPipeline:
         normalized: list[tuple[RawTopic, NormalizedTopic]],
         config: CollectionConfig,
     ) -> list[tuple[RawTopic, NormalizedTopic]]:
-        """Filter topics by terms (unified keywords + categories).
+        """Filter topics by terms.
 
         Args:
             normalized: List of (raw, normalized) tuples
@@ -334,17 +367,19 @@ class TopicCollectionPipeline:
         Returns:
             Filtered list of (raw, normalized) tuples
         """
-        if not config.include_terms and not config.exclude_terms:
+        if not config.include and not config.exclude:
             return normalized
 
-        term_filter = TermFilter(
-            include_terms=config.include_terms,
-            exclude_terms=config.exclude_terms,
+        filter_config = FilteringConfig(
+            include=config.include,
+            exclude=config.exclude,
         )
+        topic_filter = TopicFilter(filter_config)
 
         filtered = []
         for raw, norm in normalized:
-            if term_filter.matches(norm):
+            result = topic_filter.filter(norm)
+            if result.passed:
                 filtered.append((raw, norm))
 
         return filtered
@@ -425,8 +460,10 @@ class TopicCollectionPipeline:
             List of saved Topic models
         """
         saved: list[Topic] = []
+        defaults = _get_collector_defaults()
+        top_topics_to_save = defaults.get("top_topics_to_save", 5)
 
-        for raw, norm, sc in scored_topics[:5]:  # Top 5
+        for raw, norm, sc in scored_topics[:top_topics_to_save]:
             # Check for existing topic
             content_hash = hashlib.sha256(
                 (norm.title_normalized + str(norm.source_url)).encode()
@@ -489,8 +526,7 @@ class TopicCollectionPipeline:
             title_normalized=norm.title_normalized,
             summary=norm.summary or (raw.content[:200] if raw.content else ""),
             source_url=str(norm.source_url),
-            categories=norm.categories or [],
-            keywords=norm.keywords or [],
+            terms=norm.terms or [],
             entities={},
             language=norm.language or "en",
             score_source=scored.score_source,

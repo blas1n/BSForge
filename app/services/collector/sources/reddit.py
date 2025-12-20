@@ -187,6 +187,7 @@ class RedditSource(BaseSource[RedditConfig]):
                     "awards": post.get("total_awards_received", 0),
                 },
                 metadata={
+                    "source_name": "Reddit",
                     "reddit_id": post.get("id"),
                     "subreddit": subreddit,
                     "author": post.get("author"),

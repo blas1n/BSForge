@@ -48,8 +48,7 @@ class TestPromptBuilder:
         topic = MagicMock()
         topic.title_normalized = "Python List Comprehensions"
         topic.summary = "A guide to using list comprehensions in Python"
-        topic.keywords = ["python", "list", "comprehension"]
-        topic.categories = ["programming", "tutorial"]
+        topic.terms = ["python", "list", "comprehension", "programming", "tutorial"]
         topic.source_url = "https://example.com/article"
         return topic
 

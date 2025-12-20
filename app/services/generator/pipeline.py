@@ -692,14 +692,14 @@ class VideoGenerationPipeline:
             script: Script model
 
         Returns:
-            List of keywords
+            List of keywords for visual search
         """
         keywords: list[str] = []
 
         # From topic if available
         if hasattr(script, "topic") and script.topic:
-            if hasattr(script.topic, "keywords") and script.topic.keywords:
-                keywords.extend(script.topic.keywords[:5])
+            if hasattr(script.topic, "terms") and script.topic.terms:
+                keywords.extend(script.topic.terms[:5])
             if hasattr(script.topic, "title") and script.topic.title:
                 # Extract words from title
                 title_words = script.topic.title.split()[:3]

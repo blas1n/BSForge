@@ -54,8 +54,7 @@ class Topic(Base, UUIDMixin, TimestampMixin):
         title_normalized: Cleaned and normalized title
         summary: Auto-generated summary
         source_url: Original source URL
-        categories: Topic categories
-        keywords: Extracted keywords
+        terms: Extracted topic terms (topics, technologies, concepts)
         entities: Named entities (person, company, product, etc.) as JSONB
         language: Detected language code
         score_source: Source credibility score (0-1)
@@ -92,8 +91,7 @@ class Topic(Base, UUIDMixin, TimestampMixin):
     source_url: Mapped[str] = mapped_column(String(500), nullable=False)
 
     # Classification
-    categories: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
-    keywords: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    terms: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
     entities: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     language: Mapped[str] = mapped_column(String(10), nullable=False, default="en")
 

@@ -1,7 +1,7 @@
 """Application configuration using Pydantic Settings.
 
-This module defines all application settings loaded from environment variables.
-Settings are validated at startup and provide type-safe access throughout the app.
+This module defines all application configuration loaded from environment variables.
+Configuration is validated at startup and provides type-safe access throughout the app.
 """
 
 import secrets
@@ -11,15 +11,15 @@ from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class Settings(BaseSettings):
-    """Application settings.
+class Config(BaseSettings):
+    """Application configuration.
 
-    All settings are loaded from environment variables or .env file.
+    All configuration is loaded from environment variables or .env file.
     Validation happens automatically via Pydantic.
 
     Example:
-        >>> settings = Settings()
-        >>> print(settings.app_name)
+        >>> config = Config()
+        >>> print(config.app_name)
         'BSForge'
     """
 
@@ -214,5 +214,23 @@ class Settings(BaseSettings):
         return self.app_env == "production"
 
 
-# Global settings instance
-settings = Settings()
+# =============================================================================
+# Singleton accessor
+# =============================================================================
+
+_config: Config | None = None
+
+
+def get_config() -> Config:
+    """Get the global Config singleton.
+
+    This function provides a lazy-loaded singleton instance of Config.
+    Use this instead of importing `container.config()` to avoid circular imports.
+
+    Returns:
+        The global Config instance
+    """
+    global _config
+    if _config is None:
+        _config = Config()
+    return _config

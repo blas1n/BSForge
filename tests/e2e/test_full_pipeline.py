@@ -61,8 +61,7 @@ class TestPersonaBasedGeneration:
         """Create sample scored topic for testing."""
         return create_scored_topic(
             title="ChatGPT 최신 업데이트 분석",
-            keywords=["ChatGPT", "AI", "OpenAI"],
-            categories=["tech"],
+            terms=["chatgpt", "ai", "openai", "tech"],
             engagement_score=500,
             score_total=85,
         )

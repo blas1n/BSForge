@@ -9,8 +9,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.config import settings
-from app.core.database import close_db, init_db
+# TODO: This module is legacy and should be migrated to DI container.
+from app.core.config import get_config
+from app.core.database import check_db_connection, close_db, init_db
 from app.core.logging import get_logger, setup_logging
 from app.core.redis import close_redis
 
@@ -31,14 +32,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     Yields:
         None
     """
+    config = get_config()
     # Startup
-    logger.info("Starting BSForge application", env=settings.app_env)
+    logger.info("Starting BSForge application", env=config.app_env)
 
     # Initialize database (only in development with available DB)
-    if settings.is_development:
+    if config.is_development:
         try:
-            from app.core.database import check_db_connection
-
             if await check_db_connection():
                 await init_db()
                 logger.info("Database initialized")
@@ -59,20 +59,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 # Create FastAPI application
+_config = get_config()
 app = FastAPI(
-    title=settings.app_name,
+    title=_config.app_name,
     description="AI-powered YouTube Shorts automation system",
     version="0.1.0",
-    docs_url="/docs" if settings.is_development else None,
-    redoc_url="/redoc" if settings.is_development else None,
+    docs_url="/docs" if _config.is_development else None,
+    redoc_url="/redoc" if _config.is_development else None,
     lifespan=lifespan,
 )
 
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_credentials=settings.cors_allow_credentials,
+    allow_origins=_config.cors_origins,
+    allow_credentials=_config.cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -86,10 +87,11 @@ async def health_check() -> dict[str, str]:
     Returns:
         Health status
     """
+    cfg = get_config()
     return {
         "status": "healthy",
-        "app": settings.app_name,
-        "env": settings.app_env,
+        "app": cfg.app_name,
+        "env": cfg.app_env,
     }
 
 
@@ -103,7 +105,7 @@ async def root() -> dict[str, str]:
     return {
         "message": "BSForge API",
         "version": "0.1.0",
-        "docs": "/docs" if settings.is_development else "disabled",
+        "docs": "/docs" if get_config().is_development else "disabled",
     }
 
 

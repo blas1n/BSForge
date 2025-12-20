@@ -6,25 +6,25 @@ https://bbs.ruliweb.com/
 
 import re
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup, Tag
-from pydantic import HttpUrl
 
 from app.config.sources import RuliwebConfig
 from app.core.logging import get_logger
 from app.services.collector.base import BaseSource, RawTopic
-from app.services.collector.sources.web_scraper import WebScraperSource
+from app.services.collector.sources.korean_scraper_base import KoreanWebScraperBase
 
 logger = get_logger(__name__)
 
 
-class RuliwebSource(WebScraperSource, BaseSource[RuliwebConfig]):
+class RuliwebSource(KoreanWebScraperBase, BaseSource[RuliwebConfig]):
     """Ruliweb community source collector.
 
     Fetches posts from Ruliweb boards.
+    Inherits common Korean parsing utilities from KoreanWebScraperBase.
 
     Config options:
         boards: List of board IDs (e.g., ['best/humor', 'best/all'])
@@ -48,6 +48,11 @@ class RuliwebSource(WebScraperSource, BaseSource[RuliwebConfig]):
     ):
         """Initialize Ruliweb source collector."""
         super().__init__(config, source_id)
+
+    @property
+    def source_name_kr(self) -> str:
+        """Korean name of the source for logging and display."""
+        return "루리웹"
 
     def _get_list_urls(self, base_url: str, params: dict[str, Any]) -> list[str]:
         """Get list URLs for configured boards.
@@ -177,28 +182,13 @@ class RuliwebSource(WebScraperSource, BaseSource[RuliwebConfig]):
             "board": board,
         }
 
-    def _parse_number(self, text: str) -> int:
-        """Parse number from text.
-
-        Args:
-            text: Text containing number
-
-        Returns:
-            Parsed integer
-        """
-        if not text:
-            return 0
-
-        text = text.strip()
-
-        # Remove brackets and other characters
-        try:
-            return int(re.sub(r"[^\d]", "", text))
-        except ValueError:
-            return 0
-
     def _parse_date(self, text: str) -> datetime | None:
-        """Parse date from various formats.
+        """Parse date from various Ruliweb formats.
+
+        Extends base class parsing with Ruliweb specific formats:
+        - Time only "HH:MM" (interpreted as today)
+        - Short year date "YY.MM.DD" (2-digit year)
+        - Date with time "YY.MM.DD HH:MM"
 
         Args:
             text: Date text
@@ -206,6 +196,11 @@ class RuliwebSource(WebScraperSource, BaseSource[RuliwebConfig]):
         Returns:
             Datetime or None
         """
+        # Try base class parsing first (Korean relative dates + standard formats)
+        result = super()._parse_date(text)
+        if result:
+            return result
+
         if not text:
             return None
 
@@ -225,7 +220,7 @@ class RuliwebSource(WebScraperSource, BaseSource[RuliwebConfig]):
             except (ValueError, IndexError):
                 pass
 
-        # Handle date format "YY.MM.DD" or "YYYY.MM.DD"
+        # Handle date format "YY.MM.DD" or "YY.MM.DD HH:MM"
         if "." in text:
             try:
                 parts = text.split(".")
@@ -237,25 +232,6 @@ class RuliwebSource(WebScraperSource, BaseSource[RuliwebConfig]):
                     day = int(parts[2].split()[0])  # Handle "25.01.15 10:30" format
                     return datetime(year, month, day, tzinfo=UTC)
             except (ValueError, IndexError):
-                pass
-
-        # Handle relative times
-        if "분 전" in text:
-            try:
-                match = re.search(r"(\d+)", text)
-                if match:
-                    minutes = int(match.group(1))
-                    return datetime.now(UTC) - timedelta(minutes=minutes)
-            except (AttributeError, ValueError):
-                pass
-
-        if "시간 전" in text:
-            try:
-                match = re.search(r"(\d+)", text)
-                if match:
-                    hours = int(match.group(1))
-                    return datetime.now(UTC) - timedelta(hours=hours)
-            except (AttributeError, ValueError):
                 pass
 
         return None
@@ -278,39 +254,30 @@ class RuliwebSource(WebScraperSource, BaseSource[RuliwebConfig]):
     def _to_raw_topic(self, item: dict[str, Any]) -> RawTopic | None:
         """Convert parsed item to RawTopic.
 
+        Extends base class conversion with Ruliweb specific fields:
+        - post_id (글번호)
+        - recommends (추천수)
+
         Args:
             item: Parsed item dict
 
         Returns:
             RawTopic or None
         """
-        try:
-            return RawTopic(
-                source_id=str(self.source_id),
-                source_url=HttpUrl(item["url"]),
-                title=item["title"],
-                content=None,
-                published_at=item.get("published_at"),
-                metrics={
-                    "recommends": item.get("recommends", 0),
-                    "views": item.get("views", 0),
-                    "comments": item.get("comments", 0),
-                    "score": item.get("score", 0),
-                },
-                metadata={
-                    "post_id": item.get("post_id"),
-                    "board": item.get("board"),
-                    "author": item.get("author"),
-                    "source_name": "루리웹",
-                },
-            )
-        except Exception as e:
-            logger.warning(
-                "Failed to convert Ruliweb post",
-                title=item.get("title", "")[:50],
-                error=str(e),
-            )
+        # Use base class for common conversion
+        raw_topic = super()._to_raw_topic(item)
+        if not raw_topic:
             return None
+
+        # Add Ruliweb specific metrics
+        if "recommends" in item:
+            raw_topic.metrics["recommends"] = item["recommends"]
+
+        # Add Ruliweb specific metadata
+        if item.get("post_id"):
+            raw_topic.metadata["post_id"] = item["post_id"]
+
+        return raw_topic
 
 
 __all__ = ["RuliwebSource"]

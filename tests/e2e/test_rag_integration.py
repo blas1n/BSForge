@@ -55,7 +55,7 @@ class TestContentChunkDB:
             is_opinion=False,
             is_example=False,
             is_analogy=False,
-            keywords=["AI", "기술", "발전"],
+            terms=["AI", "기술", "발전"],
             embedding=None,
             embedding_model="test-model",
         )
@@ -69,7 +69,7 @@ class TestContentChunkDB:
         assert chunk.text == "이것은 테스트 청크입니다. AI 기술이 빠르게 발전하고 있습니다."
         assert chunk.position == ChunkPosition.BODY
         assert chunk.is_opinion is False
-        assert "AI" in chunk.keywords
+        assert "AI" in chunk.terms
 
     @pytest.mark.asyncio
     async def test_create_content_chunk_with_embedding(self, db_session: AsyncSession) -> None:
@@ -98,7 +98,7 @@ class TestContentChunkDB:
             is_opinion=True,
             is_example=False,
             is_analogy=False,
-            keywords=["AI", "의견"],
+            terms=["AI", "의견"],
             embedding=mock_embedding,
             embedding_model="BAAI/bge-m3",
             performance_score=0.85,
@@ -137,7 +137,7 @@ class TestContentChunkDB:
                 is_opinion=False,
                 is_example=False,
                 is_analogy=False,
-                keywords=[f"keyword{i}"],
+                terms=[f"keyword{i}"],
                 embedding_model="test",
             )
             db_session.add(chunk)
@@ -177,7 +177,7 @@ class TestContentChunkDB:
                 is_opinion=False,
                 is_example=False,
                 is_analogy=False,
-                keywords=[],
+                terms=[],
                 embedding_model="test",
             )
             db_session.add(chunk)
@@ -226,7 +226,7 @@ class TestContentChunkDB:
                 is_opinion=data["is_opinion"],
                 is_example=data["is_example"],
                 is_analogy=False,
-                keywords=[],
+                terms=[],
                 embedding_model="test",
             )
             db_session.add(chunk)
@@ -325,7 +325,7 @@ class TestPgVectorExtension:
                 is_opinion=False,
                 is_example=False,
                 is_analogy=False,
-                keywords=["AI"],
+                terms=["AI"],
                 embedding=embedding_ai,
                 embedding_model="test",
             ),
@@ -338,7 +338,7 @@ class TestPgVectorExtension:
                 is_opinion=False,
                 is_example=False,
                 is_analogy=False,
-                keywords=["인공지능"],
+                terms=["인공지능"],
                 embedding=embedding_similar,
                 embedding_model="test",
             ),
@@ -351,7 +351,7 @@ class TestPgVectorExtension:
                 is_opinion=False,
                 is_example=False,
                 is_analogy=False,
-                keywords=["요리"],
+                terms=["요리"],
                 embedding=embedding_diff,
                 embedding_model="test",
             ),
@@ -414,7 +414,7 @@ class TestChunkPerformanceFilter:
                 is_opinion=False,
                 is_example=False,
                 is_analogy=False,
-                keywords=[],
+                terms=[],
                 embedding_model="test",
                 performance_score=score,
             )
@@ -470,7 +470,7 @@ class TestContentChunkContext:
             is_opinion=False,
             is_example=False,
             is_analogy=False,
-            keywords=[],
+            terms=[],
             embedding_model="test",
         )
         db_session.add(chunk)
@@ -523,8 +523,8 @@ class TestBM25SearchIntegration:
     """Integration tests for BM25Search with real database."""
 
     @pytest.mark.asyncio
-    async def test_bm25_search_with_keywords(self, db_session: AsyncSession) -> None:
-        """Test BM25 search finds chunks by keywords."""
+    async def test_bm25_search_with_terms(self, db_session: AsyncSession) -> None:
+        """Test BM25 search finds chunks by terms."""
         # Create channel
         channel = Channel(
             name="BM25 Test Channel",
@@ -536,7 +536,7 @@ class TestBM25SearchIntegration:
         db_session.add(channel)
         await db_session.flush()
 
-        # Create chunks with different keywords
+        # Create chunks with different terms
         chunks = [
             ContentChunk(
                 channel_id=channel.id,
@@ -547,7 +547,7 @@ class TestBM25SearchIntegration:
                 is_opinion=False,
                 is_example=False,
                 is_analogy=False,
-                keywords=["python", "programming", "AI"],
+                terms=["python", "programming", "AI"],
                 embedding_model="test",
             ),
             ContentChunk(
@@ -559,7 +559,7 @@ class TestBM25SearchIntegration:
                 is_opinion=False,
                 is_example=False,
                 is_analogy=False,
-                keywords=["javascript", "web", "development"],
+                terms=["javascript", "web", "development"],
                 embedding_model="test",
             ),
             ContentChunk(
@@ -571,7 +571,7 @@ class TestBM25SearchIntegration:
                 is_opinion=False,
                 is_example=False,
                 is_analogy=False,
-                keywords=["machine-learning", "AI", "data"],
+                terms=["machine-learning", "AI", "data"],
                 embedding_model="test",
             ),
         ]
@@ -587,16 +587,16 @@ class TestBM25SearchIntegration:
         saved_chunks = result.scalars().all()
         assert len(saved_chunks) == 3
 
-        # Verify keywords are stored correctly
-        python_chunk = next(c for c in saved_chunks if "python" in c.keywords)
-        assert "programming" in python_chunk.keywords
-        assert "AI" in python_chunk.keywords
+        # Verify terms are stored correctly
+        python_chunk = next(c for c in saved_chunks if "python" in c.terms)
+        assert "programming" in python_chunk.terms
+        assert "AI" in python_chunk.terms
 
     @pytest.mark.asyncio
-    async def test_content_chunk_keywords_array(self, db_session: AsyncSession) -> None:
-        """Test that keywords array field works correctly."""
+    async def test_content_chunk_terms_array(self, db_session: AsyncSession) -> None:
+        """Test that terms array field works correctly."""
         channel = Channel(
-            name="Keywords Array Test",
+            name="Terms Array Test",
             topic_config={},
             source_config={},
             content_config={},
@@ -605,32 +605,32 @@ class TestBM25SearchIntegration:
         db_session.add(channel)
         await db_session.flush()
 
-        # Create chunk with empty keywords
+        # Create chunk with empty terms
         chunk_empty = ContentChunk(
             channel_id=channel.id,
             content_type=ContentType.SCRIPT,
-            text="Content without keywords",
+            text="Content without terms",
             chunk_index=0,
             position=ChunkPosition.BODY,
             is_opinion=False,
             is_example=False,
             is_analogy=False,
-            keywords=[],
+            terms=[],
             embedding_model="test",
         )
         db_session.add(chunk_empty)
 
-        # Create chunk with many keywords
+        # Create chunk with many terms
         chunk_many = ContentChunk(
             channel_id=channel.id,
             content_type=ContentType.SCRIPT,
-            text="Content with many keywords",
+            text="Content with many terms",
             chunk_index=1,
             position=ChunkPosition.BODY,
             is_opinion=False,
             is_example=False,
             is_analogy=False,
-            keywords=["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"],
+            terms=["term1", "term2", "term3", "term4", "term5"],
             embedding_model="test",
         )
         db_session.add(chunk_many)
@@ -640,6 +640,6 @@ class TestBM25SearchIntegration:
         await db_session.refresh(chunk_empty)
         await db_session.refresh(chunk_many)
 
-        assert chunk_empty.keywords == []
-        assert len(chunk_many.keywords) == 5
-        assert "keyword3" in chunk_many.keywords
+        assert chunk_empty.terms == []
+        assert len(chunk_many.terms) == 5
+        assert "term3" in chunk_many.terms

@@ -149,6 +149,7 @@ class GoogleTrendsSource(BaseSource[GoogleTrendsConfig]):
                     "region": region,
                 },
                 metadata={
+                    "source_name": "GoogleTrends",
                     "google_query": query,
                     "region": region,
                     "trends_url": (

@@ -58,13 +58,13 @@ class NormalizedTopic(BaseModel):
         title_translated: Translated title (if needed)
         title_normalized: Cleaned and normalized title
         summary: Auto-generated summary
-        categories: Topic categories (tech, news, science, etc.)
-        keywords: Extracted keywords
+        terms: Extracted terms for filtering and matching
         entities: Named entities (companies, products, people, etc.)
         language: Detected language code (en, ko, etc.)
         published_at: Publication timestamp
         content_hash: SHA-256 hash for deduplication
         metrics: Original source metrics
+        metadata: Source-specific metadata (source_name, etc.)
     """
 
     source_id: uuid.UUID
@@ -73,13 +73,13 @@ class NormalizedTopic(BaseModel):
     title_translated: str | None = None
     title_normalized: str
     summary: str
-    categories: list[str] = Field(default_factory=list)
-    keywords: list[str] = Field(default_factory=list)
+    terms: list[str] = Field(default_factory=list)
     entities: dict[str, list[str]] = Field(default_factory=dict)
     language: str = "en"
     published_at: datetime | None = None
     content_hash: str
     metrics: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     class Config:
         """Pydantic config."""
@@ -138,7 +138,7 @@ class BaseSource(ABC, Generic[ConfigT]):
         self._config = config
 
     @abstractmethod
-    async def collect(self, params: dict[str, Any]) -> list[RawTopic]:
+    async def collect(self, params: dict[str, Any] | None = None) -> list[RawTopic]:
         """Collect raw topics from the source.
 
         Args:

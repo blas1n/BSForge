@@ -15,6 +15,7 @@ Trend Sources:
 
 Scraper Sources:
 - WebScraperSource: Base class for HTML scraping
+- KoreanWebScraperBase: Base class for Korean community scrapers
 - Clien: 클리앙 community scraper
 - DCInside: 디시인사이드 gallery scraper
 - Ruliweb: 루리웹 community scraper
@@ -23,7 +24,7 @@ Scraper Sources:
 Note: Uses lazy imports to avoid heavy dependencies (pandas) loading at module import.
 """
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from app.services.collector.sources.clien import ClienSource
@@ -31,6 +32,7 @@ if TYPE_CHECKING:
     from app.services.collector.sources.fmkorea import FmkoreaSource
     from app.services.collector.sources.google_trends import GoogleTrendsSource
     from app.services.collector.sources.hackernews import HackerNewsSource
+    from app.services.collector.sources.korean_scraper_base import KoreanWebScraperBase
     from app.services.collector.sources.reddit import RedditSource
     from app.services.collector.sources.rss import RSSSource
     from app.services.collector.sources.ruliweb import RuliwebSource
@@ -48,6 +50,7 @@ __all__ = [
     "GoogleTrendsSource",
     # Scraper sources
     "WebScraperSource",
+    "KoreanWebScraperBase",
     "ClienSource",
     "DCInsideSource",
     "RuliwebSource",
@@ -55,46 +58,34 @@ __all__ = [
 ]
 
 
+# Registry for lazy loading source classes
+_SOURCE_REGISTRY: dict[str, tuple[str, str]] = {
+    # API sources
+    "HackerNewsSource": ("hackernews", "HackerNewsSource"),
+    "RedditSource": ("reddit", "RedditSource"),
+    "YouTubeTrendingSource": ("youtube_trending", "YouTubeTrendingSource"),
+    # Feed sources
+    "RSSSource": ("rss", "RSSSource"),
+    # Trend sources
+    "GoogleTrendsSource": ("google_trends", "GoogleTrendsSource"),
+    # Scraper base classes
+    "WebScraperSource": ("web_scraper", "WebScraperSource"),
+    "KoreanWebScraperBase": ("korean_scraper_base", "KoreanWebScraperBase"),
+    # Korean scrapers
+    "ClienSource": ("clien", "ClienSource"),
+    "DCInsideSource": ("dcinside", "DCInsideSource"),
+    "RuliwebSource": ("ruliweb", "RuliwebSource"),
+    "FmkoreaSource": ("fmkorea", "FmkoreaSource"),
+}
+
+
 def __getattr__(name: str) -> type:
     """Lazy import for source collectors to avoid loading heavy dependencies."""
-    if name == "HackerNewsSource":
-        from app.services.collector.sources.hackernews import HackerNewsSource
-
-        return HackerNewsSource
-    if name == "RedditSource":
-        from app.services.collector.sources.reddit import RedditSource
-
-        return RedditSource
-    if name == "YouTubeTrendingSource":
-        from app.services.collector.sources.youtube_trending import YouTubeTrendingSource
-
-        return YouTubeTrendingSource
-    if name == "RSSSource":
-        from app.services.collector.sources.rss import RSSSource
-
-        return RSSSource
-    if name == "GoogleTrendsSource":
-        from app.services.collector.sources.google_trends import GoogleTrendsSource
-
-        return GoogleTrendsSource
-    if name == "WebScraperSource":
-        from app.services.collector.sources.web_scraper import WebScraperSource
-
-        return WebScraperSource
-    if name == "ClienSource":
-        from app.services.collector.sources.clien import ClienSource
-
-        return ClienSource
-    if name == "DCInsideSource":
-        from app.services.collector.sources.dcinside import DCInsideSource
-
-        return DCInsideSource
-    if name == "RuliwebSource":
-        from app.services.collector.sources.ruliweb import RuliwebSource
-
-        return RuliwebSource
-    if name == "FmkoreaSource":
-        from app.services.collector.sources.fmkorea import FmkoreaSource
-
-        return FmkoreaSource
+    if name in _SOURCE_REGISTRY:
+        module_name, class_name = _SOURCE_REGISTRY[name]
+        module = __import__(
+            f"app.services.collector.sources.{module_name}",
+            fromlist=[class_name],
+        )
+        return cast(type, getattr(module, class_name))
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

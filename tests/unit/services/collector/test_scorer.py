@@ -5,7 +5,7 @@ Tests cover:
 - Weighted score aggregation
 - Freshness decay
 - Trend momentum
-- Category/keyword/entity relevance
+- Term/entity relevance
 - Novelty scoring
 - Series and multi-source bonuses
 """
@@ -26,8 +26,7 @@ from app.services.collector.scorer import (
 
 def create_normalized_topic(
     title: str = "Test Topic",
-    categories: list[str] | None = None,
-    keywords: list[str] | None = None,
+    terms: list[str] | None = None,
     entities: dict[str, list[str]] | None = None,
     published_at: datetime | None = None,
     metrics: dict | None = None,
@@ -39,8 +38,7 @@ def create_normalized_topic(
         title_original=title,
         title_normalized=title.lower(),
         summary=f"Summary of {title}",
-        categories=categories or ["tech"],
-        keywords=keywords or ["test", "topic"],
+        terms=terms or ["tech", "test", "topic"],
         entities=entities or {},
         language="en",
         published_at=published_at or datetime.now(UTC),
@@ -57,10 +55,9 @@ def scorer() -> TopicScorer:
 
 @pytest.fixture
 def scorer_with_targets() -> TopicScorer:
-    """Create a TopicScorer with target categories/keywords."""
+    """Create a TopicScorer with target terms."""
     config = ScoringConfig(
-        target_categories=["tech", "ai", "programming"],
-        target_keywords=["python", "machine learning", "api"],
+        target_terms=["tech", "ai", "programming", "python", "machine learning", "api"],
         target_entities=["OpenAI", "Google", "Microsoft"],
     )
     return TopicScorer(config=config)
@@ -152,26 +149,26 @@ class TestTrendMomentum:
 
     def test_trend_momentum_with_data(self, scorer: TopicScorer):
         """Test trend momentum from trend data."""
-        keywords = ["ai", "machine learning"]
+        terms = ["ai", "machine learning"]
         trend_data = {"ai": 0.8, "machine learning": 0.6}
 
-        momentum = scorer._calc_trend_momentum(keywords, trend_data)
+        momentum = scorer._calc_trend_momentum(terms, trend_data)
         assert abs(momentum - 0.7) < 0.01  # Average of 0.8 and 0.6
 
     def test_trend_momentum_partial_match(self, scorer: TopicScorer):
-        """Test trend momentum with partial keyword match."""
-        keywords = ["ai", "python", "web"]
-        trend_data = {"ai": 0.9}  # Only one keyword matches
+        """Test trend momentum with partial term match."""
+        terms = ["ai", "python", "web"]
+        trend_data = {"ai": 0.9}  # Only one term matches
 
-        momentum = scorer._calc_trend_momentum(keywords, trend_data)
+        momentum = scorer._calc_trend_momentum(terms, trend_data)
         assert momentum == 0.9
 
     def test_trend_momentum_no_match(self, scorer: TopicScorer):
-        """Test trend momentum with no matching keywords."""
-        keywords = ["python", "web"]
+        """Test trend momentum with no matching terms."""
+        terms = ["python", "web"]
         trend_data = {"ai": 0.8}
 
-        momentum = scorer._calc_trend_momentum(keywords, trend_data)
+        momentum = scorer._calc_trend_momentum(terms, trend_data)
         assert momentum == 0.0
 
     def test_trend_momentum_empty_data(self, scorer: TopicScorer):
@@ -201,44 +198,27 @@ class TestMultiSourceBonus:
         assert scorer._calc_multi_source_bonus(10) == 0.3
 
 
-class TestCategoryRelevance:
-    """Tests for category relevance scoring."""
+class TestTermRelevance:
+    """Tests for term relevance scoring."""
 
-    def test_category_relevance_full_match(self, scorer_with_targets: TopicScorer):
-        """Test full category match."""
-        categories = ["tech", "ai"]
-        relevance = scorer_with_targets._calc_category_relevance(categories)
-        # Jaccard: intersection(2) / union(4) = 0.5
+    def test_term_relevance_full_match(self, scorer_with_targets: TopicScorer):
+        """Test full term match."""
+        terms = ["tech", "ai"]
+        relevance = scorer_with_targets._calc_term_relevance(terms)
+        # Has matches in target_terms
         assert relevance > 0
 
-    def test_category_relevance_no_match(self, scorer_with_targets: TopicScorer):
-        """Test no category match."""
-        categories = ["sports", "entertainment"]
-        relevance = scorer_with_targets._calc_category_relevance(categories)
+    def test_term_relevance_no_match(self, scorer_with_targets: TopicScorer):
+        """Test no term match."""
+        terms = ["sports", "entertainment"]
+        relevance = scorer_with_targets._calc_term_relevance(terms)
         assert relevance == 0.0
 
-    def test_category_relevance_no_targets(self, scorer: TopicScorer):
+    def test_term_relevance_no_targets(self, scorer: TopicScorer):
         """Test neutral score when no targets configured."""
-        categories = ["tech", "ai"]
-        relevance = scorer._calc_category_relevance(categories)
+        terms = ["tech", "ai"]
+        relevance = scorer._calc_term_relevance(terms)
         assert relevance == 0.5  # Neutral
-
-
-class TestKeywordRelevance:
-    """Tests for keyword relevance scoring."""
-
-    def test_keyword_relevance_partial_match(self, scorer_with_targets: TopicScorer):
-        """Test partial keyword match."""
-        keywords = ["python", "web", "django"]
-        relevance = scorer_with_targets._calc_keyword_relevance(keywords)
-        # Has "python" from targets
-        assert relevance > 0
-
-    def test_keyword_relevance_no_targets(self, scorer: TopicScorer):
-        """Test neutral score when no targets configured."""
-        keywords = ["python", "web"]
-        relevance = scorer._calc_keyword_relevance(keywords)
-        assert relevance == 0.5
 
 
 class TestEntityRelevance:
@@ -267,32 +247,32 @@ class TestNovelty:
 
     def test_novelty_completely_new(self, scorer: TopicScorer):
         """Test novelty for topic with no history overlap."""
-        keywords = ["new", "unique", "topic"]
-        history = {"old", "different", "keywords"}
+        terms = ["new", "unique", "topic"]
+        history = {"old", "different", "terms"}
 
-        novelty = scorer._calc_novelty(keywords, history)
+        novelty = scorer._calc_novelty(terms, history)
         assert novelty == 1.0
 
     def test_novelty_full_overlap(self, scorer: TopicScorer):
         """Test novelty for topic with full history overlap."""
-        keywords = ["python", "api", "web"]
+        terms = ["python", "api", "web"]
         history = {"python", "api", "web"}
 
-        novelty = scorer._calc_novelty(keywords, history)
+        novelty = scorer._calc_novelty(terms, history)
         assert novelty == 0.0
 
     def test_novelty_partial_overlap(self, scorer: TopicScorer):
         """Test novelty for topic with partial overlap."""
-        keywords = ["python", "api", "new", "topic"]
+        terms = ["python", "api", "new", "topic"]
         history = {"python", "api"}
 
-        novelty = scorer._calc_novelty(keywords, history)
+        novelty = scorer._calc_novelty(terms, history)
         assert novelty == 0.5  # 2/4 overlap → 0.5 novelty
 
     def test_novelty_no_history(self, scorer: TopicScorer):
         """Test novelty when no history."""
-        keywords = ["python", "api"]
-        novelty = scorer._calc_novelty(keywords, set())
+        terms = ["python", "api"]
+        novelty = scorer._calc_novelty(terms, set())
         assert novelty == 1.0
 
 
@@ -339,8 +319,7 @@ class TestFullScoring:
     def test_score_topic_with_context(self, scorer_with_targets: TopicScorer):
         """Test scoring with all context provided."""
         topic = create_normalized_topic(
-            categories=["tech", "ai"],
-            keywords=["python", "machine learning"],
+            terms=["tech", "ai", "python", "machine learning"],
             entities={"company": ["OpenAI"]},
         )
 
@@ -348,7 +327,7 @@ class TestFullScoring:
             topic,
             source_credibility=8.0,
             trend_data={"python": 0.7, "machine learning": 0.8},
-            history_keywords={"old", "topic"},
+            history_terms={"old", "topic"},
             series_performance=0.85,
             multi_source_count=3,
         )
@@ -404,12 +383,11 @@ class TestScoringConfig:
     def test_custom_weights(self):
         """Test custom weight configuration that sums to 1.0."""
         weights = ScoringWeights(
-            source_credibility=0.10,  # -0.05
-            source_score=0.10,  # -0.05
-            freshness=0.30,  # +0.10
-            trend_momentum=0.20,  # +0.10
-            category_relevance=0.10,  # -0.05
-            keyword_relevance=0.05,  # -0.05
+            source_credibility=0.10,
+            source_score=0.10,
+            freshness=0.30,
+            trend_momentum=0.20,
+            term_relevance=0.15,
             entity_relevance=0.05,
             novelty=0.10,
         )

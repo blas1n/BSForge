@@ -48,8 +48,7 @@ class TestTopic:
             title_normalized="OpenAI releases GPT-4.5",
             summary="OpenAI announced the release of GPT-4.5 with improved capabilities.",
             source_url="https://news.example.com/gpt45",
-            categories=["tech", "ai"],
-            keywords=["openai", "gpt", "ai"],
+            terms=["tech", "ai", "openai", "gpt"],
             entities={"companies": ["OpenAI"], "products": ["GPT-4.5"]},
             language="en",
             score_source=0.9,
@@ -74,8 +73,7 @@ class TestTopic:
         assert topic.title_translated == "OpenAI가 GPT-4.5를 출시하다"
         assert topic.score_total == 85
         assert topic.status == TopicStatus.PENDING
-        assert len(topic.categories) == 2
-        assert len(topic.keywords) == 3
+        assert len(topic.terms) == 4
         assert "OpenAI" in topic.entities["companies"]
 
     @pytest.mark.asyncio
@@ -97,8 +95,7 @@ class TestTopic:
             title_normalized="test",
             summary="Summary",
             source_url="https://example.com",
-            categories=[],
-            keywords=[],
+            terms=[],
             entities={},
             expires_at=datetime.now(UTC) + timedelta(days=1),
             content_hash="hash123",
@@ -139,8 +136,7 @@ class TestTopic:
                 title_normalized=f"topic {i}",
                 summary=f"Summary {i}",
                 source_url=f"https://example.com/{i}",
-                categories=["test"],
-                keywords=[],
+                terms=["test"],
                 entities={},
                 expires_at=datetime.now(UTC) + timedelta(days=1),
                 content_hash=f"hash{i}",
@@ -180,8 +176,7 @@ class TestTopic:
             title_normalized="source test topic",
             summary="A topic from a source",
             source_url="https://source.com",
-            categories=["test"],
-            keywords=[],
+            terms=["test"],
             entities={},
             expires_at=datetime.now(UTC) + timedelta(days=1),
             content_hash="sourcehash",
@@ -213,8 +208,7 @@ class TestTopic:
             title_normalized="status topic",
             summary="Testing status",
             source_url="https://example.com",
-            categories=[],
-            keywords=[],
+            terms=[],
             entities={},
             expires_at=datetime.now(UTC) + timedelta(days=7),
             content_hash="statushash",
@@ -257,8 +251,7 @@ class TestTopic:
             title_normalized="score test",
             summary="Testing scores",
             source_url="https://example.com",
-            categories=["test"],
-            keywords=[],
+            terms=["test"],
             entities={},
             score_source=0.9,  # 90% credible source
             score_freshness=1.0,  # Very fresh (recent)
@@ -300,8 +293,7 @@ class TestTopic:
             title_normalized="expired topic",
             summary="Old topic",
             source_url="https://example.com",
-            categories=[],
-            keywords=[],
+            terms=[],
             entities={},
             expires_at=past_date,
             content_hash="expiredhash",
@@ -339,8 +331,7 @@ class TestTopic:
             title_normalized="original topic",
             summary="First",
             source_url="https://example.com/1",
-            categories=[],
-            keywords=[],
+            terms=[],
             entities={},
             expires_at=datetime.now(UTC) + timedelta(days=1),
             content_hash=hash_value,

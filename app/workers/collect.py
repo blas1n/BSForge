@@ -34,7 +34,9 @@ from app.config.sources import (
     RSSConfig,
     YouTubeTrendingConfig,
 )
-from app.core.config import settings
+
+# TODO: This module is legacy and should be migrated to DI container.
+from app.core.config import get_config
 from app.services.collector.base import CollectionResult, RawTopic
 from app.services.collector.deduplicator import TopicDeduplicator
 from app.services.collector.global_pool import (
@@ -191,7 +193,7 @@ async def _collect_global_sources_async() -> GlobalCollectionResult:
     errors: list[str] = []
     total_collected = 0
 
-    redis = AsyncRedis.from_url(str(settings.redis_url))
+    redis = AsyncRedis.from_url(str(get_config().redis_url))
     pool = GlobalTopicPool(redis)
 
     # Get all global source types
@@ -259,7 +261,7 @@ async def _collect_channel_topics_async(
     errors: list[str] = []
     all_raw_topics: list[tuple[RawTopic, str]] = []  # (topic, source_type)
 
-    redis = AsyncRedis.from_url(str(settings.redis_url))
+    redis = AsyncRedis.from_url(str(get_config().redis_url))
     pool = GlobalTopicPool(redis)
     scoped_cache = ScopedSourceCache(redis)
 
@@ -283,19 +285,17 @@ async def _collect_channel_topics_async(
             if filters:
                 filtered_topics = []
                 for topic in topics:
-                    # Simple keyword filter on raw topics
-                    include_keywords = filters.get("include_keywords", [])
-                    exclude_keywords = filters.get("exclude_keywords", [])
+                    # Simple term filter on raw topics
+                    include_terms = filters.get("include", [])
+                    exclude_terms = filters.get("exclude", [])
 
                     title_lower = topic.title.lower()
 
-                    if exclude_keywords and any(
-                        kw.lower() in title_lower for kw in exclude_keywords
-                    ):
+                    if exclude_terms and any(term.lower() in title_lower for term in exclude_terms):
                         continue
 
-                    if include_keywords and not any(
-                        kw.lower() in title_lower for kw in include_keywords
+                    if include_terms and not any(
+                        term.lower() in title_lower for term in include_terms
                     ):
                         continue
 
@@ -478,7 +478,7 @@ def collect_channel_topics(
         scoped_sources: Scoped source definitions
             e.g., [{"type": "reddit", "params": {"subreddits": ["python"]}}]
         filters: Filters for global topics
-            e.g., {"include_keywords": ["AI"], "exclude_keywords": ["광고"]}
+            e.g., {"include": ["AI"], "exclude": ["광고"]}
         target_language: Target language (default: "ko")
 
     Returns:

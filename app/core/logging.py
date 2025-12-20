@@ -11,7 +11,7 @@ from typing import Any, cast
 import structlog
 from structlog.types import EventDict, Processor
 
-from app.core.config import settings
+from app.core.config import get_config
 
 
 def add_app_context(logger: Any, method_name: str, event_dict: EventDict) -> EventDict:
@@ -25,8 +25,9 @@ def add_app_context(logger: Any, method_name: str, event_dict: EventDict) -> Eve
     Returns:
         Updated event dictionary with app context
     """
-    event_dict["app"] = settings.app_name
-    event_dict["env"] = settings.app_env
+    config = get_config()
+    event_dict["app"] = config.app_name
+    event_dict["env"] = config.app_env
     return event_dict
 
 
@@ -44,11 +45,13 @@ def setup_logging() -> None:
         >>> logger = structlog.get_logger()
         >>> logger.info("Server started", port=8000)
     """
+    config = get_config()
+
     # Configure standard library logging
     logging.basicConfig(
         format="%(message)s",
         stream=sys.stdout,
-        level=getattr(logging, settings.log_level),
+        level=getattr(logging, config.log_level),
     )
 
     # Structlog processors
@@ -63,7 +66,7 @@ def setup_logging() -> None:
     ]
 
     # Add CallsiteParameterAdder only in development
-    if settings.is_development:
+    if config.is_development:
         processors.append(
             structlog.processors.CallsiteParameterAdder(
                 parameters=[
@@ -75,7 +78,7 @@ def setup_logging() -> None:
         )
 
     # Format based on environment
-    if settings.is_production:
+    if config.is_production:
         # JSON output for production
         processors.extend(
             [

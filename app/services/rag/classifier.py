@@ -4,7 +4,8 @@ This module provides LLM-based classification for content chunks when
 pattern-based classification is insufficient.
 """
 
-from app.core.config import settings
+# TODO: This module is legacy and should be migrated to DI container.
+from app.core.config import get_config
 from app.core.logging import get_logger
 from app.infrastructure.llm import LLMClient, LLMConfig, get_llm_client
 from app.prompts.manager import PromptType, get_prompt_manager
@@ -37,7 +38,7 @@ class ContentClassifier:
             model: Model name in LiteLLM format (default: from settings)
         """
         self.llm_client = llm_client or get_llm_client()
-        self.model = model or settings.llm_model_light
+        self.model = model or get_config().llm_model_light
         self.prompt_manager = get_prompt_manager()
 
     async def classify_characteristics(self, text: str) -> dict[str, bool]:

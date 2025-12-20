@@ -1,7 +1,6 @@
 """Series matching service.
 
-This module implements topic-to-series matching based on
-keywords and categories overlap.
+This module implements topic-to-series matching based on term overlap.
 
 Series detection (based on performance data) is implemented
 separately in the analyzer phase.
@@ -24,23 +23,20 @@ class SeriesMatchResult(BaseModel):
         series_id: ID of matched series (if matched)
         series_name: Name of matched series (if matched)
         similarity: Similarity score (0-1)
-        matched_keywords: Keywords that matched
-        matched_categories: Categories that matched
+        matched_terms: Terms that matched
     """
 
     matched: bool
     series_id: str | None = None
     series_name: str | None = None
     similarity: float = 0.0
-    matched_keywords: list[str] = Field(default_factory=list)
-    matched_categories: list[str] = Field(default_factory=list)
+    matched_terms: list[str] = Field(default_factory=list)
 
 
 class SeriesMatcher:
     """Matches topics to existing series.
 
-    Uses keyword and category overlap to determine if a topic
-    belongs to a configured series.
+    Uses term overlap to determine if a topic belongs to a configured series.
 
     Attributes:
         config: Series matcher configuration
@@ -61,23 +57,22 @@ class SeriesMatcher:
         Config values are already lowercased by Pydantic validators,
         so no conversion needed here.
         """
-        self._series_lookup: dict[str, tuple[SeriesConfig, set[str], set[str]]] = {}
+        self._series_lookup: dict[str, tuple[SeriesConfig, set[str]]] = {}
 
         for series in self.config.series:
             if not series.enabled:
                 continue
 
             # Already lowercase from config validators
-            keywords = set(series.criteria.keywords)
-            categories = set(series.criteria.categories)
+            terms = set(series.criteria.terms)
 
-            self._series_lookup[series.id] = (series, keywords, categories)
+            self._series_lookup[series.id] = (series, terms)
 
     def match(self, topic: NormalizedTopic) -> SeriesMatchResult:
         """Match a topic against configured series.
 
         Args:
-            topic: Normalized topic to match (keywords/categories already lowercase)
+            topic: Normalized topic to match (terms already lowercase)
 
         Returns:
             SeriesMatchResult with match details
@@ -85,31 +80,15 @@ class SeriesMatcher:
         if not self.config.enabled or not self._series_lookup:
             return SeriesMatchResult(matched=False)
 
-        topic_keywords = set(topic.keywords)
-        topic_categories = set(topic.categories)
+        topic_terms = set(topic.terms)
 
         best_match: SeriesMatchResult | None = None
         best_similarity = 0.0
 
-        for series_id, (series, keywords, categories) in self._series_lookup.items():
-            # Calculate keyword overlap
-            keyword_matches = topic_keywords & keywords
-            keyword_similarity = len(keyword_matches) / len(keywords) if keywords else 0.0
-
-            # Calculate category overlap
-            category_matches = topic_categories & categories
-            category_similarity = len(category_matches) / len(categories) if categories else 0.0
-
-            # Combined similarity (average of keyword and category)
-            # If one is empty, use only the other
-            if keywords and categories:
-                similarity = (keyword_similarity + category_similarity) / 2
-            elif keywords:
-                similarity = keyword_similarity
-            elif categories:
-                similarity = category_similarity
-            else:
-                similarity = 0.0
+        for series_id, (series, terms) in self._series_lookup.items():
+            # Calculate term overlap
+            term_matches = topic_terms & terms
+            similarity = len(term_matches) / len(terms) if terms else 0.0
 
             # Check if meets minimum threshold
             if similarity >= series.criteria.min_similarity and similarity > best_similarity:
@@ -119,8 +98,7 @@ class SeriesMatcher:
                     series_id=series_id,
                     series_name=series.name,
                     similarity=similarity,
-                    matched_keywords=list(keyword_matches),
-                    matched_categories=list(category_matches),
+                    matched_terms=list(term_matches),
                 )
 
         if best_match:

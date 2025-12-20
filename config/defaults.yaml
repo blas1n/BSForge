@@ -1,0 +1,84 @@
+# BSForge Global Defaults Configuration
+# System-wide defaults. Channel-specific values are in config/channels/*.yaml
+
+collector:
+  # Maximum topics to process per collection run
+  max_topics: 20
+
+  # Number of top topics to save to database
+  top_topics_to_save: 5
+
+  # Per-source default configurations (min_score, limit)
+  sources:
+    hackernews:
+      min_score: 30
+      limit: 30
+
+    reddit:
+      min_score: 30
+      limit: 20
+
+    dcinside:
+      min_score: 50
+      limit: 10
+
+    clien:
+      min_score: 30
+      limit: 10
+
+    fmkorea:
+      min_score: 30
+      limit: 10
+
+    ruliweb:
+      min_score: 30
+      limit: 10
+
+scoring:
+  # Scale for normalizing source credibility (1-10 -> 0-1)
+  source_credibility_scale: 10.0
+
+  # Default source score when metrics unavailable
+  default_source_score: 0.5
+
+  # Base for freshness exponential decay
+  freshness_decay_base: 2.0
+
+  # Bonus scores for topics mentioned by multiple sources
+  multi_source_bonuses:
+    2: 0.1
+    3: 0.2
+    4: 0.3  # 4+ sources
+
+  # Series performance thresholds and bonuses
+  series_performance:
+    high_threshold: 0.8
+    high_bonus: 0.3
+    medium_threshold: 0.5
+    medium_bonus: 0.15
+    low_bonus: 0.05
+
+generator:
+  # Ken Burns effect parameters
+  ken_burns:
+    zoom_increment: 0.001
+    max_zoom: 1.2
+
+  # Supported video file extensions
+  video_extensions:
+    - .mp4
+    - .mov
+    - .avi
+    - .webm
+    - .mkv
+
+quality:
+  script:
+    words_per_minute: 150
+    min_style_score: 0.7
+    min_hook_score: 0.5
+    min_duration_seconds: 30
+    max_duration_seconds: 90
+
+  rag:
+    min_hook_performance: 0.5

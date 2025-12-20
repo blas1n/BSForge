@@ -13,7 +13,9 @@ import httpx
 from pydantic import HttpUrl
 
 from app.config.sources import YouTubeTrendingConfig
-from app.core.config import settings
+
+# TODO: This module is legacy and should be migrated to DI container.
+from app.core.config import get_config
 from app.core.logging import get_logger
 from app.services.collector.base import BaseSource, RawTopic
 
@@ -60,10 +62,10 @@ class YouTubeTrendingSource(BaseSource[YouTubeTrendingConfig]):
         Returns:
             API key or None if not configured
         """
-        # Try config first, then settings
+        # Try config first, then global config
         if self._config.api_key:
             return self._config.api_key
-        return getattr(settings, "youtube_api_key", None)
+        return getattr(get_config(), "youtube_api_key", None)
 
     async def collect(self, params: dict[str, Any] | None = None) -> list[RawTopic]:
         """Collect trending videos from YouTube.
@@ -200,6 +202,7 @@ class YouTubeTrendingSource(BaseSource[YouTubeTrendingConfig]):
                     "comments": int(statistics.get("commentCount", 0)),
                 },
                 metadata={
+                    "source_name": "YouTube",
                     "video_id": video_id,
                     "channel_id": snippet.get("channelId"),
                     "channel_title": snippet.get("channelTitle"),

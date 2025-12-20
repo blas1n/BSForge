@@ -1,0 +1,90 @@
+# Korean Language Configuration for Subtitles
+# Contains language-specific rules for subtitle segmentation and styling.
+
+subtitle:
+  # Korean sentence endings that signal natural break points
+  # Break AFTER these patterns
+  sentence_endings:
+    # With punctuation
+    - "요."
+    - "다."
+    - "죠."
+    - "네."
+    - "거든요."
+    - "세요."
+    - "어요."
+    - "아요."
+    - "해요."
+    - "에요."
+    - "래요."
+    - "데요."
+    - "나요."
+    - "군요."
+    - "지요."
+    # Question marks
+    - "요?"
+    - "다?"
+    - "죠?"
+    - "네?"
+    - "나요?"
+    # Exclamation marks
+    - "요!"
+    - "다!"
+    - "죠!"
+    - "네!"
+    # Without punctuation (for edge cases)
+    - "거든요"
+    - "세요"
+    - "해요"
+    - "에요"
+    - "래요"
+    - "데요"
+    - "나요"
+
+  # Connectors that should start a new segment
+  # Break BEFORE these words
+  connectors:
+    - "근데"
+    - "그래서"
+    - "하지만"
+    - "그리고"
+    - "사실"
+    - "솔직히"
+    - "그런데"
+    - "따라서"
+    - "또한"
+    - "즉"
+    - "왜냐하면"
+
+  # Particles that complete a phrase (for soft break decisions)
+  complete_particles:
+    - "은"
+    - "는"
+    - "이"
+    - "가"
+    - "을"
+    - "를"
+    - "에서"
+    - "에게"
+    - "로"
+
+  # Punctuation characters
+  punctuation: ".!?。！？"
+  punctuation_with_comma: ".!?。！？,，"
+
+timing:
+  # Tolerance for scene timing matching (seconds)
+  tolerance_seconds: 0.01
+
+  # Allowed word limit overhead before forcing break
+  word_limit_overhead: 2
+
+  # Maximum words per segment for karaoke mode
+  karaoke_max_words: 4
+
+  # Maximum words per segment for normal mode
+  default_max_words: 10
+
+  # Fade animation durations (milliseconds)
+  fade_in_ms: 100
+  fade_out_ms: 50

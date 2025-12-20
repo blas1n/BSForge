@@ -35,6 +35,26 @@ services/
 - Uses Redis for deduplication and priority queue
 - Global pool for shared sources (HN, YouTube Trends)
 
+### Key Components
+
+- **Source Factory** (`sources/factory.py`): Creates source instances from config
+  - `create_source(source_name, overrides)` - Factory function for all source types
+  - `collect_from_sources(sources, overrides)` - Collect from multiple sources
+
+- **Topic Clusterer** (`clusterer.py`): Groups similar topics across sources
+  - Semantic similarity using TF-IDF + cosine similarity
+  - Cluster merging for multi-source topics
+  - Helper functions: `cluster_topics()`, `get_best_from_clusters()`
+
+- **Filter** (`filter.py`): Unified include/exclude filtering
+  - Matches against title and terms
+  - Case-insensitive matching
+
+- **Korean Web Scraper Base** (`sources/korean_scraper_base.py`): Base class for Korean community scrapers
+  - Shared methods: `_parse_number()`, `_parse_korean_relative_date()`, `_parse_date()`
+  - Common `_to_raw_topic()` conversion
+  - Used by: Clien, DCInside, FMKorea, Ruliweb
+
 ## RAG System
 
 **Current**: Hybrid search (70% semantic + 30% BM25) via ParadeDB pg_search
@@ -58,13 +78,45 @@ Key components:
 
 Visual sourcing priority: stock_video → stock_image → ai_image → fallback
 
-Scene types: HOOK, INTRO, CONTENT, EXAMPLE, COMMENTARY, REACTION, CONCLUSION, CTA
+### Scene Model
 
-Visual styles: NEUTRAL (facts), PERSONA (opinions), EMPHASIS (conclusions)
+Scene types: `HOOK`, `INTRO`, `CONTENT`, `EXAMPLE`, `COMMENTARY`, `REACTION`, `CONCLUSION`, `CTA`
+
+Visual styles: `NEUTRAL` (facts), `PERSONA` (opinions), `EMPHASIS` (conclusions)
+
+Key scene attributes:
+- `tts_text`: Pre-processed text for TTS (pronunciation fixed)
+- `subtitle_segments`: Word-level timing for karaoke subtitles
+- `visual_hint`: Search keywords for visual matching
+- `transition_in`/`transition_out`: Transition effects (FADE, CUT, SLIDE, etc.)
+
+### Config Externalization
+
+Video generator configs are now in YAML:
+- `config/defaults.yaml` - Ken Burns zoom, video extensions, quality thresholds
+- `config/language/korean.yaml` - Subtitle segmentation rules
 
 ### Generator TODOs
 
 - [ ] A/B testing for video variations
+
+## Configuration
+
+### Config Validators (`app/config/validators.py`)
+
+Shared validation utilities for Pydantic models:
+- `validate_weights_sum()` - Ensure weights sum to 1.0
+- `validate_range_list()` - Validate list values are in range, dedupe, sort
+- `normalize_string_list()` - Lowercase string lists
+- `normalize_string()` - Lowercase single strings
+
+### Config Loading (`app/core/config_loader.py`)
+
+Global config loading with caching:
+- `load_defaults()` - Load `config/defaults.yaml`
+- `load_language_config("korean")` - Load `config/language/korean.yaml`
+- `load_quality_config()` - Load quality section from `defaults.yaml`
+- `clear_config_cache()` - Clear all cached configs
 
 ## Common Patterns
 

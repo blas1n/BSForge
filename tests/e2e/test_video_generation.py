@@ -163,11 +163,11 @@ class TestThumbnailGeneration:
         )
 
         assert result.exists()
-        # Verify dimensions (should be 1280x720)
+        # Verify dimensions (default is 1080x1920 for YouTube Shorts portrait)
         from PIL import Image
 
         img = Image.open(result)
-        assert img.size == (1280, 720)
+        assert img.size == (1080, 1920)
 
 
 class TestFullVideoPipeline:
@@ -333,3 +333,127 @@ class TestVideoQuality:
         assert codec == "h264", "Should use H.264 codec"
         assert width == 1080, "Should be 1080 pixels wide"
         assert height == 1920, "Should be 1920 pixels tall (9:16 aspect ratio)"
+
+
+class TestSceneBasedPipeline:
+    """E2E tests for scene-based video generation pipeline."""
+
+    @pytest.mark.asyncio
+    async def test_scene_based_video_generation(
+        self,
+        temp_output_dir: Path,
+        skip_without_ffmpeg: None,
+    ) -> None:
+        """Test complete scene-based video generation."""
+        from app.models.scene import Scene, SceneScript, SceneType, VisualHintType
+        from app.services.generator.tts.utils import concatenate_scene_audio
+
+        # Create sample scenes
+        scenes = [
+            Scene(
+                scene_type=SceneType.HOOK,
+                text="테스트 시작합니다",
+                keyword="test start",
+                visual_hint=VisualHintType.STOCK_IMAGE,
+            ),
+            Scene(
+                scene_type=SceneType.CONTENT,
+                text="이것은 내용입니다",
+                keyword="content",
+                visual_hint=VisualHintType.STOCK_IMAGE,
+            ),
+            Scene(
+                scene_type=SceneType.CONCLUSION,
+                text="마무리합니다",
+                keyword="end",
+                visual_hint=VisualHintType.STOCK_IMAGE,
+            ),
+        ]
+
+        scene_script = SceneScript(
+            scenes=scenes,
+            headline_keyword="테스트",
+            headline_hook="E2E 검증",
+        )
+
+        # Step 1: Generate TTS for each scene
+        tts_engine = EdgeTTSEngine()
+        tts_config = TTSConfigDataclass(voice_id="ko-KR-InJoonNeural", speed=1.1)
+
+        scene_tts_results = await tts_engine.synthesize_scenes(
+            scenes=scenes,
+            config=tts_config,
+            output_dir=temp_output_dir / "audio_scenes",
+        )
+
+        assert len(scene_tts_results) == len(scenes)
+        for result in scene_tts_results:
+            assert result.audio_path.exists()
+
+        # Step 2: Concatenate audio
+        combined_tts = await concatenate_scene_audio(
+            scene_results=scene_tts_results,
+            output_path=temp_output_dir / "combined_audio",
+        )
+
+        assert combined_tts.audio_path.exists()
+        assert combined_tts.duration_seconds > 0
+
+        # Step 3: Generate subtitles
+        subtitle_gen = SubtitleGenerator()
+        subtitle_file = subtitle_gen.generate_from_scene_results(
+            scene_results=scene_tts_results,
+            scenes=scenes,
+        )
+
+        subtitle_path = temp_output_dir / "subtitles.ass"
+        subtitle_gen.to_ass(subtitle_file, subtitle_path)
+
+        assert subtitle_path.exists()
+
+        # Step 4: Generate visuals
+        fallback_gen = FallbackGenerator()
+        visuals = []
+        for i, tts_result in enumerate(scene_tts_results):
+            assets = await fallback_gen.search(f"scene_{i}", max_results=1)
+            downloaded = await fallback_gen.download(assets[0], temp_output_dir / "visuals")
+            downloaded.duration = tts_result.duration_seconds
+            visuals.append(downloaded)
+
+        assert len(visuals) == len(scenes)
+
+        # Step 5: Compose video
+        from app.services.generator.visual.manager import SceneVisualResult
+
+        current_offset = 0.0
+        scene_visuals = []
+        for i, (scene, visual, tts_result) in enumerate(
+            zip(scenes, visuals, scene_tts_results, strict=False)
+        ):
+            scene_visuals.append(
+                SceneVisualResult(
+                    scene_index=i,
+                    scene_type=scene.scene_type.value,
+                    asset=visual,
+                    duration=tts_result.duration_seconds,
+                    start_offset=current_offset,
+                )
+            )
+            current_offset += tts_result.duration_seconds
+
+        compositor = FFmpegCompositor(CompositionConfig())
+        final_path = temp_output_dir / "scene_video.mp4"
+
+        result = await compositor.compose_scenes(
+            scenes=scenes,
+            scene_tts_results=scene_tts_results,
+            scene_visuals=scene_visuals,
+            combined_audio_path=combined_tts.audio_path,
+            subtitle_file=subtitle_path,
+            output_path=final_path,
+            headline_keyword=scene_script.headline_keyword,
+            headline_hook=scene_script.headline_hook,
+        )
+
+        assert final_path.exists()
+        assert result.duration_seconds > 0

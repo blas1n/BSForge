@@ -11,20 +11,20 @@ from typing import Any
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup, Tag
-from pydantic import HttpUrl
 
 from app.config.sources import DCInsideConfig
 from app.core.logging import get_logger
 from app.services.collector.base import BaseSource, RawTopic
-from app.services.collector.sources.web_scraper import WebScraperSource
+from app.services.collector.sources.korean_scraper_base import KoreanWebScraperBase
 
 logger = get_logger(__name__)
 
 
-class DCInsideSource(WebScraperSource, BaseSource[DCInsideConfig]):
+class DCInsideSource(KoreanWebScraperBase, BaseSource[DCInsideConfig]):
     """DC Inside gallery source collector.
 
     Fetches posts from DC Inside galleries (major, minor, mini).
+    Inherits common Korean parsing utilities from KoreanWebScraperBase.
 
     Config options:
         galleries: List of gallery IDs (e.g., ['programming', 'ai'])
@@ -53,6 +53,11 @@ class DCInsideSource(WebScraperSource, BaseSource[DCInsideConfig]):
     ):
         """Initialize DC Inside source collector."""
         super().__init__(config, source_id)
+
+    @property
+    def source_name_kr(self) -> str:
+        """Korean name of the source for logging and display."""
+        return "디시인사이드"
 
     def _get_list_urls(self, base_url: str, params: dict[str, Any]) -> list[str]:
         """Get list URLs for configured galleries.
@@ -200,25 +205,12 @@ class DCInsideSource(WebScraperSource, BaseSource[DCInsideConfig]):
             "gallery": gallery,
         }
 
-    def _parse_number(self, text: str) -> int:
-        """Parse number from text.
-
-        Args:
-            text: Text containing number
-
-        Returns:
-            Parsed integer
-        """
-        if not text:
-            return 0
-
-        try:
-            return int(re.sub(r"[^\d]", "", text))
-        except ValueError:
-            return 0
-
     def _parse_date(self, text: str) -> datetime | None:
-        """Parse date from various formats.
+        """Parse date from various DC Inside formats.
+
+        Extends base class parsing with DC Inside specific formats:
+        - Time only "14:30" (interpreted as today)
+        - Short date "01.15" (interpreted as current year)
 
         Args:
             text: Date text
@@ -226,16 +218,15 @@ class DCInsideSource(WebScraperSource, BaseSource[DCInsideConfig]):
         Returns:
             Datetime or None
         """
+        # Try base class parsing first (Korean relative dates + standard formats)
+        result = super()._parse_date(text)
+        if result:
+            return result
+
         if not text:
             return None
 
         text = text.strip()
-
-        # Handle full datetime format "2024-01-15 14:30:45"
-        try:
-            return datetime.strptime(text, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
-        except ValueError:
-            pass
 
         # Handle time only format "14:30" (today)
         if ":" in text and len(text) <= 5:
@@ -282,39 +273,33 @@ class DCInsideSource(WebScraperSource, BaseSource[DCInsideConfig]):
     def _to_raw_topic(self, item: dict[str, Any]) -> RawTopic | None:
         """Convert parsed item to RawTopic.
 
+        Extends base class conversion with DC Inside specific fields:
+        - recommends (추천수)
+        - post_num (글번호)
+        - gallery (갤러리)
+
         Args:
             item: Parsed item dict
 
         Returns:
             RawTopic or None
         """
-        try:
-            return RawTopic(
-                source_id=str(self.source_id),
-                source_url=HttpUrl(item["url"]),
-                title=item["title"],
-                content=None,
-                published_at=item.get("published_at"),
-                metrics={
-                    "recommends": item.get("recommends", 0),
-                    "views": item.get("views", 0),
-                    "comments": item.get("comments", 0),
-                    "score": item.get("score", 0),
-                },
-                metadata={
-                    "post_num": item.get("post_num"),
-                    "gallery": item.get("gallery"),
-                    "author": item.get("author"),
-                    "source_name": "디시인사이드",
-                },
-            )
-        except Exception as e:
-            logger.warning(
-                "Failed to convert DC Inside post",
-                title=item.get("title", "")[:50],
-                error=str(e),
-            )
+        # Use base class for common conversion
+        raw_topic = super()._to_raw_topic(item)
+        if not raw_topic:
             return None
+
+        # Add DC Inside specific metrics (recommends is separate from score)
+        if "recommends" in item:
+            raw_topic.metrics["recommends"] = item["recommends"]
+
+        # Add DC Inside specific metadata
+        if item.get("post_num"):
+            raw_topic.metadata["post_num"] = item["post_num"]
+        if item.get("gallery"):
+            raw_topic.metadata["gallery"] = item["gallery"]
+
+        return raw_topic
 
 
 __all__ = ["DCInsideSource"]

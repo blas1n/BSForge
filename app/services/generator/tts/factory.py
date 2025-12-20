@@ -6,7 +6,7 @@ Factory pattern for creating and managing TTS engine instances.
 import logging
 from typing import Literal
 
-from app.config.video import TTSConfig as TTSConfigModel
+from app.config.video import TTSProviderConfig
 from app.services.generator.tts.base import BaseTTSEngine
 from app.services.generator.tts.edge import EdgeTTSEngine
 from app.services.generator.tts.elevenlabs import ElevenLabsEngine
@@ -29,16 +29,16 @@ class TTSEngineFactory:
 
     def __init__(
         self,
-        config: TTSConfigModel | None = None,
+        config: TTSProviderConfig | None = None,
         elevenlabs_api_key: str | None = None,
     ) -> None:
         """Initialize TTSEngineFactory.
 
         Args:
-            config: Optional TTS configuration
+            config: Optional TTS provider configuration
             elevenlabs_api_key: Optional ElevenLabs API key
         """
-        self._config = config or TTSConfigModel()
+        self._config = config or TTSProviderConfig()
         self._elevenlabs_api_key = elevenlabs_api_key
         self._engines: dict[str, BaseTTSEngine] = {}
 

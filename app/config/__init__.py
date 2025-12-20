@@ -19,13 +19,7 @@ from app.config.content import (
     UploadConfig,
     VisualConfig,
 )
-from app.config.filtering import (
-    CategoryFilter,
-    ExcludeFilters,
-    IncludeFilters,
-    KeywordFilter,
-    TopicFilterConfig,
-)
+from app.config.filtering import FilteringConfig
 from app.config.operation import (
     AutoApproveConfig,
     NotificationConfig,
@@ -84,11 +78,7 @@ __all__ = [
     "ChannelInfo",
     "YouTubeConfig",
     # Filtering
-    "TopicFilterConfig",
-    "IncludeFilters",
-    "ExcludeFilters",
-    "CategoryFilter",
-    "KeywordFilter",
+    "FilteringConfig",
     # Persona
     "PersonaConfig",
     "VoiceConfig",

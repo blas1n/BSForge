@@ -76,10 +76,10 @@ async def collect_and_process_topics(channel_config: dict[str, Any]) -> dict[str
     from app.config import ScoringConfig
     from app.infrastructure.llm import get_llm_client
     from app.services.collector.clusterer import TopicClusterer
+    from app.services.collector.filter import TopicFilter
     from app.services.collector.normalizer import TopicNormalizer
     from app.services.collector.scorer import TopicScorer
     from app.services.collector.sources.factory import create_source
-    from app.services.collector.term_filter import TermFilter
 
     print("\n" + "=" * 60)
     print("PHASE 1: Topic Collection")
@@ -142,7 +142,7 @@ async def collect_and_process_topics(channel_config: dict[str, Any]) -> dict[str
             source_uuid = uuid4()
             result = await normalizer.normalize(topic, source_uuid)
             normalized.append(result)
-            print(f"   - {result.title_normalized[:40]}... → {result.categories}")
+            print(f"   - {result.title_normalized[:40]}... → {result.terms[:3]}")
         except Exception as e:
             print(f"   - SKIP: {topic.title[:40]}... (error: {e})")
 
@@ -153,15 +153,19 @@ async def collect_and_process_topics(channel_config: dict[str, Any]) -> dict[str
     # 3. Filter topics using channel config
     print("\n[3/4] Filtering topics using channel config...")
 
-    # Use unified TermFilter
-    term_filter = TermFilter(
-        include_terms=include_terms,
-        exclude_terms=exclude_terms,
+    # Use TopicFilter
+    from app.config.filtering import FilteringConfig
+
+    filter_config = FilteringConfig(
+        include=include_terms,
+        exclude=exclude_terms,
     )
+    topic_filter = TopicFilter(filter_config)
 
     filtered = []
     for topic in normalized:
-        if term_filter.matches(topic):
+        result = topic_filter.filter(topic)
+        if result.passed:
             filtered.append(topic)
             print(f"   PASS: {topic.title_normalized[:50]}...")
         else:
@@ -192,7 +196,7 @@ async def collect_and_process_topics(channel_config: dict[str, Any]) -> dict[str
 
     clusterer = TopicClusterer(
         similarity_threshold=0.45,  # Higher threshold for better precision
-        min_keyword_overlap=3,  # Require more keyword overlap
+        min_term_overlap=3,  # Require more term overlap
     )
     clusters = clusterer.cluster(scored, total_sources=len(enabled_sources))
 
@@ -224,7 +228,7 @@ async def collect_and_process_topics(channel_config: dict[str, Any]) -> dict[str
         print(f"\n   Selected cluster: {best_cluster.primary_topic.title_normalized}")
         print(f"   - Sources: {', '.join(best_cluster.sources)}")
         print(f"   - Topics in cluster: {best_cluster.topic_count}")
-        print(f"   - Combined keywords: {best_cluster.combined_keywords[:10]}")
+        print(f"   - Combined terms: {best_cluster.combined_terms[:10]}")
 
         return {
             "topic": best_cluster.primary_topic,
@@ -260,8 +264,7 @@ async def generate_scene_script(
     print("=" * 60)
 
     print(f"\n[1/3] Analyzing topic: {topic.title_normalized}")
-    print(f"   Keywords: {topic.keywords}")
-    print(f"   Categories: {topic.categories}")
+    print(f"   Terms: {topic.terms}")
 
     if cluster and cluster.source_count > 1:
         print("\n   [Multi-Source Coverage]")
@@ -276,7 +279,7 @@ async def generate_scene_script(
     llm_client = get_llm_client()
 
     # Get LLM config from scene_script_generation.yaml
-    llm_settings = prompt_manager.get_llm_settings(PromptType.SCENE_SCRIPT_GENERATION)
+    llm_settings = prompt_manager.get_llm_settings(PromptType.SCRIPT_GENERATION)
     llm_config = LLMConfig.from_prompt_settings(llm_settings)
 
     print("\n[2/3] Generating scene-based script with LLM...")
@@ -290,7 +293,7 @@ async def generate_scene_script(
     print(f"   Tone: {template_vars['communication_tone']}")
 
     # Render prompt and call LLM
-    prompt = prompt_manager.render(PromptType.SCENE_SCRIPT_GENERATION, **template_vars)
+    prompt = prompt_manager.render(PromptType.SCRIPT_GENERATION, **template_vars)
     response = await llm_client.complete(
         config=llm_config,
         messages=[{"role": "user", "content": prompt}],

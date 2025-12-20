@@ -1,7 +1,7 @@
-"""BM25 keyword search using ParadeDB pg_search extension.
+"""BM25 term search using ParadeDB pg_search extension.
 
-This module provides BM25-based keyword search on ContentChunk.keywords array
-for hybrid RAG retrieval (semantic + keyword).
+This module provides BM25-based term search on ContentChunk.terms array
+for hybrid RAG retrieval (semantic + term-based).
 """
 
 import uuid
@@ -17,9 +17,9 @@ logger = get_logger(__name__)
 
 
 class BM25Search:
-    """BM25 keyword search using ParadeDB pg_search.
+    """BM25 term search using ParadeDB pg_search.
 
-    Provides BM25-based keyword search on ContentChunk.keywords array.
+    Provides BM25-based term search on ContentChunk.terms array.
     Used in conjunction with semantic search for hybrid retrieval.
 
     Attributes:
@@ -71,7 +71,7 @@ class BM25Search:
                     id::text,
                     paradedb.score(id) as bm25_score
                 FROM content_chunks
-                WHERE keywords @@@ :query
+                WHERE terms @@@ :query
             """
 
             params: dict[str, Any] = {"query": sanitized_query}

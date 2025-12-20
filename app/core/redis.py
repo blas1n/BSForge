@@ -1,5 +1,9 @@
 """Redis client configuration and utilities.
 
+TODO: This module is legacy and should be migrated to DI container.
+      Use `from app.core.container import get_redis` instead.
+      RedisManager and helper functions will be removed in future refactoring.
+
 This module provides Redis connection management and common operations.
 Supports both sync and async operations with lazy initialization.
 
@@ -28,7 +32,7 @@ from typing import Any
 from redis import Redis
 from redis.asyncio import Redis as AsyncRedis
 
-from app.core.config import settings
+from app.core.config import get_config
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -65,7 +69,7 @@ class RedisManager:
         """
         if self._async_client is None:
             self._async_client = AsyncRedis.from_url(
-                str(settings.redis_url),
+                str(get_config().redis_url),
                 encoding="utf-8",
                 decode_responses=True,
                 socket_connect_timeout=5,
@@ -83,7 +87,7 @@ class RedisManager:
         """
         if self._sync_client is None:
             self._sync_client = Redis.from_url(
-                str(settings.redis_url),
+                str(get_config().redis_url),
                 encoding="utf-8",
                 decode_responses=True,
                 socket_connect_timeout=5,

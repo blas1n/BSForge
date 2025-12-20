@@ -162,6 +162,7 @@ class HackerNewsSource(BaseSource[HackerNewsConfig]):
                     "comments": story.get("descendants", 0),
                 },
                 metadata={
+                    "source_name": "HackerNews",
                     "hn_id": story["id"],
                     "by": story.get("by"),
                     "type": story.get("type"),

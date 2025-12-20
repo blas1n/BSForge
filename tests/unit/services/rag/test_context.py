@@ -128,7 +128,7 @@ class TestContextBuilder:
         topic.channel_id = uuid.uuid4()
         topic.title_normalized = "Test Topic"
         topic.summary = "Topic summary"
-        topic.keywords = ["python", "programming"]
+        topic.terms = ["python", "programming"]
         return topic
 
     @pytest.fixture
@@ -344,7 +344,7 @@ class TestContextBuilder:
         """Should build query from topic title."""
         mock_topic.title_normalized = "Python Programming"
         mock_topic.summary = None
-        mock_topic.keywords = None
+        mock_topic.terms = None
 
         query = context_builder._build_query(mock_topic)
 
@@ -358,7 +358,7 @@ class TestContextBuilder:
         """Should build query from all topic fields."""
         mock_topic.title_normalized = "Python Basics"
         mock_topic.summary = "Introduction to Python"
-        mock_topic.keywords = ["python", "programming", "tutorial"]
+        mock_topic.terms = ["python", "programming", "tutorial"]
 
         query = context_builder._build_query(mock_topic)
 

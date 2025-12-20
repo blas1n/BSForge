@@ -104,9 +104,10 @@ class TestYouTubeTrendingCollect:
         config = YouTubeTrendingConfig(regions=["KR"], limit=5)  # No api_key
         source = YouTubeTrendingSource(config=config, source_id=source_id)
 
-        # Patch settings to not have api key
-        with patch("app.services.collector.sources.youtube_trending.settings") as mock_settings:
-            mock_settings.youtube_api_key = None
+        # Patch get_config to not have api key
+        with patch("app.services.collector.sources.youtube_trending.get_config") as mock_get_config:
+            mock_config = mock_get_config.return_value
+            mock_config.youtube_api_key = None
 
             topics = await source.collect()
 
@@ -193,8 +194,9 @@ class TestYouTubeTrendingHealthCheck:
         config = YouTubeTrendingConfig(regions=["KR"])  # No api_key
         source = YouTubeTrendingSource(config=config, source_id=source_id)
 
-        with patch("app.services.collector.sources.youtube_trending.settings") as mock_settings:
-            mock_settings.youtube_api_key = None
+        with patch("app.services.collector.sources.youtube_trending.get_config") as mock_get_config:
+            mock_config = mock_get_config.return_value
+            mock_config.youtube_api_key = None
 
             result = await source.health_check()
 

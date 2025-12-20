@@ -14,10 +14,12 @@ Scene-based generation:
 import logging
 import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from app.config.video import SubtitleConfig, SubtitleStyleConfig
+from app.core.config_loader import load_language_config
 from app.services.generator.templates import (
     ASSDialogueParams,
     ASSStyleParams,
@@ -32,6 +34,22 @@ if TYPE_CHECKING:
     from app.models.scene import Scene, VisualStyle
 
 logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=1)
+def _get_korean_subtitle_config() -> dict[str, Any]:
+    """Get Korean subtitle configuration from config/language/korean.yaml."""
+    config = load_language_config("korean")
+    subtitle = config.get("subtitle", {})
+    return subtitle if isinstance(subtitle, dict) else {}
+
+
+@lru_cache(maxsize=1)
+def _get_korean_timing_config() -> dict[str, Any]:
+    """Get Korean timing configuration from config/language/korean.yaml."""
+    config = load_language_config("korean")
+    timing = config.get("timing", {})
+    return timing if isinstance(timing, dict) else {}
 
 
 @dataclass
@@ -122,14 +140,22 @@ class SubtitleGenerator:
         current_text = ""
         segment_index = 1
 
+        # Get timing defaults from config
+        timing_config = _get_korean_timing_config()
+        karaoke_max_words = timing_config.get("karaoke_max_words", 4)
+        default_max_words = timing_config.get("default_max_words", 10)
+
         # Get max_chars from template or config
         if template and template.subtitle:
             max_chars = template.subtitle.max_chars_per_line
             # Shorter segments for karaoke-enabled templates
-            max_words_per_segment = 4 if template.subtitle.karaoke_enabled else 10
+            if template.subtitle.karaoke_enabled:
+                max_words_per_segment = karaoke_max_words
+            else:
+                max_words_per_segment = default_max_words
         else:
             max_chars = self.config.max_chars_per_line
-            max_words_per_segment = 10
+            max_words_per_segment = default_max_words
 
         for word_ts in word_timestamps:
             word = word_ts.word.strip()
@@ -943,64 +969,28 @@ class SubtitleGenerator:
         if not current_text:
             return False
 
+        # Load Korean rules from config
+        korean_config = _get_korean_subtitle_config()
+        timing_config = _get_korean_timing_config()
+
         # Korean sentence endings that signal natural break points
-        # Check if current_text ends with these patterns
-        sentence_endings = (
-            "요.",
-            "다.",
-            "죠.",
-            "네.",
-            "거든요.",
-            "세요.",
-            "어요.",
-            "아요.",
-            "해요.",
-            "에요.",
-            "래요.",
-            "데요.",
-            "나요.",
-            "군요.",
-            "지요.",
-            "요?",
-            "다?",
-            "죠?",
-            "네?",
-            "나요?",
-            "요!",
-            "다!",
-            "죠!",
-            "네!",
-            # Without punctuation (for edge cases)
-            "거든요",
-            "세요",
-            "해요",
-            "에요",
-            "래요",
-            "데요",
-            "나요",
-        )
+        sentence_endings = tuple(korean_config.get("sentence_endings", []))
 
         # Connectors that should start a new segment
-        connectors = (
-            "근데",
-            "그래서",
-            "하지만",
-            "그리고",
-            "사실",
-            "솔직히",
-            "그런데",
-            "따라서",
-            "또한",
-            "즉",
-            "왜냐하면",
-        )
+        connectors = tuple(korean_config.get("connectors", []))
+
+        # Punctuation characters
+        punctuation = korean_config.get("punctuation_with_comma", ".!?。！？,，")
+
+        # Word limit overhead for soft breaks
+        word_limit_overhead = timing_config.get("word_limit_overhead", 2)
 
         # 1. Hard break: exceeds max_chars
         if len(potential_text) > max_chars:
             return True
 
         # 2. Break after punctuation
-        if current_text and current_text[-1] in ".!?。！？,，":
+        if current_text and current_text[-1] in punctuation:
             return True
 
         # 3. Break after Korean sentence endings
@@ -1018,12 +1008,12 @@ class SubtitleGenerator:
         if word_count > max_words:
             # Check if current_text ends with particles that complete a phrase
             # (subject markers, topic markers, object markers)
-            complete_particles = ("은", "는", "이", "가", "을", "를", "에서", "에게", "로")
+            complete_particles = tuple(korean_config.get("complete_particles", []))
             for particle in complete_particles:
                 if current_text.endswith(particle):
                     return True
             # Also break if we're significantly over the limit
-            if word_count > max_words + 2:
+            if word_count > max_words + word_limit_overhead:
                 return True
 
         return False

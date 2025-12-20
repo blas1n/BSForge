@@ -16,7 +16,8 @@ from typing import TYPE_CHECKING, Any
 import litellm
 from litellm import acompletion
 
-from app.core.config import settings
+# TODO: This module is legacy and should be migrated to DI container.
+from app.core.config import get_config
 from app.core.logging import get_logger
 
 if TYPE_CHECKING:
@@ -101,7 +102,7 @@ class LLMClient:
     """
 
     def __init__(self) -> None:
-        """Initialize LLM client with API keys from settings.
+        """Initialize LLM client with API keys from config.
 
         Note: LiteLLM reads API keys from environment variables by default:
         - ANTHROPIC_API_KEY for Anthropic models
@@ -110,11 +111,12 @@ class LLMClient:
         """
         import os
 
+        config = get_config()
         # Only set if not already in environment
-        if settings.anthropic_api_key and not os.environ.get("ANTHROPIC_API_KEY"):
-            os.environ["ANTHROPIC_API_KEY"] = settings.anthropic_api_key
-        if settings.openai_api_key and not os.environ.get("OPENAI_API_KEY"):
-            os.environ["OPENAI_API_KEY"] = settings.openai_api_key
+        if config.anthropic_api_key and not os.environ.get("ANTHROPIC_API_KEY"):
+            os.environ["ANTHROPIC_API_KEY"] = config.anthropic_api_key
+        if config.openai_api_key and not os.environ.get("OPENAI_API_KEY"):
+            os.environ["OPENAI_API_KEY"] = config.openai_api_key
 
         logger.info("LLMClient initialized")
 

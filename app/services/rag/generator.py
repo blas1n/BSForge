@@ -487,7 +487,7 @@ class ScriptGenerator:
             config = self.config
 
         # Get LLM config from prompt template (scene-based)
-        llm_config = self._get_llm_config_from_template(PromptType.SCENE_SCRIPT_GENERATION)
+        llm_config = self._get_llm_config_from_template(PromptType.SCRIPT_GENERATION)
 
         logger.info(
             f"Generating scene-based script for topic {topic_id}",
@@ -548,10 +548,10 @@ class ScriptGenerator:
 
         # 2. Build scene-aware prompt
         logger.info("Building scene prompt")
-        prompt = await self.prompt_builder.build_scene_prompt(context)
+        prompt = await self.prompt_builder.build_prompt(context)
 
         # 3. Get LLM config from prompt template (scene-based)
-        llm_config = self._get_llm_config_from_template(PromptType.SCENE_SCRIPT_GENERATION)
+        llm_config = self._get_llm_config_from_template(PromptType.SCRIPT_GENERATION)
 
         # 4. Generate via LLM
         logger.info(f"Calling LLM API for scene script ({llm_config.model})")

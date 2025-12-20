@@ -126,7 +126,7 @@ class ScriptChunker:
                     is_opinion=hook_chars["is_opinion"],
                     is_example=hook_chars["is_example"],
                     is_analogy=hook_chars["is_analogy"],
-                    keywords=hook_chars["keywords"],
+                    terms=hook_chars["keywords"],
                     embedding=None,  # To be filled by embedder
                     embedding_model=embedding_model,
                 )
@@ -166,7 +166,7 @@ class ScriptChunker:
                         is_opinion=body_chars["is_opinion"],
                         is_example=body_chars["is_example"],
                         is_analogy=body_chars["is_analogy"],
-                        keywords=body_chars["keywords"],
+                        terms=body_chars["keywords"],
                         embedding=None,
                         embedding_model=embedding_model,
                     )
@@ -189,7 +189,7 @@ class ScriptChunker:
                     is_opinion=conclusion_chars["is_opinion"],
                     is_example=conclusion_chars["is_example"],
                     is_analogy=conclusion_chars["is_analogy"],
-                    keywords=conclusion_chars["keywords"],
+                    terms=conclusion_chars["keywords"],
                     embedding=None,
                     embedding_model=embedding_model,
                 )
@@ -265,7 +265,7 @@ class ScriptChunker:
                     is_opinion=chars["is_opinion"],
                     is_example=chars["is_example"],
                     is_analogy=chars["is_analogy"],
-                    keywords=chars["keywords"],
+                    terms=chars["keywords"],
                     embedding=None,
                     embedding_model=embedding_model,
                 )

@@ -1,10 +1,10 @@
 # Classification Prompt Template
-# Version: 1.1.0
-# Last Updated: 2025-12-16
+# Version: 1.2.0
+# Last Updated: 2025-12-20
 
 name: "Classification Prompt"
-version: "1.1.0"
-description: "Classifies topic into categories, extracts keywords and entities, generates summary"
+version: "1.2.0"
+description: "Extracts terms and entities from topic, generates summary"
 
 # LLM Settings
 model: "anthropic/claude-3-5-haiku-20241022"
@@ -17,14 +17,13 @@ template: |
   Topic: ${text_to_analyze}
 
   Return ONLY a valid JSON object with these fields:
-  - categories: List of 1-3 categories (tech, ai, programming, science, business, news, etc.)
-  - keywords: List of 3-5 key terms
+  - terms: List of 5-8 relevant terms (topics, technologies, concepts)
   - entities: Object with companies, products, people arrays
   - summary: 1-sentence summary (max 200 chars)
 
   IMPORTANT: Output ONLY the JSON object. No explanation, no markdown, no additional text.
 
-  {"categories": ["category1"], "keywords": ["keyword1"], "entities": {"companies": [], "products": [], "people": []}, "summary": "..."}
+  {"terms": ["term1", "term2"], "entities": {"companies": [], "products": [], "people": []}, "summary": "..."}
 
 example_variables:
   text_to_analyze: "OpenAI releases GPT-4.5 with vision capabilities and improved reasoning"

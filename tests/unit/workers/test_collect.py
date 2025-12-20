@@ -460,7 +460,7 @@ class TestCollectChannelTopicsAsync:
                 channel_id=channel_id,
                 global_sources=["hackernews"],
                 scoped_sources=[],
-                filters={"include_keywords": ["AI"]},
+                filters={"include": ["AI"]},
             )
 
             assert isinstance(result, ChannelCollectionResult)
