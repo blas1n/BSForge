@@ -9,6 +9,7 @@ import uuid
 from typing import Any
 from urllib.parse import urljoin
 
+import httpx
 from bs4 import BeautifulSoup, Tag
 
 from app.config.sources import ClienConfig
@@ -38,15 +39,46 @@ class ClienSource(KoreanWebScraperBase, BaseSource[ClienConfig]):
         - cm_finance: 재테크
     """
 
+    # Scoped source: requires channel-specific boards
+    is_global = False
+
     _config: ClienConfig
+
+    @classmethod
+    def build_config(cls, overrides: dict[str, Any]) -> ClienConfig:
+        """Build ClienConfig from channel overrides.
+
+        Args:
+            overrides: Configuration overrides with optional keys:
+                - params.boards: List of board IDs (optional)
+                - filters.min_score: Minimum view count (optional)
+                - limit: Maximum posts (optional)
+
+        Returns:
+            ClienConfig instance
+        """
+        params = overrides.get("params", {})
+        filters = overrides.get("filters", {})
+        return ClienConfig(
+            boards=params.get("boards", ["park"]),
+            min_score=filters.get("min_score", 10),
+            limit=overrides.get("limit", 20),
+        )
 
     def __init__(
         self,
         config: ClienConfig,
         source_id: uuid.UUID,
+        http_client: httpx.AsyncClient | None = None,
     ):
-        """Initialize Clien source collector."""
-        super().__init__(config, source_id)
+        """Initialize Clien source collector.
+
+        Args:
+            config: Typed configuration object
+            source_id: UUID of the source
+            http_client: Optional shared HTTP client for connection reuse
+        """
+        super().__init__(config, source_id, http_client)
 
     @property
     def source_name_kr(self) -> str:

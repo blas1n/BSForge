@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urljoin
 
+import httpx
 from bs4 import BeautifulSoup, Tag
 
 from app.config.sources import DCInsideConfig
@@ -44,15 +45,48 @@ class DCInsideSource(KoreanWebScraperBase, BaseSource[DCInsideConfig]):
         - stockus: 미국주식
     """
 
+    # Scoped source: requires channel-specific galleries
+    is_global = False
+
     _config: DCInsideConfig
+
+    @classmethod
+    def build_config(cls, overrides: dict[str, Any]) -> DCInsideConfig:
+        """Build DCInsideConfig from channel overrides.
+
+        Args:
+            overrides: Configuration overrides with optional keys:
+                - params.galleries: List of gallery IDs (optional)
+                - params.gallery_type: Gallery type (optional)
+                - filters.min_score: Minimum score (optional)
+                - limit: Maximum posts (optional)
+
+        Returns:
+            DCInsideConfig instance
+        """
+        params = overrides.get("params", {})
+        filters = overrides.get("filters", {})
+        return DCInsideConfig(
+            galleries=params.get("galleries", ["programming"]),
+            gallery_type=params.get("gallery_type", "major"),
+            min_score=filters.get("min_score", 10),
+            limit=overrides.get("limit", 20),
+        )
 
     def __init__(
         self,
         config: DCInsideConfig,
         source_id: uuid.UUID,
+        http_client: httpx.AsyncClient | None = None,
     ):
-        """Initialize DC Inside source collector."""
-        super().__init__(config, source_id)
+        """Initialize DC Inside source collector.
+
+        Args:
+            config: Typed configuration object
+            source_id: UUID of the source
+            http_client: Optional shared HTTP client for connection reuse
+        """
+        super().__init__(config, source_id, http_client)
 
     @property
     def source_name_kr(self) -> str:

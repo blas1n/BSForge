@@ -6,14 +6,18 @@ Supports multiple regions and real-time/daily trends.
 
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+import pycountry
 from pydantic import HttpUrl
 from pytrends.request import TrendReq
 
 from app.config.sources import GoogleTrendsConfig
 from app.core.logging import get_logger
 from app.services.collector.base import BaseSource, RawTopic
+
+if TYPE_CHECKING:
+    import httpx
 
 logger = get_logger(__name__)
 
@@ -34,18 +38,46 @@ class GoogleTrendsSource(BaseSource[GoogleTrendsConfig]):
         limit: Override limit per region
     """
 
+    # Global source: collected once, shared across all channels
+    is_global = True
+
+    @classmethod
+    def build_config(cls, overrides: dict[str, Any]) -> GoogleTrendsConfig:
+        """Build GoogleTrendsConfig from channel overrides.
+
+        Args:
+            overrides: Configuration overrides with optional keys:
+                - params.regions: List of region codes (optional)
+                - params.timeframe: Timeframe for trends (optional)
+                - params.category: Category ID (optional)
+                - limit: Maximum trends per region (optional)
+
+        Returns:
+            GoogleTrendsConfig instance
+        """
+        params = overrides.get("params", {})
+        return GoogleTrendsConfig(
+            regions=params.get("regions", ["KR", "US"]),
+            timeframe=params.get("timeframe", "now 1-d"),
+            category=params.get("category", 0),
+            limit=overrides.get("limit", 20),
+        )
+
     def __init__(
         self,
         config: GoogleTrendsConfig,
         source_id: uuid.UUID,
+        http_client: "httpx.AsyncClient | None" = None,
     ):
         """Initialize Google Trends source collector.
 
         Args:
             config: Typed configuration object
             source_id: UUID of the source
+            http_client: Optional shared HTTP client (not used by pytrends)
         """
-        super().__init__(config, source_id)
+        # Note: GoogleTrends uses pytrends which manages its own HTTP session
+        super().__init__(config, source_id, http_client)
 
     async def collect(self, params: dict[str, Any] | None = None) -> list[RawTopic]:
         """Collect trending topics from Google Trends.
@@ -167,47 +199,38 @@ class GoogleTrendsSource(BaseSource[GoogleTrendsConfig]):
             return None
 
     def _get_pn_code(self, region: str) -> str:
-        """Convert region code to pytrends pn code.
+        """Convert ISO alpha-2 country code to pytrends pn format.
+
+        Uses pycountry to dynamically convert ISO codes to pytrends format.
 
         Args:
-            region: ISO region code (e.g., 'KR', 'US')
+            region: ISO 3166-1 alpha-2 country code (e.g., 'KR', 'US')
 
         Returns:
-            pytrends pn code
+            pytrends pn format (e.g., 'south_korea', 'united_states')
         """
-        pn_map = {
-            "KR": "south_korea",
-            "US": "united_states",
-            "JP": "japan",
-            "GB": "united_kingdom",
-            "DE": "germany",
-            "FR": "france",
-            "CN": "china",
-            "IN": "india",
-            "BR": "brazil",
-            "CA": "canada",
-            "AU": "australia",
-        }
-        return pn_map.get(region, "united_states")
+        country = pycountry.countries.get(alpha_2=region.upper())
+        if not country:
+            logger.warning(f"Unknown country code: {region}, using as-is")
+            return region.lower()
+
+        # Prefer common_name if available (e.g., 'South Korea' instead of 'Korea, Republic of')
+        name: str = getattr(country, "common_name", None) or country.name
+
+        # Convert to pytrends format: lowercase with underscores
+        return name.lower().replace(" ", "_").replace("-", "_")
 
     def _get_region_name(self, region: str) -> str:
-        """Convert region code to region name for realtime trends.
+        """Get region name for realtime trends (uses ISO code directly).
 
         Args:
-            region: ISO region code
+            region: ISO 3166-1 alpha-2 country code
 
         Returns:
-            Region name for pytrends
+            ISO code for pytrends realtime_trending_searches
         """
-        region_map = {
-            "KR": "KR",
-            "US": "US",
-            "JP": "JP",
-            "GB": "GB",
-            "DE": "DE",
-            "FR": "FR",
-        }
-        return region_map.get(region, "US")
+        # realtime_trending_searches uses ISO codes directly
+        return region.upper()
 
     async def health_check(self) -> bool:
         """Check if Google Trends API is accessible.

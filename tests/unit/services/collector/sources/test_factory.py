@@ -121,10 +121,10 @@ class TestCreateSource:
         assert source.__class__.__name__ == "RSSSource"
         assert source._config.feed_url == "https://example.com/feed.xml"
 
-    def test_create_rss_without_feed_url_returns_none(self) -> None:
-        """Test that RSS source without feed_url returns None."""
-        source = create_source("rss")
-        assert source is None
+    def test_create_rss_without_feed_url_raises(self) -> None:
+        """Test that RSS source without feed_url raises ValueError."""
+        with pytest.raises(ValueError, match="Failed to build config"):
+            create_source("rss")
 
     def test_create_custom_rss_source(self) -> None:
         """Test creating custom RSS source with _rss suffix."""
@@ -135,10 +135,10 @@ class TestCreateSource:
         assert source is not None
         assert source.__class__.__name__ == "RSSSource"
 
-    def test_unknown_source_returns_none(self) -> None:
-        """Test that unknown source type returns None."""
-        source = create_source("unknown_source")
-        assert source is None
+    def test_unknown_source_raises(self) -> None:
+        """Test that unknown source type raises ValueError."""
+        with pytest.raises(ValueError, match="Unknown source type"):
+            create_source("unknown_source")
 
     def test_custom_source_id(self) -> None:
         """Test creating source with custom source ID."""
@@ -171,7 +171,7 @@ class TestCollectFromSources:
             topics = await collect_from_sources(["hackernews"])
 
             assert len(topics) == 1
-            mock_create.assert_called_once_with("hackernews", {})
+            mock_create.assert_called_once_with("hackernews", {}, http_client=None)
 
     @pytest.mark.asyncio
     async def test_collect_from_multiple_sources(self) -> None:
@@ -204,13 +204,13 @@ class TestCollectFromSources:
 
             await collect_from_sources(["hackernews"], overrides)
 
-            mock_create.assert_called_once_with("hackernews", {"limit": 50})
+            mock_create.assert_called_once_with("hackernews", {"limit": 50}, http_client=None)
 
     @pytest.mark.asyncio
     async def test_collect_skips_unknown_sources(self) -> None:
-        """Test that unknown sources are skipped."""
+        """Test that unknown sources are skipped (error logged, continues)."""
         with patch("app.services.collector.sources.factory.create_source") as mock_create:
-            mock_create.return_value = None
+            mock_create.side_effect = ValueError("Unknown source type")
 
             topics = await collect_from_sources(["unknown_source"])
 
@@ -235,13 +235,11 @@ class TestCollectFromSources:
         mock_topics = [{"title": "Working Topic"}]
 
         with patch("app.services.collector.sources.factory.create_source") as mock_create:
-            mock_source_fail = AsyncMock()
-            mock_source_fail.collect.side_effect = Exception("Failed")
-
             mock_source_ok = AsyncMock()
             mock_source_ok.collect.return_value = mock_topics
 
-            mock_create.side_effect = [mock_source_fail, mock_source_ok]
+            # First call raises ValueError (unknown source), second returns working source
+            mock_create.side_effect = [ValueError("Unknown source"), mock_source_ok]
 
             topics = await collect_from_sources(["failing_source", "working_source"])
 

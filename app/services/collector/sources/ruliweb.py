@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urljoin
 
+import httpx
 from bs4 import BeautifulSoup, Tag
 
 from app.config.sources import RuliwebConfig
@@ -39,15 +40,46 @@ class RuliwebSource(KoreanWebScraperBase, BaseSource[RuliwebConfig]):
         - community/rulilife: 루리라이프
     """
 
+    # Scoped source: requires channel-specific boards
+    is_global = False
+
     _config: RuliwebConfig
+
+    @classmethod
+    def build_config(cls, overrides: dict[str, Any]) -> RuliwebConfig:
+        """Build RuliwebConfig from channel overrides.
+
+        Args:
+            overrides: Configuration overrides with optional keys:
+                - params.boards: List of board paths (optional)
+                - filters.min_score: Minimum score (optional)
+                - limit: Maximum posts (optional)
+
+        Returns:
+            RuliwebConfig instance
+        """
+        params = overrides.get("params", {})
+        filters = overrides.get("filters", {})
+        return RuliwebConfig(
+            boards=params.get("boards", ["best/humor"]),
+            min_score=filters.get("min_score", 10),
+            limit=overrides.get("limit", 20),
+        )
 
     def __init__(
         self,
         config: RuliwebConfig,
         source_id: uuid.UUID,
+        http_client: httpx.AsyncClient | None = None,
     ):
-        """Initialize Ruliweb source collector."""
-        super().__init__(config, source_id)
+        """Initialize Ruliweb source collector.
+
+        Args:
+            config: Typed configuration object
+            source_id: UUID of the source
+            http_client: Optional shared HTTP client for connection reuse
+        """
+        super().__init__(config, source_id, http_client)
 
     @property
     def source_name_kr(self) -> str:

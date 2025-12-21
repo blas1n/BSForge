@@ -7,60 +7,15 @@ All channels share this pool and filter topics based on their config.
 """
 
 import json
-from enum import Enum
 from typing import Any
 
 from redis.asyncio import Redis as AsyncRedis
 
 from app.core.logging import get_logger
 from app.services.collector.base import RawTopic
+from app.services.collector.sources.factory import is_global_source
 
 logger = get_logger(__name__)
-
-
-class SourceScope(str, Enum):
-    """Classification of source collection scope."""
-
-    GLOBAL = "global"  # Collected once, shared across all channels
-    SCOPED = "scoped"  # Collected per channel with specific params
-
-
-# Source type to scope mapping
-SOURCE_SCOPES: dict[str, SourceScope] = {
-    # Global: No params needed, collect top N
-    "hackernews": SourceScope.GLOBAL,
-    "google_trends": SourceScope.GLOBAL,
-    "youtube_trending": SourceScope.GLOBAL,
-    # Scoped: Channel-specific params required
-    "reddit": SourceScope.SCOPED,  # subreddits required
-    "dcinside": SourceScope.SCOPED,  # galleries required
-    "clien": SourceScope.SCOPED,  # boards required
-    "rss": SourceScope.SCOPED,  # feed_url varies per channel
-}
-
-
-def get_source_scope(source_type: str) -> SourceScope:
-    """Get the scope classification for a source type.
-
-    Args:
-        source_type: Source type identifier
-
-    Returns:
-        SourceScope (GLOBAL or SCOPED)
-    """
-    return SOURCE_SCOPES.get(source_type, SourceScope.SCOPED)
-
-
-def is_global_source(source_type: str) -> bool:
-    """Check if a source is globally collected.
-
-    Args:
-        source_type: Source type identifier
-
-    Returns:
-        True if source is collected globally
-    """
-    return get_source_scope(source_type) == SourceScope.GLOBAL
 
 
 class GlobalTopicPool:
@@ -405,9 +360,6 @@ class ScopedSourceCache:
 
 
 __all__ = [
-    "SourceScope",
-    "SOURCE_SCOPES",
-    "get_source_scope",
     "is_global_source",
     "GlobalTopicPool",
     "ScopedSourceCache",

@@ -37,18 +37,41 @@ class HackerNewsSource(BaseSource[HackerNewsConfig]):
         min_score: Override minimum score
     """
 
+    # Global source: collected once, shared across all channels
+    is_global = True
+
+    @classmethod
+    def build_config(cls, overrides: dict[str, Any]) -> HackerNewsConfig:
+        """Build HackerNewsConfig from channel overrides.
+
+        Args:
+            overrides: Configuration overrides with optional keys:
+                - filters.min_score: Minimum score threshold
+                - limit: Maximum stories to fetch
+
+        Returns:
+            HackerNewsConfig instance
+        """
+        filters = overrides.get("filters", {})
+        return HackerNewsConfig(
+            min_score=filters.get("min_score", 50),
+            limit=overrides.get("limit", 30),
+        )
+
     def __init__(
         self,
         config: HackerNewsConfig,
         source_id: uuid.UUID,
+        http_client: httpx.AsyncClient | None = None,
     ):
         """Initialize HackerNews source collector.
 
         Args:
             config: Typed configuration object
             source_id: UUID of the source
+            http_client: Optional shared HTTP client for connection reuse
         """
-        super().__init__(config, source_id)
+        super().__init__(config, source_id, http_client)
 
     async def collect(self, params: dict[str, Any] | None = None) -> list[RawTopic]:
         """Collect top stories from Hacker News.
@@ -72,30 +95,12 @@ class HackerNewsSource(BaseSource[HackerNewsConfig]):
         )
 
         try:
-            async with httpx.AsyncClient(timeout=self._config.request_timeout) as client:
-                # Get top story IDs
-                response = await client.get(HN_TOP_STORIES)
-                response.raise_for_status()
-                story_ids = response.json()[: limit * 2]  # Fetch extra to account for filtering
-
-                # Fetch individual stories
-                topics: list[RawTopic] = []
-                for story_id in story_ids:
-                    if len(topics) >= limit:
-                        break
-
-                    story = await self._fetch_story(client, story_id)
-                    if story and story.get("score", 0) >= min_score:
-                        topic = self._to_raw_topic(story)
-                        if topic:
-                            topics.append(topic)
-
-                logger.info(
-                    "Hacker News collection complete",
-                    collected=len(topics),
-                    fetched=len(story_ids),
-                )
-                return topics
+            # Use injected client or create a new one
+            if self._http_client:
+                return await self._collect_with_client(self._http_client, limit, min_score)
+            else:
+                async with httpx.AsyncClient(timeout=self._config.request_timeout) as client:
+                    return await self._collect_with_client(client, limit, min_score)
 
         except httpx.HTTPError as e:
             logger.error("HN API request failed", error=str(e))
@@ -103,6 +108,43 @@ class HackerNewsSource(BaseSource[HackerNewsConfig]):
         except Exception as e:
             logger.error("HN collection failed", error=str(e), exc_info=True)
             raise
+
+    async def _collect_with_client(
+        self, client: httpx.AsyncClient, limit: int, min_score: int
+    ) -> list[RawTopic]:
+        """Collect stories using provided HTTP client.
+
+        Args:
+            client: HTTP client to use
+            limit: Maximum stories to fetch
+            min_score: Minimum score threshold
+
+        Returns:
+            List of collected RawTopics
+        """
+        # Get top story IDs
+        response = await client.get(HN_TOP_STORIES)
+        response.raise_for_status()
+        story_ids = response.json()[: limit * 2]  # Fetch extra to account for filtering
+
+        # Fetch individual stories
+        topics: list[RawTopic] = []
+        for story_id in story_ids:
+            if len(topics) >= limit:
+                break
+
+            story = await self._fetch_story(client, story_id)
+            if story and story.get("score", 0) >= min_score:
+                topic = self._to_raw_topic(story)
+                if topic:
+                    topics.append(topic)
+
+        logger.info(
+            "Hacker News collection complete",
+            collected=len(topics),
+            fetched=len(story_ids),
+        )
+        return topics
 
     async def _fetch_story(self, client: httpx.AsyncClient, story_id: int) -> dict[str, Any] | None:
         """Fetch a single story by ID.
@@ -180,9 +222,13 @@ class HackerNewsSource(BaseSource[HackerNewsConfig]):
             True if API responds successfully
         """
         try:
-            async with httpx.AsyncClient(timeout=self._config.request_timeout) as client:
-                response = await client.get(HN_TOP_STORIES)
+            if self._http_client:
+                response = await self._http_client.get(HN_TOP_STORIES)
                 return response.status_code == 200
+            else:
+                async with httpx.AsyncClient(timeout=self._config.request_timeout) as client:
+                    response = await client.get(HN_TOP_STORIES)
+                    return response.status_code == 200
         except Exception as e:
             logger.warning("HN health check failed", error=str(e))
             return False

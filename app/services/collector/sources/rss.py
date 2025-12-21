@@ -34,18 +34,47 @@ class RSSSource(BaseSource[RSSConfig]):
         limit: Override entry limit
     """
 
+    # Scoped source: requires channel-specific feed_url
+    is_global = False
+
+    @classmethod
+    def build_config(cls, overrides: dict[str, Any]) -> RSSConfig | None:
+        """Build RSSConfig from channel overrides.
+
+        Args:
+            overrides: Configuration overrides with required keys:
+                - params.feed_url: URL of the RSS/Atom feed (required)
+                - params.name: Display name for the source (optional)
+                - limit: Maximum entries (optional)
+
+        Returns:
+            RSSConfig instance or None if feed_url not provided
+        """
+        params = overrides.get("params", {})
+        feed_url = params.get("feed_url")
+        if not feed_url:
+            return None
+
+        return RSSConfig(
+            feed_url=feed_url,
+            name=params.get("name", "RSS Feed"),
+            limit=overrides.get("limit", 20),
+        )
+
     def __init__(
         self,
         config: RSSConfig,
         source_id: uuid.UUID,
+        http_client: httpx.AsyncClient | None = None,
     ):
         """Initialize RSS source collector.
 
         Args:
             config: Typed configuration object
             source_id: UUID of the source
+            http_client: Optional shared HTTP client for connection reuse
         """
-        super().__init__(config, source_id)
+        super().__init__(config, source_id, http_client)
 
     async def collect(self, params: dict[str, Any] | None = None) -> list[RawTopic]:
         """Collect entries from RSS/Atom feed.
@@ -73,11 +102,16 @@ class RSSSource(BaseSource[RSSConfig]):
         )
 
         try:
-            # Fetch feed content
-            async with httpx.AsyncClient(timeout=self._config.request_timeout) as client:
-                response = await client.get(feed_url)
+            # Fetch feed content using injected client or create a new one
+            if self._http_client:
+                response = await self._http_client.get(feed_url)
                 response.raise_for_status()
                 content = response.text
+            else:
+                async with httpx.AsyncClient(timeout=self._config.request_timeout) as client:
+                    response = await client.get(feed_url)
+                    response.raise_for_status()
+                    content = response.text
 
             # Parse feed
             feed = feedparser.parse(content)
@@ -251,9 +285,13 @@ class RSSSource(BaseSource[RSSConfig]):
             return False
 
         try:
-            async with httpx.AsyncClient(timeout=self._config.request_timeout) as client:
-                response = await client.get(feed_url)
+            if self._http_client:
+                response = await self._http_client.get(feed_url)
                 return response.status_code == 200
+            else:
+                async with httpx.AsyncClient(timeout=self._config.request_timeout) as client:
+                    response = await client.get(feed_url)
+                    return response.status_code == 200
         except Exception as e:
             logger.warning("RSS health check failed", feed_url=feed_url, error=str(e))
             return False
