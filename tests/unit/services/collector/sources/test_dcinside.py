@@ -4,23 +4,18 @@ Tests use mocked HTTP responses to avoid external API calls.
 """
 
 import uuid
-from unittest.mock import AsyncMock, patch
 
-import httpx
 import pytest
 
 from app.config.sources import DCInsideConfig
+from app.infrastructure.http_client import HTTPClient
 from app.services.collector.sources.dcinside import DCInsideSource
 
-
-@pytest.fixture
-def source_id() -> uuid.UUID:
-    """Create a test source UUID."""
-    return uuid.uuid4()
+from .conftest import create_mock_response
 
 
 @pytest.fixture
-def dc_source(source_id: uuid.UUID) -> DCInsideSource:
+def dc_source(source_id: uuid.UUID, mock_http_client: HTTPClient) -> DCInsideSource:
     """Create DC Inside source with test config."""
     config = DCInsideConfig(
         galleries=["programming"],
@@ -28,7 +23,7 @@ def dc_source(source_id: uuid.UUID) -> DCInsideSource:
         limit=10,
         min_score=5,
     )
-    return DCInsideSource(config=config, source_id=source_id)
+    return DCInsideSource(config=config, source_id=source_id, http_client=mock_http_client)
 
 
 @pytest.fixture
@@ -78,112 +73,97 @@ class TestDCInsideCollect:
     """Tests for DCInsideSource.collect() method."""
 
     @pytest.mark.asyncio
-    async def test_collect_success(self, dc_source: DCInsideSource, mock_dcinside_html: str):
+    async def test_collect_success(
+        self, dc_source: DCInsideSource, mock_http_client: HTTPClient, mock_dcinside_html: str
+    ):
         """Test successful collection of DC Inside posts."""
-        with patch("app.services.collector.sources.web_scraper.httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_instance
+        mock_response = create_mock_response(text_data=mock_dcinside_html)
+        mock_http_client.get.return_value = mock_response
 
-            mock_response = AsyncMock()
-            mock_response.text = mock_dcinside_html
-            mock_response.raise_for_status = lambda: None
-            mock_instance.get.return_value = mock_response
+        topics = await dc_source.collect()
 
-            topics = await dc_source.collect()
-
-            # Based on mock HTML parsing
-            assert len(topics) >= 0  # May vary based on parsing
+        # Based on mock HTML parsing
+        assert len(topics) >= 0  # May vary based on parsing
 
     @pytest.mark.asyncio
-    async def test_collect_minor_gallery(self, source_id: uuid.UUID):
+    async def test_collect_minor_gallery(self, source_id: uuid.UUID, mock_http_client: HTTPClient):
         """Test collection from minor gallery."""
         config = DCInsideConfig(
             galleries=["test_minor"],
             gallery_type="minor",
             limit=10,
         )
-        source = DCInsideSource(config=config, source_id=source_id)
+        source = DCInsideSource(config=config, source_id=source_id, http_client=mock_http_client)
 
-        with patch("app.services.collector.sources.web_scraper.httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_instance
+        mock_response = create_mock_response(
+            text_data="<html><body><table class='gall_list'><tbody></tbody></table></body></html>"
+        )
+        mock_http_client.get.return_value = mock_response
 
-            mock_response = AsyncMock()
-            mock_response.text = (
-                "<html><body><table class='gall_list'><tbody></tbody></table></body></html>"
-            )
-            mock_response.raise_for_status = lambda: None
-            mock_instance.get.return_value = mock_response
+        await source.collect()
 
-            await source.collect()
-
-            # Verify minor gallery URL pattern was used
-            call_args = mock_instance.get.call_args
-            if call_args:
-                url = call_args[0][0] if call_args[0] else call_args[1].get("url", "")
-                # Minor galleries use mgallery path
-                assert "/mgallery/" in url
+        # Verify minor gallery URL pattern was used
+        call_args = mock_http_client.get.call_args
+        if call_args:
+            url = call_args[0][0] if call_args[0] else call_args[1].get("url", "")
+            # Minor galleries use mgallery path
+            assert "/mgallery/" in url
 
 
 class TestDCInsideHealthCheck:
     """Tests for DCInsideSource.health_check() method."""
 
     @pytest.mark.asyncio
-    async def test_health_check_success(self, dc_source: DCInsideSource):
+    async def test_health_check_success(
+        self, dc_source: DCInsideSource, mock_http_client: HTTPClient
+    ):
         """Test health check returns True when site is accessible."""
-        with patch("app.services.collector.sources.web_scraper.httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_instance
+        mock_response = create_mock_response(status_code=200)
+        mock_http_client.get.return_value = mock_response
 
-            mock_response = AsyncMock()
-            mock_response.status_code = 200
-            mock_instance.get.return_value = mock_response
+        result = await dc_source.health_check()
 
-            result = await dc_source.health_check()
-
-            assert result is True
+        assert result is True
 
     @pytest.mark.asyncio
-    async def test_health_check_failure(self, dc_source: DCInsideSource):
+    async def test_health_check_failure(
+        self, dc_source: DCInsideSource, mock_http_client: HTTPClient
+    ):
         """Test health check returns False when site is down."""
-        with patch("app.services.collector.sources.web_scraper.httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_instance
+        mock_http_client.get.side_effect = Exception("Connection failed")
 
-            mock_instance.get.side_effect = httpx.ConnectError("Connection failed")
+        result = await dc_source.health_check()
 
-            result = await dc_source.health_check()
-
-            assert result is False
+        assert result is False
 
 
 class TestDCInsideURLGeneration:
     """Tests for DC Inside URL generation."""
 
-    def test_major_gallery_url(self, source_id: uuid.UUID):
+    def test_major_gallery_url(self, source_id: uuid.UUID, mock_http_client: HTTPClient):
         """Test URL generation for major gallery."""
         config = DCInsideConfig(galleries=["programming"], gallery_type="major")
-        source = DCInsideSource(config=config, source_id=source_id)
+        source = DCInsideSource(config=config, source_id=source_id, http_client=mock_http_client)
 
         urls = source._get_list_urls("https://gall.dcinside.com", {})
 
         assert len(urls) == 1
         assert urls[0] == "https://gall.dcinside.com/board/lists/?id=programming"
 
-    def test_minor_gallery_url(self, source_id: uuid.UUID):
+    def test_minor_gallery_url(self, source_id: uuid.UUID, mock_http_client: HTTPClient):
         """Test URL generation for minor gallery."""
         config = DCInsideConfig(galleries=["test_minor"], gallery_type="minor")
-        source = DCInsideSource(config=config, source_id=source_id)
+        source = DCInsideSource(config=config, source_id=source_id, http_client=mock_http_client)
 
         urls = source._get_list_urls("https://gall.dcinside.com", {})
 
         assert len(urls) == 1
         assert urls[0] == "https://gall.dcinside.com/mgallery/board/lists/?id=test_minor"
 
-    def test_mini_gallery_url(self, source_id: uuid.UUID):
+    def test_mini_gallery_url(self, source_id: uuid.UUID, mock_http_client: HTTPClient):
         """Test URL generation for mini gallery."""
         config = DCInsideConfig(galleries=["test_mini"], gallery_type="mini")
-        source = DCInsideSource(config=config, source_id=source_id)
+        source = DCInsideSource(config=config, source_id=source_id, http_client=mock_http_client)
 
         urls = source._get_list_urls("https://gall.dcinside.com", {})
 
@@ -194,17 +174,17 @@ class TestDCInsideURLGeneration:
 class TestDCInsideDefaults:
     """Tests for default configuration values."""
 
-    def test_default_gallery_type(self, source_id: uuid.UUID):
+    def test_default_gallery_type(self, source_id: uuid.UUID, mock_http_client: HTTPClient):
         """Test default gallery type is major."""
         config = DCInsideConfig(galleries=["test"])
-        source = DCInsideSource(config=config, source_id=source_id)
+        source = DCInsideSource(config=config, source_id=source_id, http_client=mock_http_client)
 
         assert source._config.gallery_type == "major"
 
-    def test_default_limit(self, source_id: uuid.UUID):
+    def test_default_limit(self, source_id: uuid.UUID, mock_http_client: HTTPClient):
         """Test default limit value."""
         config = DCInsideConfig(galleries=["test"])
-        source = DCInsideSource(config=config, source_id=source_id)
+        source = DCInsideSource(config=config, source_id=source_id, http_client=mock_http_client)
 
         # Should use default from DCInsideConfig
         assert source._config.limit == 20
@@ -214,7 +194,9 @@ class TestDCInsideFiltering:
     """Tests for score-based filtering."""
 
     @pytest.mark.asyncio
-    async def test_filters_low_score_posts(self, dc_source: DCInsideSource):
+    async def test_filters_low_score_posts(
+        self, dc_source: DCInsideSource, mock_http_client: HTTPClient
+    ):
         """Test that low-score posts are filtered out."""
         mock_html = """
         <html>
@@ -247,18 +229,12 @@ class TestDCInsideFiltering:
         </html>
         """
 
-        with patch("app.services.collector.sources.web_scraper.httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_instance
+        mock_response = create_mock_response(text_data=mock_html)
+        mock_http_client.get.return_value = mock_response
 
-            mock_response = AsyncMock()
-            mock_response.text = mock_html
-            mock_response.raise_for_status = lambda: None
-            mock_instance.get.return_value = mock_response
+        # With min_score of 5, low score posts should be filtered
+        topics = await dc_source.collect()
 
-            # With min_score of 5, low score posts should be filtered
-            topics = await dc_source.collect()
-
-            # Verify filtering is applied (exact count depends on parsing)
-            for topic in topics:
-                assert topic.metrics.get("score", 0) >= 0  # Basic check
+        # Verify filtering is applied (exact count depends on parsing)
+        for topic in topics:
+            assert topic.metrics.get("score", 0) >= 0  # Basic check

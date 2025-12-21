@@ -5,23 +5,18 @@ Tests use mocked HTTP responses to avoid external API calls.
 
 import uuid
 from datetime import datetime
-from unittest.mock import AsyncMock, patch
 
-import httpx
 import pytest
 
 from app.config.sources import RSSConfig
+from app.infrastructure.http_client import HTTPClient
 from app.services.collector.sources.rss import RSSSource
 
-
-@pytest.fixture
-def source_id() -> uuid.UUID:
-    """Create a test source UUID."""
-    return uuid.uuid4()
+from .conftest import create_mock_response
 
 
 @pytest.fixture
-def rss_source(source_id: uuid.UUID) -> RSSSource:
+def rss_source(source_id: uuid.UUID, mock_http_client: HTTPClient) -> RSSSource:
     """Create RSS source with test config."""
     config = RSSConfig(
         feed_url="https://example.com/feed.xml",
@@ -29,7 +24,7 @@ def rss_source(source_id: uuid.UUID) -> RSSSource:
         limit=10,
         request_timeout=15.0,
     )
-    return RSSSource(config=config, source_id=source_id)
+    return RSSSource(config=config, source_id=source_id, http_client=mock_http_client)
 
 
 @pytest.fixture
@@ -85,176 +80,139 @@ class TestRSSCollect:
     """Tests for RSS.collect() method."""
 
     @pytest.mark.asyncio
-    async def test_collect_rss_success(self, rss_source: RSSSource, mock_rss_feed: str):
+    async def test_collect_rss_success(
+        self, rss_source: RSSSource, mock_http_client: HTTPClient, mock_rss_feed: str
+    ):
         """Test successful collection from RSS feed."""
-        with patch("app.services.collector.sources.rss.httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_instance
+        mock_response = create_mock_response(text_data=mock_rss_feed)
+        mock_http_client.get.return_value = mock_response
 
-            mock_response = AsyncMock()
-            mock_response.text = mock_rss_feed
-            mock_response.raise_for_status = lambda: None
-            mock_instance.get.return_value = mock_response
+        topics = await rss_source.collect()
 
-            topics = await rss_source.collect()
-
-            assert len(topics) == 2
-            assert topics[0].title == "Test Article Title"
-            assert topics[1].title == "Second Article"
+        assert len(topics) == 2
+        assert topics[0].title == "Test Article Title"
+        assert topics[1].title == "Second Article"
 
     @pytest.mark.asyncio
-    async def test_collect_atom_success(self, rss_source: RSSSource, mock_atom_feed: str):
+    async def test_collect_atom_success(
+        self, rss_source: RSSSource, mock_http_client: HTTPClient, mock_atom_feed: str
+    ):
         """Test successful collection from Atom feed."""
-        with patch("app.services.collector.sources.rss.httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_instance
+        mock_response = create_mock_response(text_data=mock_atom_feed)
+        mock_http_client.get.return_value = mock_response
 
-            mock_response = AsyncMock()
-            mock_response.text = mock_atom_feed
-            mock_response.raise_for_status = lambda: None
-            mock_instance.get.return_value = mock_response
+        topics = await rss_source.collect()
 
-            topics = await rss_source.collect()
-
-            assert len(topics) == 1
-            assert topics[0].title == "Atom Article"
+        assert len(topics) == 1
+        assert topics[0].title == "Atom Article"
 
     @pytest.mark.asyncio
-    async def test_collect_no_feed_url_returns_empty(self, source_id: uuid.UUID):
+    async def test_collect_no_feed_url_returns_empty(
+        self, source_id: uuid.UUID, mock_http_client: HTTPClient
+    ):
         """Test that missing feed_url returns empty results."""
         config = RSSConfig()  # No feed_url
-        source = RSSSource(config=config, source_id=source_id)
+        source = RSSSource(config=config, source_id=source_id, http_client=mock_http_client)
         topics = await source.collect()
         assert topics == []
 
     @pytest.mark.asyncio
-    async def test_collect_with_limit(self, rss_source: RSSSource, mock_rss_feed: str):
+    async def test_collect_with_limit(
+        self, rss_source: RSSSource, mock_http_client: HTTPClient, mock_rss_feed: str
+    ):
         """Test collection respects limit parameter."""
-        with patch("app.services.collector.sources.rss.httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_instance
+        mock_response = create_mock_response(text_data=mock_rss_feed)
+        mock_http_client.get.return_value = mock_response
 
-            mock_response = AsyncMock()
-            mock_response.text = mock_rss_feed
-            mock_response.raise_for_status = lambda: None
-            mock_instance.get.return_value = mock_response
+        topics = await rss_source.collect(params={"limit": 1})
 
-            topics = await rss_source.collect(params={"limit": 1})
-
-            assert len(topics) == 1
+        assert len(topics) == 1
 
     @pytest.mark.asyncio
-    async def test_collect_http_error(self, rss_source: RSSSource):
-        """Test handling of HTTP errors."""
-        with patch("app.services.collector.sources.rss.httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_instance
+    async def test_collect_http_error(self, rss_source: RSSSource, mock_http_client: HTTPClient):
+        """Test that HTTP errors are raised."""
+        mock_http_client.get.side_effect = Exception("HTTP Error")
 
-            mock_instance.get.side_effect = httpx.HTTPStatusError(
-                "404 Not Found",
-                request=AsyncMock(),
-                response=AsyncMock(status_code=404),
-            )
-
-            with pytest.raises(httpx.HTTPStatusError):
-                await rss_source.collect()
+        with pytest.raises(Exception, match="HTTP Error"):
+            await rss_source.collect()
 
 
 class TestRSSHealthCheck:
     """Tests for RSS.health_check() method."""
 
     @pytest.mark.asyncio
-    async def test_health_check_success(self, rss_source: RSSSource):
+    async def test_health_check_success(self, rss_source: RSSSource, mock_http_client: HTTPClient):
         """Test health check returns True when feed is accessible."""
-        with patch("app.services.collector.sources.rss.httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_instance
+        mock_response = create_mock_response(status_code=200)
+        mock_http_client.get.return_value = mock_response
 
-            mock_response = AsyncMock()
-            mock_response.status_code = 200
-            mock_instance.get.return_value = mock_response
+        result = await rss_source.health_check()
 
-            result = await rss_source.health_check()
-
-            assert result is True
+        assert result is True
 
     @pytest.mark.asyncio
-    async def test_health_check_no_url_returns_false(self, source_id: uuid.UUID):
+    async def test_health_check_no_url_returns_false(
+        self, source_id: uuid.UUID, mock_http_client: HTTPClient
+    ):
         """Test health check returns False when no URL configured."""
         config = RSSConfig()  # No feed_url
-        source = RSSSource(config=config, source_id=source_id)
+        source = RSSSource(config=config, source_id=source_id, http_client=mock_http_client)
         result = await source.health_check()
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_health_check_failure(self, rss_source: RSSSource):
+    async def test_health_check_failure(self, rss_source: RSSSource, mock_http_client: HTTPClient):
         """Test health check returns False when feed is down."""
-        with patch("app.services.collector.sources.rss.httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_instance
+        mock_http_client.get.side_effect = Exception("Connection failed")
 
-            mock_instance.get.side_effect = httpx.ConnectError("Connection failed")
+        result = await rss_source.health_check()
 
-            result = await rss_source.health_check()
-
-            assert result is False
+        assert result is False
 
 
 class TestRSSConversion:
     """Tests for entry to RawTopic conversion."""
 
     @pytest.mark.asyncio
-    async def test_extracts_metadata(self, rss_source: RSSSource, mock_rss_feed: str):
+    async def test_extracts_metadata(
+        self, rss_source: RSSSource, mock_http_client: HTTPClient, mock_rss_feed: str
+    ):
         """Test that metadata is correctly extracted."""
-        with patch("app.services.collector.sources.rss.httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_instance
+        mock_response = create_mock_response(text_data=mock_rss_feed)
+        mock_http_client.get.return_value = mock_response
 
-            mock_response = AsyncMock()
-            mock_response.text = mock_rss_feed
-            mock_response.raise_for_status = lambda: None
-            mock_instance.get.return_value = mock_response
+        topics = await rss_source.collect()
 
-            topics = await rss_source.collect()
-
-            assert topics[0].metadata["source_name"] == "Example Feed"
-            assert topics[0].metadata["author"] == "author@example.com"
-            assert "Technology" in topics[0].metadata["tags"]
+        assert topics[0].metadata["source_name"] == "Example Feed"
+        assert topics[0].metadata["author"] == "author@example.com"
+        assert "Technology" in topics[0].metadata["tags"]
 
     @pytest.mark.asyncio
-    async def test_parses_pubdate(self, rss_source: RSSSource, mock_rss_feed: str):
+    async def test_parses_pubdate(
+        self, rss_source: RSSSource, mock_http_client: HTTPClient, mock_rss_feed: str
+    ):
         """Test that publication date is correctly parsed."""
-        with patch("app.services.collector.sources.rss.httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_instance
+        mock_response = create_mock_response(text_data=mock_rss_feed)
+        mock_http_client.get.return_value = mock_response
 
-            mock_response = AsyncMock()
-            mock_response.text = mock_rss_feed
-            mock_response.raise_for_status = lambda: None
-            mock_instance.get.return_value = mock_response
+        topics = await rss_source.collect()
 
-            topics = await rss_source.collect()
-
-            assert topics[0].published_at is not None
-            assert isinstance(topics[0].published_at, datetime)
+        assert topics[0].published_at is not None
+        assert isinstance(topics[0].published_at, datetime)
 
     @pytest.mark.asyncio
-    async def test_strips_html_from_content(self, rss_source: RSSSource, mock_atom_feed: str):
+    async def test_strips_html_from_content(
+        self, rss_source: RSSSource, mock_http_client: HTTPClient, mock_atom_feed: str
+    ):
         """Test that HTML is stripped from content."""
-        with patch("app.services.collector.sources.rss.httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_instance
+        mock_response = create_mock_response(text_data=mock_atom_feed)
+        mock_http_client.get.return_value = mock_response
 
-            mock_response = AsyncMock()
-            mock_response.text = mock_atom_feed
-            mock_response.raise_for_status = lambda: None
-            mock_instance.get.return_value = mock_response
+        topics = await rss_source.collect()
 
-            topics = await rss_source.collect()
-
-            assert topics[0].content is not None
-            assert "<p>" not in topics[0].content
-            assert "Article content here." in topics[0].content
+        assert topics[0].content is not None
+        assert "<p>" not in topics[0].content
+        assert "Article content here." in topics[0].content
 
 
 class TestHTMLStripping:

@@ -5,11 +5,9 @@ Requires YOUTUBE_API_KEY environment variable.
 """
 
 import contextlib
-import uuid
 from datetime import datetime
 from typing import Any
 
-import httpx
 from pydantic import HttpUrl
 
 from app.config.sources import YouTubeTrendingConfig
@@ -66,21 +64,6 @@ class YouTubeTrendingSource(BaseSource[YouTubeTrendingConfig]):
             limit=overrides.get("limit", 20),
         )
 
-    def __init__(
-        self,
-        config: YouTubeTrendingConfig,
-        source_id: uuid.UUID,
-        http_client: httpx.AsyncClient | None = None,
-    ):
-        """Initialize YouTube Trending source collector.
-
-        Args:
-            config: Typed configuration object
-            source_id: UUID of the source
-            http_client: Optional shared HTTP client for connection reuse
-        """
-        super().__init__(config, source_id, http_client)
-
     def _get_api_key(self) -> str | None:
         """Get YouTube API key from settings or config.
 
@@ -118,47 +101,9 @@ class YouTubeTrendingSource(BaseSource[YouTubeTrendingConfig]):
         )
 
         topics: list[RawTopic] = []
-
-        # Use injected client or create a new one
-        if self._http_client:
-            topics = await self._collect_with_client(
-                self._http_client, api_key, regions, limit, category_id
-            )
-        else:
-            async with httpx.AsyncClient(timeout=self._config.request_timeout) as client:
-                topics = await self._collect_with_client(
-                    client, api_key, regions, limit, category_id
-                )
-
-        logger.info("YouTube Trending collection complete", collected=len(topics))
-        return topics
-
-    async def _collect_with_client(
-        self,
-        client: httpx.AsyncClient,
-        api_key: str,
-        regions: list[str],
-        limit: int,
-        category_id: int,
-    ) -> list[RawTopic]:
-        """Collect videos using provided HTTP client.
-
-        Args:
-            client: HTTP client to use
-            api_key: YouTube API key
-            regions: List of region codes
-            limit: Max videos per region
-            category_id: Video category ID
-
-        Returns:
-            List of collected RawTopics
-        """
-        topics: list[RawTopic] = []
         for region in regions:
             try:
-                region_topics = await self._fetch_trending(
-                    client, api_key, region, limit, category_id
-                )
+                region_topics = await self._fetch_trending(api_key, region, limit, category_id)
                 topics.extend(region_topics)
             except Exception as e:
                 logger.error(
@@ -167,11 +112,12 @@ class YouTubeTrendingSource(BaseSource[YouTubeTrendingConfig]):
                     error=str(e),
                 )
                 continue
+
+        logger.info("YouTube Trending collection complete", collected=len(topics))
         return topics
 
     async def _fetch_trending(
         self,
-        client: httpx.AsyncClient,
         api_key: str,
         region: str,
         limit: int,
@@ -180,7 +126,6 @@ class YouTubeTrendingSource(BaseSource[YouTubeTrendingConfig]):
         """Fetch trending videos for a specific region.
 
         Args:
-            client: HTTP client
             api_key: YouTube API key
             region: Region code (ISO 3166-1 alpha-2)
             limit: Maximum videos to fetch
@@ -201,7 +146,7 @@ class YouTubeTrendingSource(BaseSource[YouTubeTrendingConfig]):
         if category_id > 0:
             params["videoCategoryId"] = str(category_id)
 
-        response = await client.get(url, params=params)
+        response = await self._http_client.get(url, params=params)
         response.raise_for_status()
         data = response.json()
 
@@ -300,13 +245,8 @@ class YouTubeTrendingSource(BaseSource[YouTubeTrendingConfig]):
                 "key": api_key,
             }
 
-            if self._http_client:
-                response = await self._http_client.get(url, params=params)
-                return response.status_code == 200
-            else:
-                async with httpx.AsyncClient(timeout=self._config.request_timeout) as client:
-                    response = await client.get(url, params=params)
-                    return response.status_code == 200
+            response = await self._http_client.get(url, params=params)
+            return response.status_code == 200
         except Exception as e:
             logger.warning("YouTube API health check failed", error=str(e))
             return False

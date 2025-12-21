@@ -310,6 +310,28 @@ class ServiceContainer(containers.DeclarativeContainer):
         config=configs.series_matcher_config,
     )
 
+    global_topic_pool = providers.Factory(
+        "app.services.collector.global_pool.GlobalTopicPool",
+        redis=infrastructure.redis_async_client,
+    )
+
+    scoped_source_cache = providers.Factory(
+        "app.services.collector.global_pool.ScopedSourceCache",
+        redis=infrastructure.redis_async_client,
+    )
+
+    topic_collection_pipeline = providers.Factory(
+        "app.services.collector.pipeline.TopicCollectionPipeline",
+        session=infrastructure.db_session,
+        http_client=infrastructure.http_client,
+        normalizer=topic_normalizer,
+        redis=infrastructure.redis_async_client,
+        deduplicator=topic_deduplicator,
+        scorer=topic_scorer,
+        global_pool=global_topic_pool,
+        scoped_cache=scoped_source_cache,
+    )
+
     # ============================================
     # RAG Services
     # ============================================

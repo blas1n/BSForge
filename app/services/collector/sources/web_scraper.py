@@ -5,11 +5,9 @@ Subclasses implement site-specific parsing logic.
 """
 
 import asyncio
-import uuid
 from abc import abstractmethod
 from typing import Any
 
-import httpx
 from bs4 import BeautifulSoup
 
 from app.config.sources import WebScraperConfig
@@ -41,21 +39,6 @@ class WebScraperSource(BaseSource[WebScraperConfig]):
         rate_limit_delay: Delay between requests (default: 1s)
     """
 
-    def __init__(
-        self,
-        config: WebScraperConfig,
-        source_id: uuid.UUID,
-        http_client: httpx.AsyncClient | None = None,
-    ):
-        """Initialize web scraper source.
-
-        Args:
-            config: Typed configuration object
-            source_id: UUID of the source
-            http_client: Optional shared HTTP client for connection reuse
-        """
-        super().__init__(config, source_id, http_client)
-
     def _get_headers(self) -> dict[str, str]:
         """Get HTTP headers for requests.
 
@@ -70,21 +53,20 @@ class WebScraperSource(BaseSource[WebScraperConfig]):
             "Connection": "keep-alive",
         }
 
-    async def _fetch_html(self, client: httpx.AsyncClient, url: str) -> str | None:
+    async def _fetch_html(self, url: str) -> str | None:
         """Fetch HTML content from URL.
 
         Args:
-            client: HTTP client
             url: URL to fetch
 
         Returns:
             HTML content or None if fetch failed
         """
         try:
-            response = await client.get(url, headers=self._get_headers())
+            response = await self._http_client.get(url, headers=self._get_headers())
             response.raise_for_status()
             return response.text
-        except httpx.HTTPError as e:
+        except Exception as e:
             logger.warning("Failed to fetch URL", url=url, error=str(e))
             return None
 
@@ -122,19 +104,7 @@ class WebScraperSource(BaseSource[WebScraperConfig]):
         topics: list[RawTopic] = []
 
         try:
-            # Use injected client or create a new one
-            if self._http_client:
-                topics = await self._collect_with_client(
-                    self._http_client, base_url, params, limit, min_score
-                )
-            else:
-                async with httpx.AsyncClient(
-                    timeout=self._config.request_timeout, follow_redirects=True
-                ) as client:
-                    topics = await self._collect_with_client(
-                        client, base_url, params, limit, min_score
-                    )
-
+            topics = await self._collect_topics(base_url, params, limit, min_score)
         except Exception as e:
             logger.error(
                 "Scraper collection failed",
@@ -150,18 +120,16 @@ class WebScraperSource(BaseSource[WebScraperConfig]):
         )
         return topics
 
-    async def _collect_with_client(
+    async def _collect_topics(
         self,
-        client: httpx.AsyncClient,
         base_url: str,
         params: dict[str, Any],
         limit: int,
         min_score: int,
     ) -> list[RawTopic]:
-        """Collect topics using provided HTTP client.
+        """Collect topics from web pages.
 
         Args:
-            client: HTTP client to use
             base_url: Base URL from config
             params: Collection parameters
             limit: Max items to collect
@@ -179,7 +147,7 @@ class WebScraperSource(BaseSource[WebScraperConfig]):
             if len(topics) >= limit:
                 break
 
-            html = await self._fetch_html(client, list_url)
+            html = await self._fetch_html(list_url)
             if not html:
                 continue
 
@@ -257,15 +225,8 @@ class WebScraperSource(BaseSource[WebScraperConfig]):
             return False
 
         try:
-            if self._http_client:
-                response = await self._http_client.get(base_url, headers=self._get_headers())
-                return response.status_code == 200
-            else:
-                async with httpx.AsyncClient(
-                    timeout=self._config.request_timeout, follow_redirects=True
-                ) as client:
-                    response = await client.get(base_url, headers=self._get_headers())
-                    return response.status_code == 200
+            response = await self._http_client.get(base_url, headers=self._get_headers())
+            return response.status_code == 200
         except Exception as e:
             logger.warning(
                 "Scraper health check failed",

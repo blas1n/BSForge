@@ -4,9 +4,8 @@ Collects trending search topics from Google Trends using pytrends.
 Supports multiple regions and real-time/daily trends.
 """
 
-import uuid
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import pycountry
 from pydantic import HttpUrl
@@ -15,9 +14,6 @@ from pytrends.request import TrendReq
 from app.config.sources import GoogleTrendsConfig
 from app.core.logging import get_logger
 from app.services.collector.base import BaseSource, RawTopic
-
-if TYPE_CHECKING:
-    import httpx
 
 logger = get_logger(__name__)
 
@@ -62,22 +58,6 @@ class GoogleTrendsSource(BaseSource[GoogleTrendsConfig]):
             category=params.get("category", 0),
             limit=overrides.get("limit", 20),
         )
-
-    def __init__(
-        self,
-        config: GoogleTrendsConfig,
-        source_id: uuid.UUID,
-        http_client: "httpx.AsyncClient | None" = None,
-    ):
-        """Initialize Google Trends source collector.
-
-        Args:
-            config: Typed configuration object
-            source_id: UUID of the source
-            http_client: Optional shared HTTP client (not used by pytrends)
-        """
-        # Note: GoogleTrends uses pytrends which manages its own HTTP session
-        super().__init__(config, source_id, http_client)
 
     async def collect(self, params: dict[str, Any] | None = None) -> list[RawTopic]:
         """Collect trending topics from Google Trends.

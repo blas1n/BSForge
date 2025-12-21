@@ -75,9 +75,9 @@ def is_global_source(source_name: str) -> bool:
 
 def create_source(
     source_name: str,
+    http_client: HTTPClient,
     overrides: dict[str, Any] | None = None,
     source_id: uuid.UUID | None = None,
-    http_client: HTTPClient | None = None,
 ) -> BaseSource[Any]:
     """Create a topic source instance from name and config overrides.
 
@@ -86,9 +86,9 @@ def create_source(
 
     Args:
         source_name: Name of the source (e.g., "hackernews", "reddit")
+        http_client: Shared HTTP client for connection reuse
         overrides: Configuration overrides from channel config
         source_id: Optional source ID (generates new UUID if not provided)
-        http_client: Shared HTTP client for connection reuse
 
     Returns:
         TopicSource instance
@@ -141,15 +141,15 @@ def get_scoped_source_names() -> list[str]:
 
 async def collect_from_sources(
     enabled_sources: list[str],
+    http_client: HTTPClient,
     source_overrides: dict[str, Any] | None = None,
-    http_client: HTTPClient | None = None,
 ) -> list[Any]:
     """Collect topics from multiple sources.
 
     Args:
         enabled_sources: List of source names to collect from
-        source_overrides: Per-source configuration overrides
         http_client: Shared HTTP client for connection reuse
+        source_overrides: Per-source configuration overrides
 
     Returns:
         List of RawTopic objects from all sources
@@ -160,7 +160,7 @@ async def collect_from_sources(
     for source_name in enabled_sources:
         overrides = source_overrides.get(source_name, {})
         try:
-            source = create_source(source_name, overrides, http_client=http_client)
+            source = create_source(source_name, http_client, overrides)
             topics = await source.collect()
             all_topics.extend(topics)
             logger.info(f"Collected {len(topics)} topics from {source_name}")

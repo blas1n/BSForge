@@ -4,11 +4,9 @@ Collects posts from Reddit using the public JSON API.
 No authentication required for public subreddits.
 """
 
-import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-import httpx
 from pydantic import HttpUrl
 
 from app.config.sources import RedditConfig
@@ -76,21 +74,6 @@ class RedditSource(BaseSource[RedditConfig]):
             limit=overrides.get("limit", 25),
         )
 
-    def __init__(
-        self,
-        config: RedditConfig,
-        source_id: uuid.UUID,
-        http_client: httpx.AsyncClient | None = None,
-    ):
-        """Initialize Reddit source collector.
-
-        Args:
-            config: Typed configuration object
-            source_id: UUID of the source
-            http_client: Optional shared HTTP client for connection reuse
-        """
-        super().__init__(config, source_id, http_client)
-
     async def collect(self, params: dict[str, Any] | None = None) -> list[RawTopic]:
         """Collect posts from Reddit subreddits.
 
@@ -120,50 +103,9 @@ class RedditSource(BaseSource[RedditConfig]):
         )
 
         topics: list[RawTopic] = []
-
-        # Use injected client or create a new one
-        if self._http_client:
-            topics = await self._collect_with_client(
-                self._http_client, subreddits, limit, min_score, sort, time_filter
-            )
-        else:
-            async with httpx.AsyncClient(
-                timeout=self._config.request_timeout,
-                headers={"User-Agent": USER_AGENT},
-            ) as client:
-                topics = await self._collect_with_client(
-                    client, subreddits, limit, min_score, sort, time_filter
-                )
-
-        logger.info("Reddit collection complete", collected=len(topics))
-        return topics
-
-    async def _collect_with_client(
-        self,
-        client: httpx.AsyncClient,
-        subreddits: list[str],
-        limit: int,
-        min_score: int,
-        sort: str,
-        time_filter: str,
-    ) -> list[RawTopic]:
-        """Collect posts using provided HTTP client.
-
-        Args:
-            client: HTTP client to use
-            subreddits: List of subreddit names
-            limit: Max posts per subreddit
-            min_score: Minimum score threshold
-            sort: Sort method
-            time_filter: Time filter for top sort
-
-        Returns:
-            List of collected RawTopics
-        """
-        topics: list[RawTopic] = []
         for subreddit in subreddits:
             try:
-                posts = await self._fetch_subreddit(client, subreddit, limit, sort, time_filter)
+                posts = await self._fetch_subreddit(subreddit, limit, sort, time_filter)
                 for post in posts:
                     if post.get("data", {}).get("score", 0) >= min_score:
                         topic = self._to_raw_topic(post["data"], subreddit)
@@ -177,11 +119,12 @@ class RedditSource(BaseSource[RedditConfig]):
                     error=str(e),
                 )
                 continue
+
+        logger.info("Reddit collection complete", collected=len(topics))
         return topics
 
     async def _fetch_subreddit(
         self,
-        client: httpx.AsyncClient,
         subreddit: str,
         limit: int,
         sort: str,
@@ -190,7 +133,6 @@ class RedditSource(BaseSource[RedditConfig]):
         """Fetch posts from a single subreddit.
 
         Args:
-            client: HTTP client
             subreddit: Subreddit name
             limit: Max posts to fetch
             sort: Sort method
@@ -205,7 +147,7 @@ class RedditSource(BaseSource[RedditConfig]):
         if sort == "top":
             params["t"] = time_filter
 
-        response = await client.get(url, params=params)
+        response = await self._http_client.get(url, params=params)
         response.raise_for_status()
         data = response.json()
 
@@ -284,19 +226,8 @@ class RedditSource(BaseSource[RedditConfig]):
             True if API responds successfully
         """
         try:
-            if self._http_client:
-                response = await self._http_client.get(
-                    f"{REDDIT_BASE}/r/all/hot.json?limit=1",
-                    headers={"User-Agent": USER_AGENT},
-                )
-                return response.status_code == 200
-            else:
-                async with httpx.AsyncClient(
-                    timeout=self._config.request_timeout,
-                    headers={"User-Agent": USER_AGENT},
-                ) as client:
-                    response = await client.get(f"{REDDIT_BASE}/r/all/hot.json?limit=1")
-                    return response.status_code == 200
+            response = await self._http_client.get(f"{REDDIT_BASE}/r/all/hot.json?limit=1")
+            return response.status_code == 200
         except Exception as e:
             logger.warning("Reddit health check failed", error=str(e))
             return False

@@ -4,11 +4,9 @@ Collects top stories from Hacker News using the official Firebase API.
 https://github.com/HackerNews/API
 """
 
-import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-import httpx
 from pydantic import HttpUrl
 
 from app.config.sources import HackerNewsConfig
@@ -19,8 +17,8 @@ logger = get_logger(__name__)
 
 # HN API endpoints
 HN_API_BASE = "https://hacker-news.firebaseio.com/v0"
-HN_TOP_STORIES = f"{HN_API_BASE}/topstories.json"
-HN_ITEM = f"{HN_API_BASE}/item/{id}.json"
+HN_TOP_STORIES = HN_API_BASE + "/topstories.json"
+HN_ITEM_TEMPLATE = HN_API_BASE + "/item/{id}.json"
 
 
 class HackerNewsSource(BaseSource[HackerNewsConfig]):
@@ -58,21 +56,6 @@ class HackerNewsSource(BaseSource[HackerNewsConfig]):
             limit=overrides.get("limit", 30),
         )
 
-    def __init__(
-        self,
-        config: HackerNewsConfig,
-        source_id: uuid.UUID,
-        http_client: httpx.AsyncClient | None = None,
-    ):
-        """Initialize HackerNews source collector.
-
-        Args:
-            config: Typed configuration object
-            source_id: UUID of the source
-            http_client: Optional shared HTTP client for connection reuse
-        """
-        super().__init__(config, source_id, http_client)
-
     async def collect(self, params: dict[str, Any] | None = None) -> list[RawTopic]:
         """Collect top stories from Hacker News.
 
@@ -95,27 +78,15 @@ class HackerNewsSource(BaseSource[HackerNewsConfig]):
         )
 
         try:
-            # Use injected client or create a new one
-            if self._http_client:
-                return await self._collect_with_client(self._http_client, limit, min_score)
-            else:
-                async with httpx.AsyncClient(timeout=self._config.request_timeout) as client:
-                    return await self._collect_with_client(client, limit, min_score)
-
-        except httpx.HTTPError as e:
-            logger.error("HN API request failed", error=str(e))
-            raise
+            return await self._collect_stories(limit, min_score)
         except Exception as e:
             logger.error("HN collection failed", error=str(e), exc_info=True)
             raise
 
-    async def _collect_with_client(
-        self, client: httpx.AsyncClient, limit: int, min_score: int
-    ) -> list[RawTopic]:
-        """Collect stories using provided HTTP client.
+    async def _collect_stories(self, limit: int, min_score: int) -> list[RawTopic]:
+        """Collect stories using HTTP client.
 
         Args:
-            client: HTTP client to use
             limit: Maximum stories to fetch
             min_score: Minimum score threshold
 
@@ -123,7 +94,7 @@ class HackerNewsSource(BaseSource[HackerNewsConfig]):
             List of collected RawTopics
         """
         # Get top story IDs
-        response = await client.get(HN_TOP_STORIES)
+        response = await self._http_client.get(HN_TOP_STORIES)
         response.raise_for_status()
         story_ids = response.json()[: limit * 2]  # Fetch extra to account for filtering
 
@@ -133,7 +104,7 @@ class HackerNewsSource(BaseSource[HackerNewsConfig]):
             if len(topics) >= limit:
                 break
 
-            story = await self._fetch_story(client, story_id)
+            story = await self._fetch_story(story_id)
             if story and story.get("score", 0) >= min_score:
                 topic = self._to_raw_topic(story)
                 if topic:
@@ -146,19 +117,18 @@ class HackerNewsSource(BaseSource[HackerNewsConfig]):
         )
         return topics
 
-    async def _fetch_story(self, client: httpx.AsyncClient, story_id: int) -> dict[str, Any] | None:
+    async def _fetch_story(self, story_id: int) -> dict[str, Any] | None:
         """Fetch a single story by ID.
 
         Args:
-            client: HTTP client
             story_id: HN story ID
 
         Returns:
             Story data or None if fetch failed
         """
         try:
-            url = HN_ITEM.format(id=story_id)
-            response = await client.get(url)
+            url = HN_ITEM_TEMPLATE.format(id=story_id)
+            response = await self._http_client.get(url)
             response.raise_for_status()
             data = response.json()
 
@@ -168,7 +138,7 @@ class HackerNewsSource(BaseSource[HackerNewsConfig]):
                 return story_data
             return None
 
-        except httpx.HTTPError as e:
+        except Exception as e:
             logger.warning("Failed to fetch HN story", story_id=story_id, error=str(e))
             return None
 
@@ -222,13 +192,8 @@ class HackerNewsSource(BaseSource[HackerNewsConfig]):
             True if API responds successfully
         """
         try:
-            if self._http_client:
-                response = await self._http_client.get(HN_TOP_STORIES)
-                return response.status_code == 200
-            else:
-                async with httpx.AsyncClient(timeout=self._config.request_timeout) as client:
-                    response = await client.get(HN_TOP_STORIES)
-                    return response.status_code == 200
+            response = await self._http_client.get(HN_TOP_STORIES)
+            return response.status_code == 200
         except Exception as e:
             logger.warning("HN health check failed", error=str(e))
             return False

@@ -5,12 +5,10 @@ https://www.dcinside.com/
 """
 
 import re
-import uuid
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urljoin
 
-import httpx
 from bs4 import BeautifulSoup, Tag
 
 from app.config.sources import DCInsideConfig
@@ -72,21 +70,6 @@ class DCInsideSource(KoreanWebScraperBase, BaseSource[DCInsideConfig]):
             min_score=filters.get("min_score", 10),
             limit=overrides.get("limit", 20),
         )
-
-    def __init__(
-        self,
-        config: DCInsideConfig,
-        source_id: uuid.UUID,
-        http_client: httpx.AsyncClient | None = None,
-    ):
-        """Initialize DC Inside source collector.
-
-        Args:
-            config: Typed configuration object
-            source_id: UUID of the source
-            http_client: Optional shared HTTP client for connection reuse
-        """
-        super().__init__(config, source_id, http_client)
 
     @property
     def source_name_kr(self) -> str:

@@ -5,23 +5,19 @@ Tests use mocked HTTP responses to avoid external API calls.
 
 import uuid
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, patch
+from unittest.mock import MagicMock
 
-import httpx
 import pytest
 
 from app.config.sources import RedditConfig
+from app.infrastructure.http_client import HTTPClient
 from app.services.collector.sources.reddit import RedditSource
 
-
-@pytest.fixture
-def source_id() -> uuid.UUID:
-    """Create a test source UUID."""
-    return uuid.uuid4()
+from .conftest import create_mock_response
 
 
 @pytest.fixture
-def reddit_source(source_id: uuid.UUID) -> RedditSource:
+def reddit_source(source_id: uuid.UUID, mock_http_client: HTTPClient) -> RedditSource:
     """Create Reddit source with test config."""
     config = RedditConfig(
         subreddits=["programming", "technology"],
@@ -31,7 +27,7 @@ def reddit_source(source_id: uuid.UUID) -> RedditSource:
         time="day",
         request_timeout=15.0,
     )
-    return RedditSource(config=config, source_id=source_id)
+    return RedditSource(config=config, source_id=source_id, http_client=mock_http_client)
 
 
 @pytest.fixture
@@ -88,7 +84,9 @@ class TestRedditCollect:
     """Tests for Reddit.collect() method."""
 
     @pytest.mark.asyncio
-    async def test_collect_success(self, reddit_source: RedditSource, mock_post: dict):
+    async def test_collect_success(
+        self, reddit_source: RedditSource, mock_http_client: HTTPClient, mock_post: dict
+    ):
         """Test successful collection from Reddit."""
         mock_response_data = {
             "data": {
@@ -96,33 +94,29 @@ class TestRedditCollect:
             }
         }
 
-        with patch("app.services.collector.sources.reddit.httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_instance
+        mock_response = create_mock_response(json_data=mock_response_data)
+        mock_http_client.get.return_value = mock_response
 
-            mock_response = AsyncMock()
-            mock_response.json = lambda: mock_response_data
-            mock_response.raise_for_status = lambda: None
+        topics = await reddit_source.collect()
 
-            # Return same response for each subreddit
-            mock_instance.get.return_value = mock_response
-
-            topics = await reddit_source.collect()
-
-            # Should have posts from both subreddits
-            assert len(topics) == 2  # One from each subreddit
-            assert topics[0].title == "Test Post Title"
+        # Should have posts from both subreddits
+        assert len(topics) == 2  # One from each subreddit
+        assert topics[0].title == "Test Post Title"
 
     @pytest.mark.asyncio
-    async def test_collect_no_subreddits_returns_empty(self, source_id: uuid.UUID):
+    async def test_collect_no_subreddits_returns_empty(
+        self, source_id: uuid.UUID, mock_http_client: HTTPClient
+    ):
         """Test that empty subreddit list returns empty results."""
         config = RedditConfig(subreddits=[])
-        source = RedditSource(config=config, source_id=source_id)
+        source = RedditSource(config=config, source_id=source_id, http_client=mock_http_client)
         topics = await source.collect()
         assert topics == []
 
     @pytest.mark.asyncio
-    async def test_collect_filters_low_score(self, reddit_source: RedditSource, mock_post: dict):
+    async def test_collect_filters_low_score(
+        self, reddit_source: RedditSource, mock_http_client: HTTPClient, mock_post: dict
+    ):
         """Test that low-score posts are filtered out."""
         mock_post["data"]["score"] = 50  # Below min_score of 100
 
@@ -132,21 +126,17 @@ class TestRedditCollect:
             }
         }
 
-        with patch("app.services.collector.sources.reddit.httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_instance
+        mock_response = create_mock_response(json_data=mock_response_data)
+        mock_http_client.get.return_value = mock_response
 
-            mock_response = AsyncMock()
-            mock_response.json = lambda: mock_response_data
-            mock_response.raise_for_status = lambda: None
-            mock_instance.get.return_value = mock_response
+        topics = await reddit_source.collect()
 
-            topics = await reddit_source.collect()
-
-            assert len(topics) == 0  # Filtered out
+        assert len(topics) == 0  # Filtered out
 
     @pytest.mark.asyncio
-    async def test_collect_with_params_override(self, reddit_source: RedditSource, mock_post: dict):
+    async def test_collect_with_params_override(
+        self, reddit_source: RedditSource, mock_http_client: HTTPClient, mock_post: dict
+    ):
         """Test collection with parameter overrides."""
         mock_response_data = {
             "data": {
@@ -154,24 +144,18 @@ class TestRedditCollect:
             }
         }
 
-        with patch("app.services.collector.sources.reddit.httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_instance
+        mock_response = create_mock_response(json_data=mock_response_data)
+        mock_http_client.get.return_value = mock_response
 
-            mock_response = AsyncMock()
-            mock_response.json = lambda: mock_response_data
-            mock_response.raise_for_status = lambda: None
-            mock_instance.get.return_value = mock_response
+        # Override subreddits
+        topics = await reddit_source.collect(params={"subreddits": ["python"], "min_score": 200})
 
-            # Override subreddits
-            topics = await reddit_source.collect(
-                params={"subreddits": ["python"], "min_score": 200}
-            )
-
-            assert len(topics) == 1  # Only one subreddit
+        assert len(topics) == 1  # Only one subreddit
 
     @pytest.mark.asyncio
-    async def test_collect_skips_stickied_posts(self, reddit_source: RedditSource, mock_post: dict):
+    async def test_collect_skips_stickied_posts(
+        self, reddit_source: RedditSource, mock_http_client: HTTPClient, mock_post: dict
+    ):
         """Test that stickied posts are skipped."""
         mock_post["data"]["stickied"] = True
 
@@ -181,50 +165,40 @@ class TestRedditCollect:
             }
         }
 
-        with patch("app.services.collector.sources.reddit.httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_instance
+        mock_response = create_mock_response(json_data=mock_response_data)
+        mock_http_client.get.return_value = mock_response
 
-            mock_response = AsyncMock()
-            mock_response.json = lambda: mock_response_data
-            mock_response.raise_for_status = lambda: None
-            mock_instance.get.return_value = mock_response
+        topics = await reddit_source.collect()
 
-            topics = await reddit_source.collect()
-
-            assert len(topics) == 0  # Stickied posts filtered
+        assert len(topics) == 0  # Stickied posts filtered
 
 
 class TestRedditHealthCheck:
     """Tests for Reddit.health_check() method."""
 
     @pytest.mark.asyncio
-    async def test_health_check_success(self, reddit_source: RedditSource):
+    async def test_health_check_success(
+        self, reddit_source: RedditSource, mock_http_client: HTTPClient
+    ):
         """Test health check returns True when API is accessible."""
-        with patch("app.services.collector.sources.reddit.httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_instance
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_http_client.get.return_value = mock_response
 
-            mock_response = AsyncMock()
-            mock_response.status_code = 200
-            mock_instance.get.return_value = mock_response
+        result = await reddit_source.health_check()
 
-            result = await reddit_source.health_check()
-
-            assert result is True
+        assert result is True
 
     @pytest.mark.asyncio
-    async def test_health_check_failure(self, reddit_source: RedditSource):
+    async def test_health_check_failure(
+        self, reddit_source: RedditSource, mock_http_client: HTTPClient
+    ):
         """Test health check returns False when API is down."""
-        with patch("app.services.collector.sources.reddit.httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_instance
+        mock_http_client.get.side_effect = Exception("Connection failed")
 
-            mock_instance.get.side_effect = httpx.ConnectError("Connection failed")
+        result = await reddit_source.health_check()
 
-            result = await reddit_source.health_check()
-
-            assert result is False
+        assert result is False
 
 
 class TestRedditConversion:
