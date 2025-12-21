@@ -7,9 +7,12 @@ used throughout the topic collection pipeline.
 import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Any, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from pydantic import BaseModel, Field, HttpUrl
+
+if TYPE_CHECKING:
+    import httpx
 
 # Type variable for source config types
 ConfigT = TypeVar("ConfigT", bound=BaseModel)
@@ -121,21 +124,33 @@ class BaseSource(ABC, Generic[ConfigT]):
     Attributes:
         _config: Typed configuration object
         source_id: UUID of the source
+        _http_client: Optional shared HTTP client (injected via DI)
+
+    Class Attributes:
+        is_global: If True, collected once and shared across all channels.
+                   If False, collected per channel with specific params.
+                   Default is False (scoped). Override in subclass if global.
     """
+
+    # Override in subclasses: True = global (HN, Trends), False = scoped (Reddit, DC)
+    is_global: bool = False
 
     def __init__(
         self,
         config: ConfigT,
         source_id: uuid.UUID,
+        http_client: "httpx.AsyncClient | None" = None,
     ):
         """Initialize source collector.
 
         Args:
             config: Typed configuration object
             source_id: UUID of the source in database
+            http_client: Optional shared HTTP client for connection reuse
         """
         self.source_id = source_id
         self._config = config
+        self._http_client = http_client
 
     @abstractmethod
     async def collect(self, params: dict[str, Any] | None = None) -> list[RawTopic]:
@@ -172,6 +187,23 @@ class BaseSource(ABC, Generic[ConfigT]):
         """
         # Default implementation - override if needed
         return True
+
+    @classmethod
+    def build_config(cls, overrides: dict[str, Any]) -> Any:
+        """Build configuration from overrides.
+
+        Each source subclass should override this to construct its typed config.
+
+        Args:
+            overrides: Configuration overrides from channel config
+
+        Returns:
+            Typed config object for this source
+
+        Raises:
+            ValueError: If required parameters are missing
+        """
+        raise NotImplementedError(f"{cls.__name__} must implement build_config()")
 
 
 class CollectionResult(BaseModel):

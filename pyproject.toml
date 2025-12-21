@@ -75,6 +75,7 @@ dependencies = [
     "pytz>=2024.1",
     "pytrends>=4.9.2",
     "pycountry>=24.6.1",
+    "fontconfig-py>=1.0.0",
 ]
 
 [project.optional-dependencies]

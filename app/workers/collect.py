@@ -40,14 +40,15 @@ from app.core.config import get_config
 from app.services.collector.base import CollectionResult, RawTopic
 from app.services.collector.deduplicator import TopicDeduplicator
 from app.services.collector.global_pool import (
-    SOURCE_SCOPES,
     GlobalTopicPool,
     ScopedSourceCache,
-    SourceScope,
-    is_global_source,
 )
 from app.services.collector.normalizer import TopicNormalizer
 from app.services.collector.scorer import TopicScorer
+from app.services.collector.sources.factory import (
+    get_global_source_names,
+    is_global_source,
+)
 
 logger = get_task_logger(__name__)
 
@@ -197,9 +198,7 @@ async def _collect_global_sources_async() -> GlobalCollectionResult:
     pool = GlobalTopicPool(redis)
 
     # Get all global source types
-    global_sources = [
-        source_type for source_type, scope in SOURCE_SCOPES.items() if scope == SourceScope.GLOBAL
-    ]
+    global_sources = get_global_source_names()
 
     for source_type in global_sources:
         try:

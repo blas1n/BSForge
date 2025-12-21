@@ -14,6 +14,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from app.config.video import ThumbnailConfig
 from app.core.logging import get_logger
+from app.infrastructure.fonts import find_font_by_name
 from app.services.generator.ffmpeg import FFmpegWrapper, get_ffmpeg_wrapper
 from app.services.generator.visual.base import VisualAsset
 
@@ -332,84 +333,32 @@ class ThumbnailGenerator:
         font_name: str,
         size: int,
     ) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-        """Get or load font with Korean support.
+        """Get or load font using fontconfig.
 
         Args:
-            font_name: Font name
+            font_name: Font name or fontconfig query
             size: Font size
 
         Returns:
             PIL Font
         """
-        import os
-
         cache_key = f"{font_name}_{size}"
         if cache_key in self._font_cache:
             return self._font_cache[cache_key]
 
-        # Priority order for Korean-supporting fonts
-        korean_font_paths = [
-            # User-installed Noto Sans CJK (Korean)
-            os.path.expanduser("~/.local/share/fonts/NotoSansKR-Bold.ttf"),
-            os.path.expanduser("~/.local/share/fonts/NotoSansKR-Regular.ttf"),
-            # System Noto Sans CJK
-            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
-            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-            "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
-            # Nanum fonts (common Korean fonts)
-            "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
-            "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
-        ]
+        # Use fontconfig to find the font path
+        font_path = find_font_by_name(font_name)
 
-        # Try Korean fonts first
-        for path in korean_font_paths:
-            try:
-                font = ImageFont.truetype(path, size)
-                self._font_cache[cache_key] = font
-                logger.info(f"Using Korean font: {path}")
-                return font
-            except OSError:
-                continue
-
-        # Try to load the specified font
-        font_paths = [
-            f"/usr/share/fonts/truetype/{font_name}.ttf",
-            f"/usr/share/fonts/{font_name}.ttf",
-            f"/System/Library/Fonts/{font_name}.ttf",
-            f"C:/Windows/Fonts/{font_name}.ttf",
-        ]
-
-        for path in font_paths:
-            try:
-                font = ImageFont.truetype(path, size)
-                self._font_cache[cache_key] = font
-                return font
-            except OSError:
-                continue
-
-        # Try common fallback fonts
-        fallback_fonts = [
-            "DejaVuSans-Bold",
-            "DejaVuSans",
-            "Arial",
-            "Helvetica",
-        ]
-
-        for fallback in fallback_fonts:
-            for ext in [".ttf", ".otf"]:
-                try:
-                    font = ImageFont.truetype(fallback + ext, size)
-                    self._font_cache[cache_key] = font
-                    logger.warning(f"Using fallback font: {fallback}")
-                    return font
-                except OSError:
-                    continue
+        try:
+            font = ImageFont.truetype(font_path, size)
+            self._font_cache[cache_key] = font
+            logger.debug(f"Loaded font: {font_path}")
+            return font
+        except OSError:
+            logger.warning(f"Failed to load font: {font_path}, using default")
 
         # Ultimate fallback: default font
-        # In modern Pillow (10+), load_default() returns FreeTypeFont
-        logger.warning("Using default PIL font (Korean may not render correctly)")
         default_font = ImageFont.load_default()
-        # Cache the default font as well for consistency
         self._font_cache[cache_key] = default_font
         return default_font
 
