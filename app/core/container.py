@@ -275,6 +275,14 @@ class ServiceContainer(containers.DeclarativeContainer):
     )
 
     # ============================================
+    # ASS Subtitle Template Loader
+    # ============================================
+
+    ass_template_loader = providers.Singleton(
+        "app.services.generator.templates.ASSTemplateLoader",
+    )
+
+    # ============================================
     # Collector Services
     # ============================================
 
@@ -440,6 +448,8 @@ class ServiceContainer(containers.DeclarativeContainer):
     subtitle_generator = providers.Factory(
         "app.services.generator.subtitle.SubtitleGenerator",
         config=configs.subtitle_config,
+        composition_config=configs.composition_config,
+        template_loader=ass_template_loader,
     )
 
     # FFmpeg Compositor

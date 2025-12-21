@@ -18,13 +18,12 @@ from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from app.config.video import SubtitleConfig, SubtitleStyleConfig
+from app.config.video import CompositionConfig, SubtitleConfig, SubtitleStyleConfig
 from app.core.config_loader import load_language_config
 from app.services.generator.templates import (
     ASSDialogueParams,
     ASSStyleParams,
     ASSTemplateLoader,
-    get_ass_template_loader,
 )
 from app.services.generator.tts.base import SceneTTSResult, WordTimestamp
 
@@ -102,17 +101,20 @@ class SubtitleGenerator:
 
     def __init__(
         self,
-        config: SubtitleConfig | None = None,
-        template_loader: ASSTemplateLoader | None = None,
+        config: SubtitleConfig,
+        composition_config: CompositionConfig,
+        template_loader: ASSTemplateLoader,
     ) -> None:
         """Initialize SubtitleGenerator.
 
         Args:
             config: Subtitle configuration
-            template_loader: ASS template loader (uses singleton if not provided)
+            composition_config: Video composition config for resolution settings
+            template_loader: ASS template loader
         """
-        self.config = config or SubtitleConfig()
-        self.template_loader = template_loader or get_ass_template_loader()
+        self.config = config
+        self.composition_config = composition_config
+        self.template_loader = template_loader
 
     def generate_from_timestamps(
         self,
@@ -328,16 +330,17 @@ class SubtitleGenerator:
             margin_ratio = tmpl_layout.subtitle_margin_ratio if tmpl_layout else 0.5
 
             # Calculate margin_v based on position and ratio
-            # For 1920px height: 0.15 = near bottom, 0.5 = center, 0.85 = near top
+            # For height H: 0.15 = near bottom, 0.5 = center, 0.85 = near top
+            video_height = self.composition_config.height
             if position == "bottom":
                 alignment = 2  # Bottom center
-                margin_v = int(1920 * margin_ratio)
+                margin_v = int(video_height * margin_ratio)
             elif position == "top":
                 alignment = 8  # Top center
-                margin_v = int(1920 * (1 - margin_ratio))
+                margin_v = int(video_height * (1 - margin_ratio))
             else:  # center
                 alignment = 5  # Middle center
-                margin_v = int(1920 * (0.5 - margin_ratio / 2))
+                margin_v = int(video_height * (0.5 - margin_ratio / 2))
 
             # Animation settings
             fade_in_ms = tmpl_sub.fade_in_ms
@@ -1218,15 +1221,16 @@ class SubtitleGenerator:
             position = tmpl_layout.subtitle_position if tmpl_layout else "center"
             margin_ratio = tmpl_layout.subtitle_margin_ratio if tmpl_layout else 0.5
 
+            video_height = self.composition_config.height
             if position == "bottom":
                 alignment = 2
-                margin_v = int(1920 * margin_ratio)
+                margin_v = int(video_height * margin_ratio)
             elif position == "top":
                 alignment = 8
-                margin_v = int(1920 * (1 - margin_ratio))
+                margin_v = int(video_height * (1 - margin_ratio))
             else:
                 alignment = 5
-                margin_v = int(1920 * (0.5 - margin_ratio / 2))
+                margin_v = int(video_height * (0.5 - margin_ratio / 2))
 
             fade_in_ms = tmpl_sub.fade_in_ms
             fade_out_ms = tmpl_sub.fade_out_ms

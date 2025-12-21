@@ -12,9 +12,10 @@ from pathlib import Path
 
 import pytest
 
-from app.config.video import CompositionConfig
+from app.config.video import CompositionConfig, SubtitleConfig
 from app.services.generator.compositor import FFmpegCompositor
 from app.services.generator.subtitle import SubtitleGenerator
+from app.services.generator.templates import ASSTemplateLoader
 from app.services.generator.thumbnail import ThumbnailGenerator
 from app.services.generator.tts.base import TTSConfig as TTSConfigDataclass
 from app.services.generator.tts.edge import EdgeTTSEngine
@@ -91,7 +92,11 @@ class TestSubtitleGeneration:
 
     def test_generate_from_script(self, temp_output_dir: Path) -> None:
         """Test subtitle generation from script text."""
-        generator = SubtitleGenerator()
+        generator = SubtitleGenerator(
+            config=SubtitleConfig(),
+            composition_config=CompositionConfig(),
+            template_loader=ASSTemplateLoader(),
+        )
 
         subtitle_file = generator.generate_from_script(
             script="첫 번째 문장입니다. 두 번째 문장입니다. 세 번째 문장입니다.",
@@ -122,7 +127,11 @@ class TestSubtitleGeneration:
         )
 
         # Generate subtitles from timestamps
-        generator = SubtitleGenerator()
+        generator = SubtitleGenerator(
+            config=SubtitleConfig(),
+            composition_config=CompositionConfig(),
+            template_loader=ASSTemplateLoader(),
+        )
 
         if tts_result.word_timestamps:
             subtitle_file = generator.generate_from_timestamps(tts_result.word_timestamps)
@@ -195,7 +204,11 @@ class TestFullVideoPipeline:
         assert tts_result.audio_path.exists()
 
         # Step 2: Generate subtitles
-        subtitle_gen = SubtitleGenerator()
+        subtitle_gen = SubtitleGenerator(
+            config=SubtitleConfig(),
+            composition_config=CompositionConfig(),
+            template_loader=ASSTemplateLoader(),
+        )
 
         if tts_result.word_timestamps:
             subtitle_file = subtitle_gen.generate_from_timestamps(tts_result.word_timestamps)
@@ -400,7 +413,11 @@ class TestSceneBasedPipeline:
         assert combined_tts.duration_seconds > 0
 
         # Step 3: Generate subtitles
-        subtitle_gen = SubtitleGenerator()
+        subtitle_gen = SubtitleGenerator(
+            config=SubtitleConfig(),
+            composition_config=CompositionConfig(),
+            template_loader=ASSTemplateLoader(),
+        )
         subtitle_file = subtitle_gen.generate_from_scene_results(
             scene_results=scene_tts_results,
             scenes=scenes,

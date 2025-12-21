@@ -6,8 +6,11 @@ Supports multiple regions and real-time/daily trends.
 
 from datetime import UTC, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pycountry
+import pytz
+from babel.core import get_global
 from pydantic import HttpUrl
 from pytrends.request import TrendReq
 
@@ -16,6 +19,64 @@ from app.core.logging import get_logger
 from app.services.collector.base import BaseSource, RawTopic
 
 logger = get_logger(__name__)
+
+
+def get_host_language_for_region(region: str) -> str:
+    """Get primary language code for a region using babel CLDR data.
+
+    Args:
+        region: ISO 3166-1 alpha-2 country code (e.g., 'KR', 'US')
+
+    Returns:
+        Language code for pytrends (e.g., 'ko', 'en-US')
+    """
+    region = region.upper()
+    territory_languages = get_global("territory_languages")
+
+    languages = territory_languages.get(region, {})
+    if not languages:
+        return region.lower()
+
+    # Find language with highest population_percent
+    primary_lang = max(languages.items(), key=lambda x: x[1].get("population_percent", 0))[0]
+
+    # Normalize script variants (zh_Hant -> zh)
+    if "_" in primary_lang:
+        primary_lang = primary_lang.split("_")[0]
+
+    # Format for pytrends: add region suffix for languages with regional variants
+    if primary_lang in ("en", "zh", "pt", "es"):
+        return f"{primary_lang}-{region}"
+
+    return primary_lang
+
+
+def get_timezone_offset_for_region(region: str) -> int:
+    """Get timezone offset in minutes for a region using pytz.
+
+    Uses the first (primary) timezone for the country.
+
+    Args:
+        region: ISO 3166-1 alpha-2 country code (e.g., 'KR', 'US')
+
+    Returns:
+        Timezone offset in minutes from UTC
+    """
+    timezones = pytz.country_timezones.get(region.upper(), [])
+    if not timezones:
+        return 0
+
+    # Use first timezone (usually capital/most populous city)
+    tz_name = timezones[0]
+    try:
+        tz = ZoneInfo(tz_name)
+        now = datetime.now(tz)
+        offset = now.utcoffset()
+        if offset is not None:
+            return int(offset.total_seconds() / 60)
+    except Exception:
+        pass
+    return 0
 
 
 class GoogleTrendsSource(BaseSource[GoogleTrendsConfig]):
@@ -53,7 +114,7 @@ class GoogleTrendsSource(BaseSource[GoogleTrendsConfig]):
         """
         params = overrides.get("params", {})
         return GoogleTrendsConfig(
-            regions=params.get("regions", ["KR", "US"]),
+            regions=params.get("regions", []),
             timeframe=params.get("timeframe", "now 1-d"),
             category=params.get("category", 0),
             limit=overrides.get("limit", 20),
@@ -105,8 +166,12 @@ class GoogleTrendsSource(BaseSource[GoogleTrendsConfig]):
         Returns:
             List of RawTopic
         """
+        # Get region-specific language and timezone
+        host_language = get_host_language_for_region(region)
+        timezone_offset = get_timezone_offset_for_region(region)
+
         # pytrends is synchronous, but we wrap it for consistency
-        pytrends = TrendReq(hl="en-US", tz=360)
+        pytrends = TrendReq(hl=host_language, tz=timezone_offset)
 
         # Get daily trending searches
         try:
@@ -219,7 +284,8 @@ class GoogleTrendsSource(BaseSource[GoogleTrendsConfig]):
             True if API responds successfully
         """
         try:
-            pytrends = TrendReq(hl="en-US", tz=360)
+            # Use US as default for health check
+            pytrends = TrendReq(hl="en-US", tz=-300)
             # Try a simple trending search
             df = pytrends.trending_searches(pn="united_states")
             return df is not None and not df.empty

@@ -172,6 +172,47 @@ def create_scored_topic(
     )
 
 
+# =============================================================================
+# Config Fixtures
+# =============================================================================
+
+
+@pytest.fixture
+def subtitle_config():
+    """Create default SubtitleConfig."""
+    from app.config.video import SubtitleConfig
+
+    return SubtitleConfig()
+
+
+@pytest.fixture
+def composition_config():
+    """Create default CompositionConfig."""
+    from app.config.video import CompositionConfig
+
+    return CompositionConfig()
+
+
+@pytest.fixture
+def ass_template_loader():
+    """Create an ASSTemplateLoader."""
+    from app.services.generator.templates import ASSTemplateLoader
+
+    return ASSTemplateLoader()
+
+
+@pytest.fixture
+def subtitle_generator(subtitle_config, composition_config, ass_template_loader):
+    """Create a SubtitleGenerator with DI-injected configs."""
+    from app.services.generator.subtitle import SubtitleGenerator
+
+    return SubtitleGenerator(
+        config=subtitle_config,
+        composition_config=composition_config,
+        template_loader=ass_template_loader,
+    )
+
+
 # Mark for E2E tests that need external services
 e2e_marker = pytest.mark.e2e
 slow_marker = pytest.mark.slow

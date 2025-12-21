@@ -6,7 +6,7 @@ All operations use the SDK approach - no subprocess calls.
 
 Usage:
     >>> wrapper = FFmpegWrapper()
-    >>> stream = wrapper.image_to_video(image_path, output_path, duration=5.0)
+    >>> stream = wrapper.image_to_video(image_path, output_path, duration=5.0, size=(1080, 1920))
     >>> await wrapper.run(stream)
 """
 
@@ -168,8 +168,8 @@ class FFmpegWrapper:
         image_path: Path | str,
         output_path: Path | str,
         duration: float,
+        size: tuple[int, int],
         fps: int = 30,
-        size: tuple[int, int] = (1080, 1920),
     ) -> ffmpeg.nodes.OutputStream:
         """Create a video from a static image.
 
@@ -177,8 +177,8 @@ class FFmpegWrapper:
             image_path: Path to input image
             output_path: Path to output video
             duration: Video duration in seconds
-            fps: Frames per second
             size: Output size (width, height)
+            fps: Frames per second
 
         Returns:
             FFmpeg output stream (call .run() to execute)
@@ -202,9 +202,9 @@ class FFmpegWrapper:
         image_path: Path | str,
         output_path: Path | str,
         duration: float,
+        size: tuple[int, int],
         effect: str = "zoompan",
         fps: int = 30,
-        size: tuple[int, int] = (1080, 1920),
     ) -> ffmpeg.nodes.OutputStream:
         """Create a video from image with Ken Burns effect.
 
@@ -212,9 +212,9 @@ class FFmpegWrapper:
             image_path: Path to input image
             output_path: Path to output video
             duration: Video duration in seconds
+            size: Output size (width, height)
             effect: Effect type ("zoompan" for Ken Burns)
             fps: Frames per second
-            size: Output size (width, height)
 
         Returns:
             FFmpeg output stream
@@ -243,7 +243,7 @@ class FFmpegWrapper:
             )
         else:
             # Fallback to static
-            stream = self.image_to_video(image_path, output_path, duration, fps, size)
+            stream = self.image_to_video(image_path, output_path, duration, size, fps)
             return stream
 
         if self.overwrite:
@@ -401,16 +401,16 @@ class FFmpegWrapper:
         self,
         output_path: Path | str,
         duration: float,
+        size: tuple[int, int],
         fps: int = 30,
-        size: tuple[int, int] = (1080, 1920),
     ) -> ffmpeg.nodes.OutputStream:
         """Create a black video.
 
         Args:
             output_path: Path to output video
             duration: Video duration in seconds
-            fps: Frames per second
             size: Output size (width, height)
+            fps: Frames per second
 
         Returns:
             FFmpeg output stream
@@ -429,7 +429,7 @@ class FFmpegWrapper:
         self,
         video_path: Path | str,
         output_path: Path | str,
-        size: tuple[int, int] = (1080, 1920),
+        size: tuple[int, int],
         colorgrade: bool = True,
     ) -> ffmpeg.nodes.OutputStream:
         """Scale video and apply color grading.

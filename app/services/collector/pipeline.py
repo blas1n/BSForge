@@ -84,7 +84,8 @@ class CollectionConfig:
     """Configuration for topic collection.
 
     Attributes:
-        enabled_sources: List of enabled source types (required from channel config)
+        global_sources: List of global source types (hackernews, google_trends, youtube_trending)
+        scoped_sources: List of scoped source types (reddit, dcinside, etc.)
         target_language: Target language for translation (required from channel config)
         source_overrides: Per-source configuration overrides
         include: Terms to include
@@ -93,13 +94,19 @@ class CollectionConfig:
         save_to_db: Whether to save topics to database
     """
 
-    enabled_sources: list[str]  # Required - from channel config
+    global_sources: list[str]  # Global sources (shared across channels)
+    scoped_sources: list[str]  # Scoped sources (channel-specific params)
     target_language: str  # Required - from channel config
     source_overrides: dict[str, Any] = field(default_factory=dict)
     include: list[str] = field(default_factory=list)
     exclude: list[str] = field(default_factory=list)
     max_topics: int = field(default_factory=lambda: _get_collector_defaults().get("max_topics", 20))
     save_to_db: bool = True
+
+    @property
+    def enabled_sources(self) -> list[str]:
+        """All enabled sources (global + scoped) for backward compatibility."""
+        return self.global_sources + self.scoped_sources
 
     @classmethod
     def from_channel_config(cls, channel_config: dict[str, Any]) -> "CollectionConfig":
@@ -118,14 +125,13 @@ class CollectionConfig:
         topic_collection = channel_config.get("topic_collection", {})
         filtering = channel_config.get("filtering", {})
 
-        enabled_sources = topic_collection.get("enabled_sources")
-        if not enabled_sources:
-            raise ValueError("enabled_sources is required in channel config")
-
+        global_sources = topic_collection.get("global_sources", [])
+        scoped_sources = topic_collection.get("scoped_sources", [])
         target_language = topic_collection.get("target_language", "ko")
 
         return cls(
-            enabled_sources=enabled_sources,
+            global_sources=global_sources,
+            scoped_sources=scoped_sources,
             target_language=target_language,
             source_overrides=topic_collection.get("source_overrides", {}),
             include=filtering.get("include", []),
@@ -154,7 +160,7 @@ class TopicCollectionPipeline:
         session: AsyncSession,
         http_client: HTTPClient,
         normalizer: TopicNormalizer,
-        redis: AsyncRedis[bytes],
+        redis: AsyncRedis,
         deduplicator: TopicDeduplicator,
         scorer: TopicScorer,
         global_pool: GlobalTopicPool,

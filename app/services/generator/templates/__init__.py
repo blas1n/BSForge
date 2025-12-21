@@ -238,25 +238,8 @@ class ASSTemplateLoader:
         logger.debug("Cleared ASS template cache")
 
 
-# Singleton instance
-_loader: ASSTemplateLoader | None = None
-
-
-def get_ass_template_loader() -> ASSTemplateLoader:
-    """Get singleton ASSTemplateLoader instance.
-
-    Returns:
-        ASSTemplateLoader instance
-    """
-    global _loader
-    if _loader is None:
-        _loader = ASSTemplateLoader()
-    return _loader
-
-
 __all__ = [
     "ASSDialogueParams",
     "ASSStyleParams",
     "ASSTemplateLoader",
-    "get_ass_template_loader",
 ]

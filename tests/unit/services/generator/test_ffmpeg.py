@@ -257,6 +257,7 @@ class TestImageToVideo:
                 "/path/to/image.jpg",
                 "/path/to/output.mp4",
                 duration=10.0,
+                size=(1080, 1920),
             )
 
         assert result is not None
@@ -276,8 +277,8 @@ class TestImageToVideo:
                 "/path/to/image.jpg",
                 "/path/to/output.mp4",
                 duration=5.0,
-                fps=60,
                 size=(1080, 1920),
+                fps=60,
             )
 
         assert result is not None
@@ -305,6 +306,7 @@ class TestImageToVideoWithEffect:
                 "/path/to/image.jpg",
                 "/path/to/output.mp4",
                 duration=10.0,
+                size=(1080, 1920),
                 effect="zoompan",
             )
 
@@ -324,6 +326,7 @@ class TestImageToVideoWithEffect:
                 "/path/to/image.jpg",
                 "/path/to/output.mp4",
                 duration=10.0,
+                size=(1080, 1920),
                 effect="unknown",
             )
 
@@ -529,8 +532,8 @@ class TestCreateBlackVideo:
             result = wrapper.create_black_video(
                 "/path/to/output.mp4",
                 duration=5.0,
-                fps=30,
                 size=(1080, 1920),
+                fps=30,
             )
 
         assert result is not None
@@ -576,6 +579,7 @@ class TestApplyScaleAndColorgrade:
             result = wrapper.apply_scale_and_colorgrade(
                 "/path/to/video.mp4",
                 "/path/to/output.mp4",
+                size=(1080, 1920),
                 colorgrade=False,
             )
 

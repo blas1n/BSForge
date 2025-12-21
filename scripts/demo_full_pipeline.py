@@ -74,7 +74,7 @@ async def collect_and_process_topics(channel_config: dict[str, Any]) -> dict[str
         and 'all_clusters' (list)
     """
     from app.config import ScoringConfig
-    from app.infrastructure.llm import get_llm_client
+    from app.core.container import get_container
     from app.services.collector.clusterer import TopicClusterer
     from app.services.collector.filter import TopicFilter
     from app.services.collector.normalizer import TopicNormalizer
@@ -100,6 +100,11 @@ async def collect_and_process_topics(channel_config: dict[str, Any]) -> dict[str
     if exclude_terms:
         print(f"   Exclude terms: {exclude_terms[:5]}...")
 
+    # Get container for DI
+    container = get_container()
+    http_client = container.infrastructure.http_client()
+    llm_client = container.infrastructure.llm_client()
+
     # 1. Collect raw topics from configured sources
     print("\n[1/4] Collecting raw topics from sources...")
     raw_topics = []
@@ -108,9 +113,10 @@ async def collect_and_process_topics(channel_config: dict[str, Any]) -> dict[str
         overrides = source_overrides.get(source_name, {})
         print(f"   Fetching from {source_name}...")
 
-        source = create_source(source_name, overrides)
-        if source is None:
-            print(f"      Unknown or invalid source: {source_name}, skipping...")
+        try:
+            source = create_source(source_name, http_client, overrides)
+        except ValueError as e:
+            print(f"      Unknown or invalid source: {source_name}, skipping... ({e})")
             continue
 
         try:
@@ -133,7 +139,6 @@ async def collect_and_process_topics(channel_config: dict[str, Any]) -> dict[str
     # 2. Normalize topics using LLM
     print("\n[2/4] Normalizing topics (translation, classification)...")
 
-    llm_client = get_llm_client()
     normalizer = TopicNormalizer(llm_client=llm_client)
     normalized = []
 
@@ -254,7 +259,8 @@ async def generate_scene_script(
     Returns:
         Dictionary with 'scene_script' (SceneScript) and 'raw_response'
     """
-    from app.infrastructure.llm import LLMConfig, get_llm_client
+    from app.core.container import get_container
+    from app.infrastructure.llm import LLMConfig
     from app.models.scene import Scene, SceneScript, SceneType, VisualHintType
     from app.prompts.manager import PromptType, get_prompt_manager
     from app.services.rag.utils import build_template_vars_from_channel_config
@@ -274,9 +280,10 @@ async def generate_scene_script(
             for rt in cluster.related_topics[:3]:
                 print(f"     • {rt.title_original[:50]}...")
 
-    # Get prompt manager and LLM client
+    # Get prompt manager and LLM client from container
     prompt_manager = get_prompt_manager()
-    llm_client = get_llm_client()
+    container = get_container()
+    llm_client = container.infrastructure.llm_client()
 
     # Get LLM config from scene_script_generation.yaml
     llm_settings = prompt_manager.get_llm_settings(PromptType.SCRIPT_GENERATION)
