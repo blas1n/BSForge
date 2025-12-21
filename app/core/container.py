@@ -128,6 +128,14 @@ class InfrastructureContainer(containers.DeclarativeContainer):
         "app.infrastructure.llm.LLMClient",
     )
 
+    # ============================================
+    # HTTP Client
+    # ============================================
+
+    http_client = providers.Singleton(
+        "app.infrastructure.http_client.HTTPClient",
+    )
+
 
 class ConfigContainer(containers.DeclarativeContainer):
     """Configuration models container.

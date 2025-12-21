@@ -100,7 +100,7 @@ class TestEdgeTTSEngine:
         mock_wrapper.get_duration.return_value = 10.5
 
         with patch(
-            "app.services.generator.ffmpeg.get_ffmpeg_wrapper",
+            "app.services.generator.tts.edge.get_ffmpeg_wrapper",
             return_value=mock_wrapper,
         ):
             duration = await engine.get_audio_duration(audio_path)
