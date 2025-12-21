@@ -297,6 +297,7 @@ class ServiceContainer(containers.DeclarativeContainer):
 
     topic_normalizer = providers.Factory(
         "app.services.collector.normalizer.TopicNormalizer",
+        llm_client=infrastructure.llm_client,
     )
 
     topic_filter = providers.Factory(

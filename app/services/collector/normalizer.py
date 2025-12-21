@@ -20,7 +20,7 @@ from pydantic import BaseModel
 # TODO: This module is legacy and should be migrated to DI container.
 from app.core.config import get_config
 from app.core.logging import get_logger
-from app.infrastructure.llm import LLMClient, LLMConfig, get_llm_client
+from app.infrastructure.llm import LLMClient, LLMConfig
 from app.prompts.manager import PromptType, get_prompt_manager
 from app.services.collector.base import NormalizedTopic, RawTopic
 
@@ -42,13 +42,13 @@ class TopicNormalizer:
     Implements caching to reduce API costs.
     """
 
-    def __init__(self, llm_client: LLMClient | None = None):
+    def __init__(self, llm_client: LLMClient):
         """Initialize normalizer with API clients.
 
         Args:
-            llm_client: LLMClient instance (default: singleton)
+            llm_client: LLMClient instance
         """
-        self.llm_client = llm_client or get_llm_client()
+        self.llm_client = llm_client
         self.supported_languages = {"en", "ko"}
         self.prompt_manager = get_prompt_manager()
 

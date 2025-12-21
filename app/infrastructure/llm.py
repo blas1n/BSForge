@@ -16,8 +16,6 @@ from typing import TYPE_CHECKING, Any
 import litellm
 from litellm import acompletion
 
-# TODO: This module is legacy and should be migrated to DI container.
-from app.core.config import get_config
 from app.core.logging import get_logger
 
 if TYPE_CHECKING:
@@ -93,7 +91,10 @@ class LLMClient:
         - Gemini: "gemini/gemini-1.5-pro"
 
     Example:
-        >>> client = LLMClient()
+        >>> client = LLMClient(
+        ...     anthropic_api_key="sk-ant-...",
+        ...     openai_api_key="sk-..."
+        ... )
         >>> response = await client.complete(
         ...     config=LLMConfig(model="anthropic/claude-3-5-haiku-20241022"),
         ...     messages=[{"role": "user", "content": "Hello!"}]
@@ -101,22 +102,29 @@ class LLMClient:
         >>> print(response.content)
     """
 
-    def __init__(self) -> None:
-        """Initialize LLM client with API keys from config.
+    def __init__(
+        self,
+        anthropic_api_key: str | None = None,
+        openai_api_key: str | None = None,
+    ) -> None:
+        """Initialize LLM client with API keys.
 
-        Note: LiteLLM reads API keys from environment variables by default:
+        API keys can be provided directly or will be read from environment variables.
+        LiteLLM reads API keys from environment variables by default:
         - ANTHROPIC_API_KEY for Anthropic models
         - OPENAI_API_KEY for OpenAI models
-        We only set them explicitly if the environment doesn't have them.
+
+        Args:
+            anthropic_api_key: Anthropic API key (optional, uses env if not provided)
+            openai_api_key: OpenAI API key (optional, uses env if not provided)
         """
         import os
 
-        config = get_config()
-        # Only set if not already in environment
-        if config.anthropic_api_key and not os.environ.get("ANTHROPIC_API_KEY"):
-            os.environ["ANTHROPIC_API_KEY"] = config.anthropic_api_key
-        if config.openai_api_key and not os.environ.get("OPENAI_API_KEY"):
-            os.environ["OPENAI_API_KEY"] = config.openai_api_key
+        # Set API keys in environment if provided
+        if anthropic_api_key and not os.environ.get("ANTHROPIC_API_KEY"):
+            os.environ["ANTHROPIC_API_KEY"] = anthropic_api_key
+        if openai_api_key and not os.environ.get("OPENAI_API_KEY"):
+            os.environ["OPENAI_API_KEY"] = openai_api_key
 
         logger.info("LLMClient initialized")
 
@@ -227,26 +235,9 @@ class LLMError(Exception):
     pass
 
 
-# Singleton instance
-_llm_client: LLMClient | None = None
-
-
-def get_llm_client() -> LLMClient:
-    """Get singleton LLMClient instance.
-
-    Returns:
-        LLMClient instance
-    """
-    global _llm_client
-    if _llm_client is None:
-        _llm_client = LLMClient()
-    return _llm_client
-
-
 __all__ = [
     "LLMClient",
     "LLMConfig",
     "LLMResponse",
     "LLMError",
-    "get_llm_client",
 ]
