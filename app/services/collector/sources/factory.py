@@ -5,9 +5,10 @@ based on configuration, enabling config-driven source selection.
 """
 
 import uuid
-from typing import TYPE_CHECKING, Any, Final
+from typing import Any, Final
 
 from app.core.logging import get_logger
+from app.infrastructure.http_client import HTTPClient
 from app.services.collector.base import BaseSource
 from app.services.collector.sources.clien import ClienSource
 from app.services.collector.sources.dcinside import DCInsideSource
@@ -18,9 +19,6 @@ from app.services.collector.sources.reddit import RedditSource
 from app.services.collector.sources.rss import RSSSource
 from app.services.collector.sources.ruliweb import RuliwebSource
 from app.services.collector.sources.youtube_trending import YouTubeTrendingSource
-
-if TYPE_CHECKING:
-    import httpx
 
 logger = get_logger(__name__)
 
@@ -79,7 +77,7 @@ def create_source(
     source_name: str,
     overrides: dict[str, Any] | None = None,
     source_id: uuid.UUID | None = None,
-    http_client: "httpx.AsyncClient | None" = None,
+    http_client: HTTPClient | None = None,
 ) -> BaseSource[Any]:
     """Create a topic source instance from name and config overrides.
 
@@ -90,7 +88,7 @@ def create_source(
         source_name: Name of the source (e.g., "hackernews", "reddit")
         overrides: Configuration overrides from channel config
         source_id: Optional source ID (generates new UUID if not provided)
-        http_client: Optional shared HTTP client for connection reuse
+        http_client: Shared HTTP client for connection reuse
 
     Returns:
         TopicSource instance
@@ -144,14 +142,14 @@ def get_scoped_source_names() -> list[str]:
 async def collect_from_sources(
     enabled_sources: list[str],
     source_overrides: dict[str, Any] | None = None,
-    http_client: "httpx.AsyncClient | None" = None,
+    http_client: HTTPClient | None = None,
 ) -> list[Any]:
     """Collect topics from multiple sources.
 
     Args:
         enabled_sources: List of source names to collect from
         source_overrides: Per-source configuration overrides
-        http_client: Optional shared HTTP client for connection reuse
+        http_client: Shared HTTP client for connection reuse
 
     Returns:
         List of RawTopic objects from all sources

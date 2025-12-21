@@ -70,7 +70,29 @@ def load_quality_config() -> dict[str, Any]:
         ConfigError: If the file doesn't exist or is invalid YAML.
     """
     defaults = load_defaults()
-    return defaults.get("quality", {})
+    result = defaults.get("quality", {})
+    return result if isinstance(result, dict) else {}
+
+
+@lru_cache(maxsize=1)
+def load_video_config() -> dict[str, Any]:
+    """Load video generation configuration from defaults.yaml.
+
+    Returns:
+        Dictionary containing video generation defaults.
+        Structure:
+        {
+            "default_resolution": {"width": 1080, "height": 1920},
+            "default_fps": 30,
+            "default_format": "mp4"
+        }
+
+    Raises:
+        ConfigError: If the file doesn't exist or is invalid YAML.
+    """
+    defaults = load_defaults()
+    result = defaults.get("video", {})
+    return result if isinstance(result, dict) else {}
 
 
 def _load_yaml_file(path: Path, name: str) -> dict[str, Any]:
@@ -113,6 +135,7 @@ def clear_global_config_cache() -> None:
     load_defaults.cache_clear()
     load_language_config.cache_clear()
     load_quality_config.cache_clear()
+    load_video_config.cache_clear()
     logger.info("Global config cache cleared")
 
 

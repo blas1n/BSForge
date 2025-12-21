@@ -126,6 +126,16 @@ class InfrastructureContainer(containers.DeclarativeContainer):
     # Unified LLM client (LiteLLM-based, provider-agnostic)
     llm_client = providers.Singleton(
         "app.infrastructure.llm.LLMClient",
+        anthropic_api_key=global_config.provided.anthropic_api_key,
+        openai_api_key=global_config.provided.openai_api_key,
+    )
+
+    # ============================================
+    # HTTP Client
+    # ============================================
+
+    http_client = providers.Singleton(
+        "app.infrastructure.http_client.HTTPClient",
     )
 
 
@@ -485,6 +495,11 @@ class ApplicationContainer(containers.DeclarativeContainer):
     redis = providers.Singleton(
         lambda client: client,
         client=infrastructure.redis_async_client,
+    )
+
+    http_client = providers.Singleton(
+        lambda client: client,
+        client=infrastructure.http_client,
     )
 
     redis_sync = providers.Singleton(
