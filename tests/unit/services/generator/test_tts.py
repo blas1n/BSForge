@@ -92,19 +92,21 @@ class TestEdgeTTSEngine:
 
     @pytest.mark.asyncio
     async def test_get_audio_duration(self, engine: EdgeTTSEngine, tmp_path: Path) -> None:
-        """Test audio duration calculation with mock ffprobe."""
+        """Test audio duration calculation with mock FFmpegWrapper."""
         audio_path = tmp_path / "test.mp3"
         audio_path.write_bytes(b"fake audio")
 
-        with patch("asyncio.create_subprocess_exec") as mock_exec:
-            mock_process = AsyncMock()
-            mock_process.communicate.return_value = (b"10.5\n", b"")
-            mock_process.returncode = 0
-            mock_exec.return_value = mock_process
+        mock_wrapper = AsyncMock()
+        mock_wrapper.get_duration.return_value = 10.5
 
+        with patch(
+            "app.services.generator.ffmpeg.get_ffmpeg_wrapper",
+            return_value=mock_wrapper,
+        ):
             duration = await engine.get_audio_duration(audio_path)
 
             assert duration == 10.5
+            mock_wrapper.get_duration.assert_called_once_with(audio_path)
 
 
 class TestTTSConfig:

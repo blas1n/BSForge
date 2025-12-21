@@ -6,10 +6,10 @@ Microsoft Edge TTS provides free, high-quality neural TTS with:
 - Speed, pitch, and volume controls
 """
 
-import asyncio
 import logging
 from pathlib import Path
 
+from app.services.generator.ffmpeg import get_ffmpeg_wrapper
 from app.services.generator.tts.base import (
     EDGE_TTS_VOICES_EN,
     EDGE_TTS_VOICES_KO,
@@ -178,7 +178,7 @@ class EdgeTTSEngine(BaseTTSEngine):
         ]
 
     async def get_audio_duration(self, audio_path: Path) -> float:
-        """Get audio duration using ffprobe.
+        """Get audio duration.
 
         Args:
             audio_path: Path to audio file
@@ -187,33 +187,13 @@ class EdgeTTSEngine(BaseTTSEngine):
             Duration in seconds
 
         Raises:
-            RuntimeError: If ffprobe fails
+            RuntimeError: If getting duration fails
         """
-        cmd = [
-            "ffprobe",
-            "-v",
-            "error",
-            "-show_entries",
-            "format=duration",
-            "-of",
-            "default=noprint_wrappers=1:nokey=1",
-            str(audio_path),
-        ]
-
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-
-        stdout, stderr = await process.communicate()
-
-        if process.returncode != 0:
-            error_msg = stderr.decode().strip()
-            raise RuntimeError(f"ffprobe failed: {error_msg}")
-
-        duration_str = stdout.decode().strip()
-        return float(duration_str)
+        try:
+            wrapper = get_ffmpeg_wrapper()
+            return await wrapper.get_duration(audio_path)
+        except Exception as e:
+            raise RuntimeError(f"Failed to get audio duration: {e}") from e
 
     def _speed_to_rate_string(self, speed: float) -> str:
         """Convert speed multiplier to Edge TTS rate string.
