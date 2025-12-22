@@ -6,7 +6,6 @@ Uses Redis as both broker and result backend.
 
 from celery import Celery
 
-# TODO: This module is legacy and should be migrated to DI container.
 from app.core.config import get_config
 
 # Create Celery app

@@ -1,26 +1,7 @@
 """Redis client configuration and utilities.
 
-TODO: This module is legacy and should be migrated to DI container.
-      Use `from app.core.container import get_redis` instead.
-      RedisManager and helper functions will be removed in future refactoring.
-
 This module provides Redis connection management and common operations.
 Supports both sync and async operations with lazy initialization.
-
-NOTE: For dependency injection, prefer using the container:
-    from app.core.container import container, get_redis
-
-    # In FastAPI endpoints
-    async def endpoint(redis: AsyncRedis = Depends(get_redis)):
-        ...
-
-    # In services (DI via constructor)
-    class MyService:
-        def __init__(self, redis: AsyncRedis):
-            self.redis = redis
-
-    # Instantiate via container
-    service = container.my_service()
 
 The RedisManager and utilities in this module (cache_set, cache_get, etc.)
 remain available for standalone scripts or when direct Redis access is needed.

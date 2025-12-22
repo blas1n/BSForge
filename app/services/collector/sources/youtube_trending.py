@@ -11,8 +11,6 @@ from typing import Any
 from pydantic import HttpUrl
 
 from app.config.sources import YouTubeTrendingConfig
-
-# TODO: This module is legacy and should be migrated to DI container.
 from app.core.config import get_config
 from app.core.logging import get_logger
 from app.services.collector.base import BaseSource, RawTopic

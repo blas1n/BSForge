@@ -9,7 +9,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# TODO: This module is legacy and should be migrated to DI container.
 from app.core.config import get_config
 from app.core.database import check_db_connection, close_db, init_db
 from app.core.logging import get_logger, setup_logging
