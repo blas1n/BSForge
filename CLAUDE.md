@@ -25,7 +25,7 @@ app/
 ├── infrastructure/  # External clients (LLM, pgvector)
 ├── models/          # SQLAlchemy ORM models
 ├── prompts/         # Prompt templates (YAML) - includes model config
-├── services/        # Business logic (collector, rag, generator)
+├── services/        # Business logic (collector, rag, generator w/ tts/visual/bgm)
 └── workers/         # Celery tasks
 
 config/              # YAML configs (channels/, sources/, templates/)
