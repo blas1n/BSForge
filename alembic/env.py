@@ -10,9 +10,7 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 
 from alembic import context
-
-# Import settings
-from app.core.config import settings
+from app.core.config import get_config
 
 # Import Base and ALL models for autogenerate
 from app.models.base import Base
@@ -32,8 +30,8 @@ _MODELS = (Channel, Persona, ContentChunk, Script, Source, Topic, Video)
 # this is the Alembic Config object
 config = context.config
 
-# Set database URL from settings
-config.set_main_option("sqlalchemy.url", settings.database_url_sync)
+# Set database URL from config
+config.set_main_option("sqlalchemy.url", get_config().database_url_sync)
 
 # Interpret the config file for Python logging
 if config.config_file_name is not None:

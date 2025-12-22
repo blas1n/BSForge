@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import DeclarativeBase, declared_attr
 
-from app.core.config import settings
+from app.core.config import get_config
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -93,11 +93,12 @@ class Base(DeclarativeBase):
 # ============================================
 
 # Create async engine
+_config = get_config()
 engine: AsyncEngine = create_async_engine(
-    str(settings.database_url),
-    echo=settings.database_echo,
-    pool_size=settings.database_pool_size,
-    max_overflow=settings.database_max_overflow,
+    str(_config.database_url),
+    echo=_config.database_echo,
+    pool_size=_config.database_pool_size,
+    max_overflow=_config.database_max_overflow,
     pool_pre_ping=True,  # Verify connections before using
     pool_recycle=3600,  # Recycle connections after 1 hour
 )

@@ -23,7 +23,7 @@ def build_template_vars_from_channel_config(
 
     Args:
         channel_config: Loaded channel configuration dictionary
-        topic: ScoredTopic or NormalizedTopic with title, keywords, etc.
+        topic: ScoredTopic or NormalizedTopic with title, terms, summary
         cluster: Optional TopicCluster with aggregated multi-source info
 
     Returns:
@@ -58,8 +58,7 @@ def build_template_vars_from_channel_config(
         # Topic
         "topic_title": getattr(topic, "title_normalized", str(topic)),
         "topic_summary": getattr(topic, "summary", None),
-        "topic_keywords": getattr(topic, "keywords", []) or [],
-        "topic_categories": getattr(topic, "categories", []) or [],
+        "topic_terms": getattr(topic, "terms", []) or [],
         # Generation config
         "video_format": content.get("format", "shorts"),
         "target_duration": content.get("target_duration", 55),
@@ -78,7 +77,7 @@ def build_template_vars_from_channel_config(
             if cluster and cluster.related_topics
             else []
         ),
-        "combined_keywords": cluster.combined_keywords if cluster else [],
+        "combined_terms": cluster.combined_terms if cluster else [],
         "total_engagement": cluster.total_engagement if cluster else 0,
     }
 

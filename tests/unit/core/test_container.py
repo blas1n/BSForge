@@ -43,9 +43,10 @@ class TestContainerCreation:
     def test_container_has_config(self) -> None:
         """Test that container has configuration wired."""
         new_container = create_container()
-        # Config should be set from settings
-        assert new_container.config.redis_url() is not None
-        assert new_container.config.database_url() is not None
+        # Config should be accessible via Singleton provider
+        config = new_container.config()
+        assert config.redis_url is not None
+        assert config.database_url is not None
 
     def test_global_container_exists(self) -> None:
         """Test that global container is initialized."""

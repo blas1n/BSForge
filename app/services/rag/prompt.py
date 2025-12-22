@@ -25,13 +25,16 @@ class PromptBuilder:
         self.prompt_manager = get_prompt_manager()
 
     async def build_prompt(self, context: GenerationContext) -> str:
-        """Build complete generation prompt.
+        """Build scene-based generation prompt.
+
+        Generates JSON array of scenes with explicit scene types including
+        COMMENTARY/REACTION for persona opinions (BSForge differentiator).
 
         Args:
             context: Generation context with topic, persona, and retrieved content
 
         Returns:
-            Formatted prompt string for Claude API
+            Formatted prompt string for scene-based script generation
         """
         logger.info("Building generation prompt")
 
@@ -42,30 +45,6 @@ class PromptBuilder:
         prompt = self.prompt_manager.render(PromptType.SCRIPT_GENERATION, **variables)
 
         logger.debug(f"Built prompt: {len(prompt)} characters")
-        return prompt
-
-    async def build_scene_prompt(self, context: GenerationContext) -> str:
-        """Build scene-based generation prompt.
-
-        This prompt instructs the LLM to output a JSON array of scenes
-        with explicit scene types including COMMENTARY/REACTION for
-        persona opinions (BSForge differentiator).
-
-        Args:
-            context: Generation context with topic, persona, and retrieved content
-
-        Returns:
-            Formatted prompt string for scene-based script generation
-        """
-        logger.info("Building scene-based generation prompt")
-
-        # Extract variables for template rendering
-        variables = self._build_template_variables(context)
-
-        # Render using PromptManager with scene template
-        prompt = self.prompt_manager.render(PromptType.SCENE_SCRIPT_GENERATION, **variables)
-
-        logger.debug(f"Built scene prompt: {len(prompt)} characters")
         return prompt
 
     def _build_template_variables(
@@ -153,8 +132,7 @@ class PromptBuilder:
         # Topic variables
         variables["topic_title"] = topic.title_normalized
         variables["topic_summary"] = topic.summary if topic.summary else None
-        variables["topic_keywords"] = topic.keywords if topic.keywords else []
-        variables["topic_categories"] = topic.categories if topic.categories else []
+        variables["topic_terms"] = topic.terms if topic.terms else []
         variables["topic_source_url"] = topic.source_url if topic.source_url else None
 
         # Generation config

@@ -4,8 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from app.config.video import SubtitleConfig
+from app.config.video import CompositionConfig, SubtitleConfig
 from app.services.generator.subtitle import SubtitleFile, SubtitleGenerator
+from app.services.generator.templates import ASSTemplateLoader
 from app.services.generator.tts.base import WordTimestamp
 
 
@@ -13,9 +14,15 @@ class TestSubtitleGenerator:
     """Test suite for SubtitleGenerator."""
 
     @pytest.fixture
-    def generator(self, subtitle_config: SubtitleConfig) -> SubtitleGenerator:
+    def generator(
+        self, subtitle_config: SubtitleConfig, composition_config: CompositionConfig
+    ) -> SubtitleGenerator:
         """Create a SubtitleGenerator instance."""
-        return SubtitleGenerator(config=subtitle_config)
+        return SubtitleGenerator(
+            config=subtitle_config,
+            composition_config=composition_config,
+            template_loader=ASSTemplateLoader(),
+        )
 
     def test_generate_from_timestamps(self, generator: SubtitleGenerator) -> None:
         """Test generating subtitles from word timestamps."""
@@ -101,9 +108,15 @@ class TestSubtitleSegmentation:
     """Test subtitle text segmentation logic."""
 
     @pytest.fixture
-    def generator(self) -> SubtitleGenerator:
+    def generator(
+        self, subtitle_config: SubtitleConfig, composition_config: CompositionConfig
+    ) -> SubtitleGenerator:
         """Create a SubtitleGenerator with default config."""
-        return SubtitleGenerator()
+        return SubtitleGenerator(
+            config=subtitle_config,
+            composition_config=composition_config,
+            template_loader=ASSTemplateLoader(),
+        )
 
     def test_split_long_text(self, generator: SubtitleGenerator) -> None:
         """Test splitting long text into segments."""

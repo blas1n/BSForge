@@ -13,17 +13,21 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
-class TTSConfig(BaseModel):
-    """Text-to-Speech configuration.
+class TTSProviderConfig(BaseModel):
+    """TTS provider configuration.
+
+    This configures the TTS service provider and default voices.
+    For synthesis parameters (speed, pitch, volume), see TTSSynthesisConfig
+    in app/services/generator/tts/base.py.
 
     Attributes:
         provider: TTS service provider
         default_voice_ko_male: Default Korean male voice ID
         default_voice_ko_female: Default Korean female voice ID
         default_voice_en: Default English voice ID
-        speed: Speech rate (1.0 = normal)
-        pitch: Pitch adjustment in Hz (0 = no change)
-        volume: Volume adjustment (0 = no change)
+        speed: Default speech rate (1.0 = normal)
+        pitch: Default pitch adjustment in Hz (0 = no change)
+        volume: Default volume adjustment (0 = no change)
     """
 
     provider: Literal["edge-tts", "elevenlabs"] = Field(
@@ -39,6 +43,10 @@ class TTSConfig(BaseModel):
     speed: float = Field(default=1.0, ge=0.5, le=2.0, description="Speech rate multiplier")
     pitch: int = Field(default=0, ge=-50, le=50, description="Pitch adjustment in Hz")
     volume: int = Field(default=0, ge=-50, le=50, description="Volume adjustment")
+
+
+# Backward compatibility alias
+TTSConfig = TTSProviderConfig
 
 
 class SubtitleStyleConfig(BaseModel):
@@ -270,7 +278,7 @@ class VideoGenerationConfig(BaseModel):
         timeout_seconds: Generation timeout in seconds
     """
 
-    tts: TTSConfig = Field(default_factory=TTSConfig)
+    tts: TTSProviderConfig = Field(default_factory=TTSProviderConfig)
     subtitle: SubtitleConfig = Field(default_factory=SubtitleConfig)
     visual: VisualConfig = Field(default_factory=VisualConfig)
     composition: CompositionConfig = Field(default_factory=CompositionConfig)
@@ -284,7 +292,8 @@ class VideoGenerationConfig(BaseModel):
 
 __all__ = [
     "VideoGenerationConfig",
-    "TTSConfig",
+    "TTSProviderConfig",
+    "TTSConfig",  # Backward compatibility alias
     "SubtitleConfig",
     "SubtitleStyleConfig",
     "VisualConfig",

@@ -4,11 +4,9 @@ Collects posts from Reddit using the public JSON API.
 No authentication required for public subreddits.
 """
 
-import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-import httpx
 from pydantic import HttpUrl
 
 from app.config.sources import RedditConfig
@@ -40,18 +38,41 @@ class RedditSource(BaseSource[RedditConfig]):
         min_score: Override minimum score
     """
 
-    def __init__(
-        self,
-        config: RedditConfig,
-        source_id: uuid.UUID,
-    ):
-        """Initialize Reddit source collector.
+    # Scoped source: requires channel-specific subreddits
+    is_global = False
+
+    @classmethod
+    def build_config(cls, overrides: dict[str, Any]) -> RedditConfig:
+        """Build RedditConfig from channel overrides.
 
         Args:
-            config: Typed configuration object
-            source_id: UUID of the source
+            overrides: Configuration overrides with required keys:
+                - params.subreddits: List of subreddit names (required)
+                - params.sort: Sort method (optional)
+                - params.time: Time filter (optional)
+                - filters.min_score: Minimum score threshold (optional)
+                - limit: Maximum posts per subreddit (optional)
+
+        Returns:
+            RedditConfig instance
+
+        Raises:
+            ValueError: If subreddits not provided
         """
-        super().__init__(config, source_id)
+        params = overrides.get("params", {})
+        filters = overrides.get("filters", {})
+
+        subreddits = params.get("subreddits", [])
+        if not subreddits:
+            raise ValueError("Reddit source requires 'subreddits' in params")
+
+        return RedditConfig(
+            subreddits=subreddits,
+            sort=params.get("sort", "hot"),
+            time=params.get("time", "day"),
+            min_score=filters.get("min_score", 100),
+            limit=overrides.get("limit", 25),
+        )
 
     async def collect(self, params: dict[str, Any] | None = None) -> list[RawTopic]:
         """Collect posts from Reddit subreddits.
@@ -82,34 +103,28 @@ class RedditSource(BaseSource[RedditConfig]):
         )
 
         topics: list[RawTopic] = []
+        for subreddit in subreddits:
+            try:
+                posts = await self._fetch_subreddit(subreddit, limit, sort, time_filter)
+                for post in posts:
+                    if post.get("data", {}).get("score", 0) >= min_score:
+                        topic = self._to_raw_topic(post["data"], subreddit)
+                        if topic:
+                            topics.append(topic)
 
-        async with httpx.AsyncClient(
-            timeout=self._config.request_timeout,
-            headers={"User-Agent": USER_AGENT},
-        ) as client:
-            for subreddit in subreddits:
-                try:
-                    posts = await self._fetch_subreddit(client, subreddit, limit, sort, time_filter)
-                    for post in posts:
-                        if post.get("data", {}).get("score", 0) >= min_score:
-                            topic = self._to_raw_topic(post["data"], subreddit)
-                            if topic:
-                                topics.append(topic)
-
-                except Exception as e:
-                    logger.error(
-                        "Failed to fetch subreddit",
-                        subreddit=subreddit,
-                        error=str(e),
-                    )
-                    continue
+            except Exception as e:
+                logger.error(
+                    "Failed to fetch subreddit",
+                    subreddit=subreddit,
+                    error=str(e),
+                )
+                continue
 
         logger.info("Reddit collection complete", collected=len(topics))
         return topics
 
     async def _fetch_subreddit(
         self,
-        client: httpx.AsyncClient,
         subreddit: str,
         limit: int,
         sort: str,
@@ -118,7 +133,6 @@ class RedditSource(BaseSource[RedditConfig]):
         """Fetch posts from a single subreddit.
 
         Args:
-            client: HTTP client
             subreddit: Subreddit name
             limit: Max posts to fetch
             sort: Sort method
@@ -133,7 +147,7 @@ class RedditSource(BaseSource[RedditConfig]):
         if sort == "top":
             params["t"] = time_filter
 
-        response = await client.get(url, params=params)
+        response = await self._http_client.get(url, params=params)
         response.raise_for_status()
         data = response.json()
 
@@ -187,6 +201,7 @@ class RedditSource(BaseSource[RedditConfig]):
                     "awards": post.get("total_awards_received", 0),
                 },
                 metadata={
+                    "source_name": "Reddit",
                     "reddit_id": post.get("id"),
                     "subreddit": subreddit,
                     "author": post.get("author"),
@@ -211,13 +226,8 @@ class RedditSource(BaseSource[RedditConfig]):
             True if API responds successfully
         """
         try:
-            async with httpx.AsyncClient(
-                timeout=self._config.request_timeout,
-                headers={"User-Agent": USER_AGENT},
-            ) as client:
-                # Check r/all as a basic health check
-                response = await client.get(f"{REDDIT_BASE}/r/all/hot.json?limit=1")
-                return response.status_code == 200
+            response = await self._http_client.get(f"{REDDIT_BASE}/r/all/hot.json?limit=1")
+            return response.status_code == 200
         except Exception as e:
             logger.warning("Reddit health check failed", error=str(e))
             return False

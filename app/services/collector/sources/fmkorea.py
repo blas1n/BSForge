@@ -5,26 +5,25 @@ https://www.fmkorea.com/
 """
 
 import re
-import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup, Tag
-from pydantic import HttpUrl
 
 from app.config.sources import FmkoreaConfig
 from app.core.logging import get_logger
 from app.services.collector.base import BaseSource, RawTopic
-from app.services.collector.sources.web_scraper import WebScraperSource
+from app.services.collector.sources.korean_scraper_base import KoreanWebScraperBase
 
 logger = get_logger(__name__)
 
 
-class FmkoreaSource(WebScraperSource, BaseSource[FmkoreaConfig]):
+class FmkoreaSource(KoreanWebScraperBase, BaseSource[FmkoreaConfig]):
     """FM Korea community source collector.
 
     Fetches posts from FM Korea boards.
+    Inherits common Korean parsing utilities from KoreanWebScraperBase.
 
     Config options:
         boards: List of board IDs (e.g., ['best', 'humor', 'starfree'])
@@ -40,15 +39,36 @@ class FmkoreaSource(WebScraperSource, BaseSource[FmkoreaConfig]):
         - girlstar: 여자연예인
     """
 
+    # Scoped source: requires channel-specific boards
+    is_global = False
+
     _config: FmkoreaConfig
 
-    def __init__(
-        self,
-        config: FmkoreaConfig,
-        source_id: uuid.UUID,
-    ):
-        """Initialize FM Korea source collector."""
-        super().__init__(config, source_id)
+    @classmethod
+    def build_config(cls, overrides: dict[str, Any]) -> FmkoreaConfig:
+        """Build FmkoreaConfig from channel overrides.
+
+        Args:
+            overrides: Configuration overrides with optional keys:
+                - params.boards: List of board IDs (optional)
+                - filters.min_score: Minimum score (optional)
+                - limit: Maximum posts (optional)
+
+        Returns:
+            FmkoreaConfig instance
+        """
+        params = overrides.get("params", {})
+        filters = overrides.get("filters", {})
+        return FmkoreaConfig(
+            boards=params.get("boards", ["best"]),
+            min_score=filters.get("min_score", 10),
+            limit=overrides.get("limit", 20),
+        )
+
+    @property
+    def source_name_kr(self) -> str:
+        """Korean name of the source for logging and display."""
+        return "FM코리아"
 
     def _get_list_urls(self, base_url: str, params: dict[str, Any]) -> list[str]:
         """Get list URLs for configured boards.
@@ -291,28 +311,12 @@ class FmkoreaSource(WebScraperSource, BaseSource[FmkoreaConfig]):
             "category": category,
         }
 
-    def _parse_number(self, text: str) -> int:
-        """Parse number from text.
-
-        Args:
-            text: Text containing number
-
-        Returns:
-            Parsed integer
-        """
-        if not text:
-            return 0
-
-        text = text.strip()
-
-        # Remove brackets and other characters
-        try:
-            return int(re.sub(r"[^\d]", "", text))
-        except ValueError:
-            return 0
-
     def _parse_date(self, text: str) -> datetime | None:
-        """Parse date from various formats.
+        """Parse date from various FM Korea formats.
+
+        Extends base class parsing with FM Korea specific formats:
+        - Time only "HH:MM" (interpreted as today)
+        - Short year date "YY.MM.DD" (2-digit year)
 
         Args:
             text: Date text (e.g., "2 분 전", "3 시간 전", "17:55")
@@ -320,38 +324,15 @@ class FmkoreaSource(WebScraperSource, BaseSource[FmkoreaConfig]):
         Returns:
             Datetime or None
         """
+        # Try base class parsing first (Korean relative dates + standard formats)
+        result = super()._parse_date(text)
+        if result:
+            return result
+
         if not text:
             return None
 
         text = text.strip()
-
-        # Handle relative times
-        if "분 전" in text:
-            try:
-                match = re.search(r"(\d+)", text)
-                if match:
-                    minutes = int(match.group(1))
-                    return datetime.now(UTC) - timedelta(minutes=minutes)
-            except (AttributeError, ValueError):
-                pass
-
-        if "시간 전" in text:
-            try:
-                match = re.search(r"(\d+)", text)
-                if match:
-                    hours = int(match.group(1))
-                    return datetime.now(UTC) - timedelta(hours=hours)
-            except (AttributeError, ValueError):
-                pass
-
-        if "일 전" in text:
-            try:
-                match = re.search(r"(\d+)", text)
-                if match:
-                    days = int(match.group(1))
-                    return datetime.now(UTC) - timedelta(days=days)
-            except (AttributeError, ValueError):
-                pass
 
         # Handle time only format "HH:MM" (today)
         if re.match(r"^\d{2}:\d{2}$", text):
@@ -367,24 +348,19 @@ class FmkoreaSource(WebScraperSource, BaseSource[FmkoreaConfig]):
             except (ValueError, IndexError):
                 pass
 
-        # Handle date format "YY.MM.DD" or "MM.DD"
+        # Handle short year date format "YY.MM.DD" (2-digit year)
         if "." in text:
-            try:
-                parts = text.split(".")
-                now = datetime.now(UTC)
-                if len(parts) == 3:
+            parts = text.split(".")
+            if len(parts) == 3:
+                try:
                     year = int(parts[0])
                     if year < 100:
                         year += 2000
                     month = int(parts[1])
                     day = int(parts[2])
                     return datetime(year, month, day, tzinfo=UTC)
-                elif len(parts) == 2:
-                    month = int(parts[0])
-                    day = int(parts[1])
-                    return datetime(now.year, month, day, tzinfo=UTC)
-            except (ValueError, IndexError):
-                pass
+                except (ValueError, IndexError):
+                    pass
 
         return None
 
@@ -404,39 +380,33 @@ class FmkoreaSource(WebScraperSource, BaseSource[FmkoreaConfig]):
     def _to_raw_topic(self, item: dict[str, Any]) -> RawTopic | None:
         """Convert parsed item to RawTopic.
 
+        Extends base class conversion with FM Korea specific fields:
+        - post_id (글번호)
+        - category (카테고리)
+        - recommends (추천수)
+
         Args:
             item: Parsed item dict
 
         Returns:
             RawTopic or None
         """
-        try:
-            return RawTopic(
-                source_id=str(self.source_id),
-                source_url=HttpUrl(item["url"]),
-                title=item["title"],
-                content=None,
-                published_at=item.get("published_at"),
-                metrics={
-                    "recommends": item.get("recommends", 0),
-                    "comments": item.get("comments", 0),
-                    "score": item.get("score", 0),
-                },
-                metadata={
-                    "post_id": item.get("post_id"),
-                    "board": item.get("board"),
-                    "category": item.get("category"),
-                    "author": item.get("author"),
-                    "source_name": "FM코리아",
-                },
-            )
-        except Exception as e:
-            logger.warning(
-                "Failed to convert FM Korea post",
-                title=item.get("title", "")[:50],
-                error=str(e),
-            )
+        # Use base class for common conversion
+        raw_topic = super()._to_raw_topic(item)
+        if not raw_topic:
             return None
+
+        # Add FM Korea specific metrics
+        if "recommends" in item:
+            raw_topic.metrics["recommends"] = item["recommends"]
+
+        # Add FM Korea specific metadata
+        if item.get("post_id"):
+            raw_topic.metadata["post_id"] = item["post_id"]
+        if item.get("category"):
+            raw_topic.metadata["category"] = item["category"]
+
+        return raw_topic
 
 
 __all__ = ["FmkoreaSource"]

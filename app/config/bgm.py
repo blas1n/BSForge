@@ -36,7 +36,7 @@ class BGMConfig(BaseModel):
         enabled: Whether BGM is enabled for this channel.
         tracks: List of available BGM tracks.
         volume: Default playback volume (0.0-1.0).
-        cache_dir: Absolute path for caching downloaded BGM files.
+        cache_dir: Path for caching downloaded BGM files.
         selection_mode: How to select tracks ("random" or "sequential").
         download_timeout: Timeout for yt-dlp downloads in seconds.
     """
@@ -51,7 +51,7 @@ class BGMConfig(BaseModel):
     )
     cache_dir: str = Field(
         default="/data/bgm",
-        description="Absolute path for BGM cache",
+        description="Path for caching downloaded BGM files",
     )
     selection_mode: str = Field(
         default="random",

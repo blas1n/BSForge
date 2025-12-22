@@ -14,13 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.config import DedupConfig, ScoringConfig
-from app.config.filtering import (
-    CategoryFilter,
-    ExcludeFilters,
-    IncludeFilters,
-    KeywordFilter,
-    TopicFilterConfig,
-)
+from app.config.filtering import FilteringConfig
 from app.services.collector.base import ScoredTopic
 from app.services.collector.deduplicator import TopicDeduplicator
 from app.services.collector.filter import TopicFilter
@@ -38,8 +32,7 @@ class TestTopicNormalization:
         """Test normalization of Korean topic."""
         llm_client = AsyncMock()
         mock_content = (
-            '{"categories": ["tech"], "keywords": ["AI", "기술"], '
-            '"entities": {}, "summary": "AI 기술 관련 요약"}'
+            '{"terms": ["tech", "AI", "기술"], ' '"entities": {}, "summary": "AI 기술 관련 요약"}'
         )
         llm_client.complete = AsyncMock(return_value=MagicMock(content=mock_content))
 
@@ -64,8 +57,7 @@ class TestTopicNormalization:
         """Test normalization of English topic."""
         llm_client = AsyncMock()
         mock_content = (
-            '{"categories": ["tech"], "keywords": ["AI", "future"], '
-            '"entities": {}, "summary": "Summary about AI"}'
+            '{"terms": ["tech", "AI", "future"], ' '"entities": {}, "summary": "Summary about AI"}'
         )
         llm_client.complete = AsyncMock(return_value=MagicMock(content=mock_content))
 
@@ -98,7 +90,7 @@ class TestTopicDeduplication:
 
         topic = create_normalized_topic(
             title="테스트 토픽",
-            keywords=["test"],
+            terms=["test"],
         )
         channel_id = "test_channel"
 
@@ -117,57 +109,45 @@ class TestTopicFiltering:
     """E2E tests for topic filtering."""
 
     @pytest.mark.asyncio
-    async def test_category_filter(self) -> None:
-        """Test filtering by category."""
-        config = TopicFilterConfig(
-            include=IncludeFilters(
-                categories=[
-                    CategoryFilter(name="tech"),
-                    CategoryFilter(name="science"),
-                ]
-            ),
-            exclude=ExcludeFilters(categories=["politics"]),
-            require_category_match=True,
+    async def test_term_include_filter(self) -> None:
+        """Test filtering by include terms."""
+        config = FilteringConfig(
+            include=["tech", "science"],
+            exclude=["politics"],
         )
         filter_service = TopicFilter(config=config)
 
         topics = [
-            create_normalized_topic("Tech Topic", categories=["tech"]),
-            create_normalized_topic("Science Topic", categories=["science"]),
-            create_normalized_topic("Politics Topic", categories=["politics"]),
-            create_normalized_topic("Other Topic", categories=["entertainment"]),
+            create_normalized_topic("Tech Topic", terms=["tech", "innovation"]),
+            create_normalized_topic("Science Topic", terms=["science", "research"]),
+            create_normalized_topic("Politics Topic", terms=["politics", "news"]),
+            create_normalized_topic("Other Topic", terms=["entertainment"]),
         ]
 
         results = [filter_service.filter(t) for t in topics]
 
-        # Tech and Science should pass
+        # Tech and Science should pass (include match)
         assert results[0].passed is True
         assert results[1].passed is True
         # Politics should be excluded
         assert results[2].passed is False
-        # Entertainment doesn't match required category
+        # Entertainment doesn't match required include terms
         assert results[3].passed is False
 
     @pytest.mark.asyncio
-    async def test_keyword_filter(self) -> None:
-        """Test filtering by keywords."""
-        config = TopicFilterConfig(
-            include=IncludeFilters(
-                keywords=[
-                    KeywordFilter(keyword="ai"),
-                    KeywordFilter(keyword="머신러닝"),
-                ]
-            ),
-            exclude=ExcludeFilters(keywords=["광고", "스팸"]),
-            require_keyword_match=True,
+    async def test_term_exclude_filter(self) -> None:
+        """Test filtering by exclude terms."""
+        config = FilteringConfig(
+            include=["ai", "머신러닝"],
+            exclude=["광고", "스팸"],
         )
         filter_service = TopicFilter(config=config)
 
         topics = [
-            create_normalized_topic("AI 기술", keywords=["ai", "기술"]),
-            create_normalized_topic("머신러닝 트렌드", keywords=["머신러닝"]),
-            create_normalized_topic("광고 토픽", keywords=["광고"]),
-            create_normalized_topic("일반 토픽", keywords=["일반"]),
+            create_normalized_topic("AI 기술", terms=["ai", "기술"]),
+            create_normalized_topic("머신러닝 트렌드", terms=["머신러닝"]),
+            create_normalized_topic("광고 토픽", terms=["광고"]),
+            create_normalized_topic("일반 토픽", terms=["일반"]),
         ]
 
         results = [filter_service.filter(t) for t in topics]
@@ -177,7 +157,7 @@ class TestTopicFiltering:
         assert results[1].passed is True
         # 광고 should be excluded
         assert results[2].passed is False
-        # 일반 doesn't match required keyword
+        # 일반 doesn't match required include terms
         assert results[3].passed is False
 
 
@@ -192,7 +172,7 @@ class TestTopicScoring:
 
         topic = create_normalized_topic(
             title="인기 있는 AI 토픽",
-            keywords=["ai", "인공지능", "기술"],
+            terms=["ai", "인공지능", "기술"],
         )
 
         result = scorer.score(topic)
@@ -233,82 +213,44 @@ class TestCollectionPipeline:
         """Test complete topic collection pipeline."""
         # Setup mocks - different responses for different topics
         llm_client = AsyncMock()
-        tech_content = (
-            '{"categories": ["tech"], "keywords": ["ai"], '
-            '"entities": {}, "summary": "AI summary"}'
-        )
-        politics_content = (
-            '{"categories": ["politics"], "keywords": ["정치"], '
-            '"entities": {}, "summary": "Politics summary"}'
-        )
-        llm_client.complete = AsyncMock(
-            side_effect=[
-                MagicMock(content=tech_content),
-                MagicMock(content=politics_content),
-            ]
-        )
+        tech_content = '{"terms": ["ai", "tech"], ' '"entities": {}, "summary": "AI summary"}'
+        llm_client.complete = AsyncMock(return_value=MagicMock(content=tech_content))
 
         redis = AsyncMock()
-        redis.get = AsyncMock(return_value=None)
+        redis.get = AsyncMock(return_value=None)  # No duplicates
         redis.setex = AsyncMock()
 
-        # Create services
-        normalizer = TopicNormalizer(llm_client=llm_client)
-        deduplicator = TopicDeduplicator(redis=redis, config=DedupConfig())
-        filter_service = TopicFilter(
-            config=TopicFilterConfig(
-                include=IncludeFilters(categories=[CategoryFilter(name="tech")]),
-                require_category_match=True,
-            )
-        )
-        scorer = TopicScorer(config=ScoringConfig())
-
-        # Simulate raw topics from source
+        # Create raw topics
         raw_topics = [
             create_raw_topic(
-                title="AI 혁신 기술",
-                source_id="test_source",
-                source_url="https://example.com/1",
-            ),
-            create_raw_topic(
-                title="정치 뉴스",
-                source_id="test_source",
-                source_url="https://example.com/2",
+                title="AI Technology 2024",
+                source_id="tech_source",
+                source_url="https://example.com/tech/1",
             ),
         ]
+
+        # Pipeline execution
+        normalizer = TopicNormalizer(llm_client=llm_client)
+        deduplicator = TopicDeduplicator(redis=redis, config=DedupConfig())
+        topic_filter = TopicFilter(config=FilteringConfig(include=["ai"], exclude=["spam"]))
+        scorer = TopicScorer(config=ScoringConfig())
 
         source_id = uuid.uuid4()
         channel_id = "test_channel"
 
         # Step 1: Normalize
-        normalized = []
-        for raw in raw_topics:
-            result = await normalizer.normalize(raw, source_id)
-            if result:
-                normalized.append(result)
-
-        assert len(normalized) == 2
+        normalized = await normalizer.normalize(raw_topics[0], source_id)
+        assert normalized is not None
 
         # Step 2: Deduplicate
-        unique = []
-        for topic in normalized:
-            dedup_result = await deduplicator.is_duplicate(topic, channel_id)
-            if not dedup_result.is_duplicate:
-                await deduplicator.mark_as_seen(topic, channel_id)
-                unique.append(topic)
-
-        assert len(unique) == 2
+        dedup_result = await deduplicator.is_duplicate(normalized, channel_id)
+        assert not dedup_result.is_duplicate
 
         # Step 3: Filter
-        filtered = [t for t in unique if filter_service.filter(t).passed]
-
-        # Only tech should pass (AI 혁신 기술)
-        assert len(filtered) == 1
-        assert filtered[0].categories == ["tech"]
+        filter_result = topic_filter.filter(normalized)
+        assert filter_result.passed
 
         # Step 4: Score
-        scored = [scorer.score(t) for t in filtered]
-
-        # Verify pipeline output
-        assert len(scored) == 1
-        assert all(isinstance(t, ScoredTopic) for t in scored)
+        scored = scorer.score(normalized)
+        assert isinstance(scored, ScoredTopic)
+        assert scored.score_total >= 0

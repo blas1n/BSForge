@@ -86,25 +86,32 @@ class TestTextWrapping:
         """Create a ThumbnailGenerator."""
         return ThumbnailGenerator()
 
-    def test_wrap_long_title(self, generator: ThumbnailGenerator) -> None:
+    @pytest.fixture
+    def config(self) -> ThumbnailConfig:
+        """Create a ThumbnailConfig."""
+        return ThumbnailConfig()
+
+    def test_wrap_long_title(self, generator: ThumbnailGenerator, config: ThumbnailConfig) -> None:
         """Test that long titles are wrapped."""
         from PIL import ImageFont
 
         font = ImageFont.load_default()
         long_title = "This is a very long title that should definitely be wrapped " * 2
 
-        wrapped = generator._wrap_text(long_title, font, max_width=500)
+        wrapped = generator._wrap_text(long_title, font, max_width=500, config=config)
 
         assert "\n" in wrapped
 
-    def test_short_title_not_wrapped(self, generator: ThumbnailGenerator) -> None:
+    def test_short_title_not_wrapped(
+        self, generator: ThumbnailGenerator, config: ThumbnailConfig
+    ) -> None:
         """Test that short titles are not wrapped."""
         from PIL import ImageFont
 
         font = ImageFont.load_default()
         short_title = "Short"
 
-        wrapped = generator._wrap_text(short_title, font, max_width=500)
+        wrapped = generator._wrap_text(short_title, font, max_width=500, config=config)
 
         assert "\n" not in wrapped
 
@@ -142,11 +149,15 @@ class TestThumbnailConfig:
     """Test thumbnail configuration."""
 
     def test_default_config(self) -> None:
-        """Test default thumbnail configuration."""
+        """Test default thumbnail configuration.
+
+        Note: Defaults are optimized for YouTube Shorts (1080x1920 portrait).
+        """
         config = ThumbnailConfig()
 
-        assert config.width == 1280
-        assert config.height == 720
+        # YouTube Shorts default dimensions
+        assert config.width == 1080
+        assert config.height == 1920
         assert config.quality >= 80
         assert config.quality <= 100
 

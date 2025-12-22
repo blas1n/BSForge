@@ -5,8 +5,8 @@ and scoring topics for a channel. Used by both Celery workers and CLI scripts.
 
 The pipeline:
 1. Collect raw topics from sources (global pool + scoped sources)
-2. Normalize (translate, classify, extract keywords)
-3. Filter (include/exclude keywords, categories)
+2. Normalize (translate, classify, extract terms)
+3. Filter (include/exclude terms)
 4. Deduplicate (hash-based)
 5. Score (multi-factor scoring)
 6. Save to database
@@ -27,21 +27,23 @@ from redis.asyncio import Redis as AsyncRedis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import DedupConfig, ScoringConfig
-from app.config.sources import (
-    HackerNewsConfig,
-    RedditConfig,
-)
+from app.config import FilteringConfig
+from app.core.config_loader import load_defaults
 from app.core.logging import get_logger
+from app.infrastructure.http_client import HTTPClient
 from app.models.channel import Channel
 from app.models.topic import Topic, TopicStatus
 from app.services.collector.base import NormalizedTopic, RawTopic, ScoredTopic
 from app.services.collector.deduplicator import TopicDeduplicator
+from app.services.collector.filter import TopicFilter
+from app.services.collector.global_pool import (
+    GlobalTopicPool,
+    ScopedSourceCache,
+    is_global_source,
+)
 from app.services.collector.normalizer import TopicNormalizer
 from app.services.collector.scorer import TopicScorer
-from app.services.collector.sources.hackernews import HackerNewsSource
-from app.services.collector.sources.reddit import RedditSource
-from app.services.collector.term_filter import TermFilter
+from app.services.collector.sources.factory import create_source
 
 logger = get_logger(__name__)
 
@@ -70,27 +72,41 @@ class CollectionStats(BaseModel):
     errors: list[str] = []
 
 
+def _get_collector_defaults() -> dict[str, Any]:
+    """Get collector defaults from config/defaults.yaml."""
+    defaults = load_defaults()
+    collector = defaults.get("collector", {})
+    return collector if isinstance(collector, dict) else {}
+
+
 @dataclass
 class CollectionConfig:
     """Configuration for topic collection.
 
     Attributes:
-        enabled_sources: List of enabled source types
+        global_sources: List of global source types (hackernews, google_trends, youtube_trending)
+        scoped_sources: List of scoped source types (reddit, dcinside, etc.)
+        target_language: Target language for translation (required from channel config)
         source_overrides: Per-source configuration overrides
-        include_terms: Terms to include (unified keywords + categories)
-        exclude_terms: Terms to exclude
-        target_language: Target language for translation
+        include: Terms to include
+        exclude: Terms to exclude
         max_topics: Maximum topics to process
         save_to_db: Whether to save topics to database
     """
 
-    enabled_sources: list[str] = field(default_factory=lambda: ["hackernews"])
+    global_sources: list[str]  # Global sources (shared across channels)
+    scoped_sources: list[str]  # Scoped sources (channel-specific params)
+    target_language: str  # Required - from channel config
     source_overrides: dict[str, Any] = field(default_factory=dict)
-    include_terms: list[str] = field(default_factory=list)
-    exclude_terms: list[str] = field(default_factory=list)
-    target_language: str = "ko"
-    max_topics: int = 20
+    include: list[str] = field(default_factory=list)
+    exclude: list[str] = field(default_factory=list)
+    max_topics: int = field(default_factory=lambda: _get_collector_defaults().get("max_topics", 20))
     save_to_db: bool = True
+
+    @property
+    def enabled_sources(self) -> list[str]:
+        """All enabled sources (global + scoped) for backward compatibility."""
+        return self.global_sources + self.scoped_sources
 
     @classmethod
     def from_channel_config(cls, channel_config: dict[str, Any]) -> "CollectionConfig":
@@ -101,17 +117,26 @@ class CollectionConfig:
 
         Returns:
             CollectionConfig instance
+
+        Raises:
+            ValueError: If required fields are missing from channel config
         """
+        defaults = _get_collector_defaults()
         topic_collection = channel_config.get("topic_collection", {})
         filtering = channel_config.get("filtering", {})
 
+        global_sources = topic_collection.get("global_sources", [])
+        scoped_sources = topic_collection.get("scoped_sources", [])
+        target_language = topic_collection.get("target_language", "ko")
+
         return cls(
-            enabled_sources=topic_collection.get("enabled_sources", ["hackernews"]),
+            global_sources=global_sources,
+            scoped_sources=scoped_sources,
+            target_language=target_language,
             source_overrides=topic_collection.get("source_overrides", {}),
-            include_terms=filtering.get("include_terms", []),
-            exclude_terms=filtering.get("exclude_terms", []),
-            target_language="ko",
-            max_topics=20,
+            include=filtering.get("include", []),
+            exclude=filtering.get("exclude", []),
+            max_topics=defaults.get("max_topics", 20),
             save_to_db=True,
         )
 
@@ -120,9 +145,9 @@ class TopicCollectionPipeline:
     """Unified topic collection pipeline service.
 
     This service handles the full topic collection pipeline:
-    1. Collect from sources (global pool + direct collection)
+    1. Collect from sources (global pool + scoped sources via factory)
     2. Normalize (translate, classify)
-    3. Filter (include/exclude keywords)
+    3. Filter (include/exclude terms)
     4. Deduplicate
     5. Score
     6. Save to DB
@@ -133,30 +158,34 @@ class TopicCollectionPipeline:
     def __init__(
         self,
         session: AsyncSession,
-        redis: AsyncRedis[bytes] | None = None,
-        normalizer: TopicNormalizer | None = None,
-        deduplicator: TopicDeduplicator | None = None,
-        scorer: TopicScorer | None = None,
+        http_client: HTTPClient,
+        normalizer: TopicNormalizer,
+        redis: AsyncRedis,
+        deduplicator: TopicDeduplicator,
+        scorer: TopicScorer,
+        global_pool: GlobalTopicPool,
+        scoped_cache: ScopedSourceCache,
     ):
         """Initialize pipeline.
 
         Args:
             session: Database session
-            redis: Redis client (optional, for deduplication and global pool)
-            normalizer: Topic normalizer (uses default if None)
-            deduplicator: Topic deduplicator (uses default if None)
-            scorer: Topic scorer (uses default if None)
+            http_client: HTTP client for source requests
+            normalizer: Topic normalizer
+            redis: Redis client for caching
+            deduplicator: Topic deduplicator
+            scorer: Topic scorer
+            global_pool: Global topic pool for shared sources
+            scoped_cache: Scoped source cache
         """
         self.session = session
+        self.http_client = http_client
+        self.normalizer = normalizer
         self.redis = redis
-        self.normalizer = normalizer or TopicNormalizer()
-        self.scorer = scorer or TopicScorer(config=ScoringConfig())
-        self.deduplicator: TopicDeduplicator | None
-
-        if redis and deduplicator is None:
-            self.deduplicator = TopicDeduplicator(redis=redis, config=DedupConfig())
-        else:
-            self.deduplicator = deduplicator
+        self.deduplicator = deduplicator
+        self.scorer = scorer
+        self.global_pool = global_pool
+        self.scoped_cache = scoped_cache
 
     async def collect_for_channel(
         self,
@@ -235,6 +264,10 @@ class TopicCollectionPipeline:
     ) -> list[RawTopic]:
         """Collect raw topics from all configured sources.
 
+        Uses GlobalTopicPool for global sources (HN, Trends, YouTube) and
+        ScopedSourceCache for scoped sources (Reddit, DCInside, etc.).
+        Falls back to direct collection if Redis is not available.
+
         Args:
             config: Collection configuration
             stats: Stats to update
@@ -244,49 +277,123 @@ class TopicCollectionPipeline:
         """
         all_topics: list[RawTopic] = []
 
-        # Collect from HackerNews
-        if "hackernews" in config.enabled_sources:
-            logger.info("Collecting from HackerNews...")
+        for source_name in config.enabled_sources:
             try:
-                overrides = config.source_overrides.get("hackernews", {})
-                min_score = overrides.get("filters", {}).get("min_score", 30)
+                if is_global_source(source_name):
+                    # Global source: try pool first, then direct collection
+                    topics = await self._collect_from_global_source(
+                        source_name, config.source_overrides.get(source_name, {}), stats
+                    )
+                else:
+                    # Scoped source: use cache or direct collection
+                    topics = await self._collect_from_scoped_source(
+                        source_name, config.source_overrides.get(source_name, {}), stats
+                    )
 
-                hn_config = HackerNewsConfig(limit=30, min_score=min_score)
-                hn_source = HackerNewsSource(config=hn_config, source_id=uuid.uuid4())
-                hn_topics = await hn_source.collect()
+                all_topics.extend(topics)
 
-                logger.info(f"HackerNews: {len(hn_topics)} topics")
-                all_topics.extend(hn_topics)
-                stats.global_topics += len(hn_topics)
             except Exception as e:
-                error_msg = f"HackerNews collection failed: {e}"
-                logger.error(error_msg, exc_info=True)
-                stats.errors.append(error_msg)
-
-        # Collect from Reddit
-        if "reddit" in config.enabled_sources:
-            logger.info("Collecting from Reddit...")
-            try:
-                overrides = config.source_overrides.get("reddit", {})
-                subreddits = overrides.get("params", {}).get(
-                    "subreddits", ["MachineLearning", "artificial"]
-                )
-                min_score = overrides.get("filters", {}).get("min_score", 30)
-
-                reddit_config = RedditConfig(subreddits=subreddits, limit=20, min_score=min_score)
-                reddit_source = RedditSource(config=reddit_config, source_id=uuid.uuid4())
-                reddit_topics = await reddit_source.collect()
-
-                logger.info(f"Reddit: {len(reddit_topics)} topics")
-                all_topics.extend(reddit_topics)
-                stats.scoped_topics += len(reddit_topics)
-            except Exception as e:
-                error_msg = f"Reddit collection failed: {e}"
+                error_msg = f"{source_name} collection failed: {e}"
                 logger.error(error_msg, exc_info=True)
                 stats.errors.append(error_msg)
 
         # Limit topics
         return all_topics[: config.max_topics]
+
+    async def _collect_from_global_source(
+        self,
+        source_name: str,
+        overrides: dict[str, Any],
+        stats: CollectionStats,
+    ) -> list[RawTopic]:
+        """Collect from a global source, using pool if available.
+
+        Args:
+            source_name: Name of the source
+            overrides: Source-specific overrides
+            stats: Stats to update
+
+        Returns:
+            List of raw topics
+        """
+        # Try global pool first
+        if self.global_pool:
+            pool_topics = await self.global_pool.get_topics(source_name)
+            if pool_topics:
+                logger.info(f"Got {len(pool_topics)} topics from global pool: {source_name}")
+                stats.global_topics += len(pool_topics)
+                return pool_topics
+
+        # Pool empty or unavailable, collect directly
+        logger.info(f"Collecting directly from global source: {source_name}")
+        topics = await self._collect_directly(source_name, overrides)
+
+        # Store in pool for future use
+        if self.global_pool and topics:
+            await self.global_pool.add_topics(source_name, topics)
+
+        stats.global_topics += len(topics)
+        logger.info(f"{source_name}: {len(topics)} topics")
+        return topics
+
+    async def _collect_from_scoped_source(
+        self,
+        source_name: str,
+        overrides: dict[str, Any],
+        stats: CollectionStats,
+    ) -> list[RawTopic]:
+        """Collect from a scoped source, using cache if available.
+
+        Args:
+            source_name: Name of the source
+            overrides: Source-specific overrides
+            stats: Stats to update
+
+        Returns:
+            List of raw topics
+        """
+        params = overrides.get("params", {})
+
+        # Try scoped cache first
+        if self.scoped_cache and params:
+            cached_topics = await self.scoped_cache.get(source_name, params)
+            if cached_topics is not None:
+                logger.info(f"Got {len(cached_topics)} topics from cache: {source_name}")
+                stats.scoped_topics += len(cached_topics)
+                return cached_topics
+
+        # Cache miss or unavailable, collect directly
+        logger.info(f"Collecting from scoped source: {source_name}")
+        topics = await self._collect_directly(source_name, overrides)
+
+        # Store in cache for future use
+        if self.scoped_cache and params and topics:
+            await self.scoped_cache.set(source_name, params, topics)
+
+        stats.scoped_topics += len(topics)
+        logger.info(f"{source_name}: {len(topics)} topics")
+        return topics
+
+    async def _collect_directly(
+        self,
+        source_name: str,
+        overrides: dict[str, Any],
+    ) -> list[RawTopic]:
+        """Collect directly from a source using the factory.
+
+        Args:
+            source_name: Name of the source
+            overrides: Source-specific overrides
+
+        Returns:
+            List of raw topics
+        """
+        source = create_source(source_name, self.http_client, overrides)
+        if source is None:
+            logger.warning(f"Unknown or unconfigured source: {source_name}")
+            return []
+
+        return await source.collect()
 
     async def _normalize_topics(
         self,
@@ -305,12 +412,18 @@ class TopicCollectionPipeline:
             List of (raw, normalized) tuples
         """
         normalized: list[tuple[RawTopic, NormalizedTopic]] = []
-        demo_source_id = uuid.uuid4()
 
         for raw in raw_topics:
             try:
+                # Use source_id from raw topic if available, otherwise generate unique ID per topic
+                source_id = getattr(raw, "source_id", None)
+                if source_id is None:
+                    source_id = uuid.uuid4()
+                elif isinstance(source_id, str):
+                    source_id = uuid.UUID(source_id)
+
                 norm = await self.normalizer.normalize(
-                    raw, source_id=demo_source_id, target_language=target_language
+                    raw, source_id=source_id, target_language=target_language
                 )
                 normalized.append((raw, norm))
             except Exception as e:
@@ -325,7 +438,7 @@ class TopicCollectionPipeline:
         normalized: list[tuple[RawTopic, NormalizedTopic]],
         config: CollectionConfig,
     ) -> list[tuple[RawTopic, NormalizedTopic]]:
-        """Filter topics by terms (unified keywords + categories).
+        """Filter topics by terms.
 
         Args:
             normalized: List of (raw, normalized) tuples
@@ -334,17 +447,19 @@ class TopicCollectionPipeline:
         Returns:
             Filtered list of (raw, normalized) tuples
         """
-        if not config.include_terms and not config.exclude_terms:
+        if not config.include and not config.exclude:
             return normalized
 
-        term_filter = TermFilter(
-            include_terms=config.include_terms,
-            exclude_terms=config.exclude_terms,
+        filter_config = FilteringConfig(
+            include=config.include,
+            exclude=config.exclude,
         )
+        topic_filter = TopicFilter(filter_config)
 
         filtered = []
         for raw, norm in normalized:
-            if term_filter.matches(norm):
+            result = topic_filter.filter(norm)
+            if result.passed:
                 filtered.append((raw, norm))
 
         return filtered
@@ -425,8 +540,10 @@ class TopicCollectionPipeline:
             List of saved Topic models
         """
         saved: list[Topic] = []
+        defaults = _get_collector_defaults()
+        top_topics_to_save = defaults.get("top_topics_to_save", 5)
 
-        for raw, norm, sc in scored_topics[:5]:  # Top 5
+        for raw, norm, sc in scored_topics[:top_topics_to_save]:
             # Check for existing topic
             content_hash = hashlib.sha256(
                 (norm.title_normalized + str(norm.source_url)).encode()
@@ -489,8 +606,7 @@ class TopicCollectionPipeline:
             title_normalized=norm.title_normalized,
             summary=norm.summary or (raw.content[:200] if raw.content else ""),
             source_url=str(norm.source_url),
-            categories=norm.categories or [],
-            keywords=norm.keywords or [],
+            terms=norm.terms or [],
             entities={},
             language=norm.language or "en",
             score_source=scored.score_source,

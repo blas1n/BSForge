@@ -14,7 +14,7 @@ from typing import Any
 from app.config.rag import GenerationConfig, QualityCheckConfig
 from app.core.logging import get_logger
 from app.core.types import SessionFactory
-from app.infrastructure.llm import LLMClient, LLMConfig, get_llm_client
+from app.infrastructure.llm import LLMClient, LLMConfig
 from app.infrastructure.pgvector_db import PgVectorDB
 from app.models.channel import Persona
 from app.models.content_chunk import ContentType
@@ -72,7 +72,7 @@ class ScriptGenerator:
         chunker: ScriptChunker,
         embedder: ContentEmbedder,
         vector_db: PgVectorDB,
-        llm_client: LLMClient | None = None,
+        llm_client: LLMClient,
         db_session_factory: SessionFactory | None = None,
         config: GenerationConfig | None = None,
         quality_config: QualityCheckConfig | None = None,
@@ -85,7 +85,7 @@ class ScriptGenerator:
             chunker: ScriptChunker instance
             embedder: ContentEmbedder instance
             vector_db: PgVectorDB instance
-            llm_client: LLMClient instance (default: singleton)
+            llm_client: LLMClient instance
             db_session_factory: SQLAlchemy async session factory
             config: Generation configuration (default: from settings)
             quality_config: Quality check configuration
@@ -95,7 +95,7 @@ class ScriptGenerator:
         self.chunker = chunker
         self.embedder = embedder
         self.vector_db = vector_db
-        self.llm_client = llm_client or get_llm_client()
+        self.llm_client = llm_client
         self.db_session_factory = db_session_factory
         self.config = config or GenerationConfig()
         self.quality_config = quality_config or QualityCheckConfig()
@@ -442,7 +442,7 @@ class ScriptGenerator:
                 position=chunk.position,
                 is_opinion=chunk.is_opinion,
                 is_example=chunk.is_example,
-                keywords=chunk.keywords,
+                keywords=chunk.terms or [],
             )
             chunk.embedding = embedding
 
@@ -487,7 +487,7 @@ class ScriptGenerator:
             config = self.config
 
         # Get LLM config from prompt template (scene-based)
-        llm_config = self._get_llm_config_from_template(PromptType.SCENE_SCRIPT_GENERATION)
+        llm_config = self._get_llm_config_from_template(PromptType.SCRIPT_GENERATION)
 
         logger.info(
             f"Generating scene-based script for topic {topic_id}",
@@ -548,10 +548,10 @@ class ScriptGenerator:
 
         # 2. Build scene-aware prompt
         logger.info("Building scene prompt")
-        prompt = await self.prompt_builder.build_scene_prompt(context)
+        prompt = await self.prompt_builder.build_prompt(context)
 
         # 3. Get LLM config from prompt template (scene-based)
-        llm_config = self._get_llm_config_from_template(PromptType.SCENE_SCRIPT_GENERATION)
+        llm_config = self._get_llm_config_from_template(PromptType.SCRIPT_GENERATION)
 
         # 4. Generate via LLM
         logger.info(f"Calling LLM API for scene script ({llm_config.model})")

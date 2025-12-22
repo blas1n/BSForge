@@ -1310,13 +1310,199 @@ def apply_recommended_transitions(scenes: list[Scene]) -> list[Scene]:
 
 ---
 
-## 9. 기술 스택 정리
+## 9. BGM (배경 음악) 시스템
+
+### 9.1 개요
+자동으로 YouTube에서 로열티 프리 BGM을 다운로드하고 영상에 믹싱합니다.
+
+### 9.2 BGM 설정
+```python
+class BGMTrack(BaseModel):
+    """개별 BGM 트랙 정보."""
+    name: str                        # 트랙 식별 이름
+    youtube_url: HttpUrl             # YouTube URL
+    tags: list[str] = []             # 분위기 태그 (upbeat, calm, tech 등)
+    default_volume: float = 0.15     # 기본 볼륨 (0.0-1.0)
+
+class BGMConfig(BaseModel):
+    """BGM 시스템 설정."""
+    enabled: bool = True
+    volume: float = 0.15             # 전체 BGM 볼륨
+    cache_dir: str = "data/bgm"      # 다운로드 캐시 경로
+    download_timeout: int = 300      # 다운로드 타임아웃 (초)
+    tracks: list[BGMTrack] = []      # 사용할 트랙 목록
+```
+
+### 9.3 BGM 다운로더
+```python
+class BGMDownloader:
+    """YouTube에서 BGM 다운로드 (yt-dlp 사용)."""
+
+    async def download(self, track: BGMTrack) -> Path:
+        """트랙 다운로드 (캐시된 경우 스킵)."""
+        output_path = self.config.get_cache_path(track)
+
+        if output_path.exists():
+            return output_path
+
+        # yt-dlp로 오디오만 추출 → MP3 변환
+        ydl_opts = {
+            "format": "bestaudio/best",
+            "postprocessors": [{
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "192",
+            }],
+        }
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([track.youtube_url])
+
+        return output_path
+
+    async def ensure_all_downloaded(self, tracks: list[BGMTrack]) -> dict[str, Path]:
+        """모든 트랙 다운로드 보장."""
+        results = {}
+        for track in tracks:
+            results[track.name] = await self.download(track)
+        return results
+```
+
+### 9.4 BGM 선택기
+```python
+class BGMSelector:
+    """영상에 맞는 BGM 선택."""
+
+    def select(self, tags: list[str] | None = None) -> tuple[BGMTrack, Path] | None:
+        """태그 기반 BGM 선택 (미래: 분위기 매칭)."""
+        if not self._cached_tracks:
+            return None
+
+        # 현재: 랜덤 선택
+        # TODO: 태그 매칭, 시리즈 일관성 등
+        track = random.choice(list(self._cached_tracks.values()))
+        return track
+```
+
+### 9.5 BGM 매니저
+```python
+class BGMManager:
+    """BGM 파이프라인 통합 관리."""
+
+    async def initialize(self) -> None:
+        """시작 시 모든 트랙 다운로드."""
+        self._cached_tracks = await self._downloader.ensure_all_downloaded(
+            self.config.tracks
+        )
+        self._selector = BGMSelector(self.config, self._cached_tracks)
+
+    async def get_bgm_for_video(self, mood_tags: list[str] | None = None) -> Path | None:
+        """영상용 BGM 경로 반환."""
+        if not self.config.enabled:
+            return None
+
+        result = self._selector.select(tags=mood_tags)
+        return result[1] if result else None
+
+    def get_volume(self) -> float:
+        """설정된 볼륨 반환."""
+        return self.config.volume
+```
+
+### 9.6 FFmpeg 믹싱
+```python
+# 음성 + BGM 믹싱 명령어
+ffmpeg_cmd = [
+    "ffmpeg", "-y",
+    "-i", str(video_path),           # 원본 영상 (음성 포함)
+    "-i", str(bgm_path),             # BGM
+    "-filter_complex",
+    f"[1:a]volume={bgm_volume}[bgm];"   # BGM 볼륨 조절
+    "[0:a][bgm]amix=inputs=2:duration=first[aout]",  # 믹싱
+    "-map", "0:v",                   # 원본 비디오
+    "-map", "[aout]",                # 믹싱된 오디오
+    "-c:v", "copy",                  # 비디오 재인코딩 안함
+    "-c:a", "aac",
+    str(output_path),
+]
+```
+
+---
+
+## 10. 구현 상세
+
+### 10.1 실제 구현된 모듈
+
+**TTS Services (`app/services/generator/tts/`)**:
+- `BaseTTSEngine`: 추상 기반 클래스
+- `EdgeTTSEngine`: 무료 Microsoft Edge TTS
+- `ElevenLabsEngine`: 고품질 유료 TTS
+- `TTSEngineFactory`: 서비스 선택 팩토리
+
+**Subtitle (`app/services/generator/subtitle.py`)**:
+- `SubtitleGenerator`: ASS/SRT 생성
+- `SubtitleStyle`: 스타일 설정 (폰트, 색상, 위치)
+- 단어 타임스탬프 기반 세그먼트 분할
+
+**Visual (`app/services/generator/visual/`)**:
+- `PexelsClient`: 스톡 영상/이미지 검색
+- `AIImageGenerator`: DALL-E 이미지 생성
+- `VisualSourcingManager`: 소싱 우선순위 관리
+
+**Compositor (`app/services/generator/`)**:
+- `FFmpegWrapper`: FFmpeg 명령어 래퍼
+- `VideoCompositor`: 전체 합성 파이프라인
+- Scene별 트랜지션 적용
+
+**BGM (`app/services/generator/bgm/`)**:
+- `BGMDownloader`: yt-dlp 기반 다운로더
+- `BGMSelector`: 트랙 선택 로직
+- `BGMManager`: 통합 관리자
+
+**Scene (`app/models/scene.py`)**:
+- `SceneType`: 8가지 장면 유형
+- `VisualStyle`: 3가지 시각 스타일
+- `TransitionType`: 6가지 전환 효과
+- `Scene`, `SceneScript`: Pydantic 모델
+
+### 10.2 파일 구조
+```
+app/services/generator/
+├── __init__.py
+├── pipeline.py              # 전체 파이프라인 통합
+├── compositor.py            # FFmpeg 합성
+├── ffmpeg.py               # FFmpeg 래퍼
+├── subtitle.py             # 자막 생성
+├── thumbnail.py            # 썸네일 생성
+├── tts/
+│   ├── __init__.py
+│   ├── base.py             # BaseTTSEngine
+│   ├── edge.py             # EdgeTTSEngine
+│   ├── elevenlabs.py       # ElevenLabsEngine
+│   └── factory.py          # TTSEngineFactory
+├── visual/
+│   ├── __init__.py
+│   ├── pexels.py           # PexelsClient
+│   ├── ai_image.py         # AIImageGenerator
+│   └── manager.py          # VisualSourcingManager
+└── bgm/
+    ├── __init__.py
+    ├── downloader.py       # BGMDownloader
+    ├── selector.py         # BGMSelector
+    └── manager.py          # BGMManager
+```
+
+---
+
+## 11. 기술 스택 정리
 
 | 컴포넌트 | 라이브러리 | 비고 |
 |----------|------------|------|
 | **TTS** | edge-tts, elevenlabs | 무료/유료 |
-| **자막** | pysrt, 자체 ASS 생성 | 스타일링 지원 |
+| **자막** | 자체 ASS/SRT 생성 | 스타일링 지원 |
 | **비주얼** | httpx (Pexels API), openai (DALL-E) | 스톡/AI |
 | **이미지 처리** | Pillow | 썸네일, 단색 배경 |
 | **영상 합성** | FFmpeg (subprocess) | 핵심 |
 | **음성 인식** | whisper | 타임스탬프 생성 |
+| **BGM 다운로드** | yt-dlp | YouTube 오디오 추출 |
+| **Scene 모델** | Pydantic | 타입 안전성 |

@@ -66,7 +66,7 @@ class GoogleTrendsConfig(BaseModel):
         category: Google Trends category ID (0 = all categories)
     """
 
-    regions: list[str] = Field(default_factory=lambda: ["KR", "US"])
+    regions: list[str] = Field(default_factory=list)
     limit: int = Field(default=20, ge=1, le=50)
     timeframe: str = Field(default="now 1-d")
     category: int = Field(default=0, ge=0)

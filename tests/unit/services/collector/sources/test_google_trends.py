@@ -49,12 +49,12 @@ class TestGoogleTrendsImport:
 class TestGoogleTrendsConfig:
     """Tests for GoogleTrendsConfig."""
 
-    def test_default_regions(self):
-        """Test default regions configuration."""
+    def test_default_regions_empty(self):
+        """Test default regions is empty list (opt-in collection)."""
         from app.config.sources import GoogleTrendsConfig
 
         config = GoogleTrendsConfig()
-        assert config.regions == ["KR", "US"]
+        assert config.regions == []
 
     def test_default_limit(self):
         """Test default limit configuration."""
@@ -95,8 +95,49 @@ class TestGoogleTrendsSourceCreation:
             # Since we can't easily import due to pandas, test the config instead
             from app.config.sources import GoogleTrendsConfig
 
-            config = GoogleTrendsConfig()
+            config = GoogleTrendsConfig(regions=["KR", "US"])
             assert config.regions == ["KR", "US"]
+
+
+class TestGoogleTrendsRegionHelpers:
+    """Tests for region helper functions."""
+
+    def test_get_host_language_for_region(self):
+        """Test language detection from region code."""
+        from app.services.collector.sources.google_trends import get_host_language_for_region
+
+        # Test known mappings
+        assert get_host_language_for_region("KR") == "ko"
+        assert get_host_language_for_region("JP") == "ja"
+        assert get_host_language_for_region("DE") == "de"
+        assert get_host_language_for_region("FR") == "fr"
+
+        # Test English-speaking countries (should have region suffix)
+        assert get_host_language_for_region("US") == "en-US"
+        assert get_host_language_for_region("GB") == "en-GB"
+
+        # Test Chinese variants
+        assert get_host_language_for_region("CN") == "zh-CN"
+        assert get_host_language_for_region("TW") == "zh-TW"
+
+        # Test Portuguese variants
+        assert get_host_language_for_region("BR") == "pt-BR"
+        assert get_host_language_for_region("PT") == "pt-PT"
+
+    def test_get_timezone_offset_for_region(self):
+        """Test timezone offset detection from region code."""
+        from app.services.collector.sources.google_trends import get_timezone_offset_for_region
+
+        # Test known timezones (values may vary with DST)
+        kr_offset = get_timezone_offset_for_region("KR")
+        assert kr_offset == 540  # KST is always UTC+9 (no DST)
+
+        jp_offset = get_timezone_offset_for_region("JP")
+        assert jp_offset == 540  # JST is always UTC+9 (no DST)
+
+        # Test unknown region returns 0
+        unknown_offset = get_timezone_offset_for_region("XX")
+        assert unknown_offset == 0
 
 
 class TestGoogleTrendsPNCodeMapping:

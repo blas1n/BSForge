@@ -4,6 +4,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.config.validators import validate_range_list, validate_weights_sum
+
 
 class RegionWeights(BaseModel):
     """Region weight configuration.
@@ -16,27 +18,13 @@ class RegionWeights(BaseModel):
     domestic: float = Field(..., ge=0, le=1, description="Domestic weight")
     foreign: float = Field(..., ge=0, le=1, description="Foreign weight")
 
-    @field_validator("foreign")
-    @classmethod
-    def validate_weights_sum(cls, v: float, info: Any) -> float:
-        """Validate that domestic + foreign = 1.0.
-
-        Args:
-            v: Foreign weight value
-            info: Validation info containing other fields
-
-        Returns:
-            The validated foreign weight
-
-        Raises:
-            ValueError: If weights don't sum to 1.0
-        """
-        if info.data.get("domestic") is not None:
-            domestic = info.data["domestic"]
-            total = domestic + v
-            if abs(total - 1.0) > 0.01:
-                raise ValueError(f"Weights must sum to 1.0 (got {total})")
-        return v
+    @model_validator(mode="after")
+    def check_weights_sum(self) -> "RegionWeights":
+        """Validate that domestic + foreign = 1.0."""
+        validate_weights_sum(
+            {"domestic": self.domestic, "foreign": self.foreign},
+        )
+        return self
 
 
 class SourceOverride(BaseModel):
@@ -73,16 +61,28 @@ class TopicCollectionConfig(BaseModel):
     """Topic collection configuration.
 
     Attributes:
-        region_weights: Regional content weights
-        enabled_sources: List of enabled sources
+        global_sources: Global source types (hackernews, google_trends, youtube_trending)
+        scoped_sources: Scoped source types (reddit, dcinside, etc.)
+        target_language: Target language for translation (default: ko)
         source_overrides: Source-specific overrides
         trend_config: Trend detection settings
     """
 
-    region_weights: RegionWeights
-    enabled_sources: list[str] = Field(..., min_length=1)
-    source_overrides: dict[str, SourceOverride] = Field(default_factory=dict)
+    global_sources: list[str] = Field(default_factory=list)
+    scoped_sources: list[str] = Field(default_factory=list)
+    target_language: str = Field(default="ko")
+
+    source_overrides: dict[str, Any] = Field(default_factory=dict)
     trend_config: TrendConfig = Field(default_factory=TrendConfig)
+
+    @model_validator(mode="after")
+    def validate_sources(self) -> "TopicCollectionConfig":
+        """Validate that at least one source is configured."""
+        if not self.global_sources and not self.scoped_sources:
+            raise ValueError(
+                "At least one source must be configured (global_sources or scoped_sources)"
+            )
+        return self
 
 
 class ScoringWeights(BaseModel):
@@ -95,26 +95,24 @@ class ScoringWeights(BaseModel):
     source_score: float = Field(default=0.15, ge=0, le=1)
     freshness: float = Field(default=0.20, ge=0, le=1)
     trend_momentum: float = Field(default=0.10, ge=0, le=1)
-    category_relevance: float = Field(default=0.15, ge=0, le=1)
-    keyword_relevance: float = Field(default=0.10, ge=0, le=1)
-    entity_relevance: float = Field(default=0.05, ge=0, le=1)
+    term_relevance: float = Field(default=0.20, ge=0, le=1)
+    entity_relevance: float = Field(default=0.10, ge=0, le=1)
     novelty: float = Field(default=0.10, ge=0, le=1)
 
     @model_validator(mode="after")
-    def validate_weights_sum(self) -> "ScoringWeights":
+    def check_weights_sum(self) -> "ScoringWeights":
         """Validate that all weights sum to 1.0."""
-        total = (
-            self.source_credibility
-            + self.source_score
-            + self.freshness
-            + self.trend_momentum
-            + self.category_relevance
-            + self.keyword_relevance
-            + self.entity_relevance
-            + self.novelty
+        validate_weights_sum(
+            {
+                "source_credibility": self.source_credibility,
+                "source_score": self.source_score,
+                "freshness": self.freshness,
+                "trend_momentum": self.trend_momentum,
+                "term_relevance": self.term_relevance,
+                "entity_relevance": self.entity_relevance,
+                "novelty": self.novelty,
+            }
         )
-        if abs(total - 1.0) > 0.01:
-            raise ValueError(f"Scoring weights must sum to 1.0 (got {total:.2f})")
         return self
 
 
@@ -133,8 +131,7 @@ class ScoringConfig(BaseModel):
     freshness_min: float = Field(default=0.1, ge=0, le=1, description="Minimum freshness score")
 
     # Channel relevance settings (populated from channel config)
-    target_categories: list[str] = Field(default_factory=list)
-    target_keywords: list[str] = Field(default_factory=list)
+    target_terms: list[str] = Field(default_factory=list)
     target_entities: list[str] = Field(default_factory=list)
 
     # Novelty settings
@@ -246,38 +243,16 @@ class ScheduleConfig(BaseModel):
     @field_validator("allowed_hours")
     @classmethod
     def validate_hours(cls, v: list[int]) -> list[int]:
-        """Validate hour values.
-
-        Args:
-            v: List of hours
-
-        Returns:
-            Validated hours
-
-        Raises:
-            ValueError: If any hour is out of range
-        """
-        if any(h < 0 or h > 23 for h in v):
-            raise ValueError("Hours must be between 0 and 23")
-        return sorted(set(v))
+        """Validate hour values (0-23), dedupe and sort."""
+        return validate_range_list(v, min_val=0, max_val=23, field_name="Hours")
 
     @field_validator("preferred_days")
     @classmethod
     def validate_days(cls, v: list[int] | None) -> list[int] | None:
-        """Validate day values.
-
-        Args:
-            v: List of days or None
-
-        Returns:
-            Validated days
-
-        Raises:
-            ValueError: If any day is out of range
-        """
-        if v is not None and any(d < 0 or d > 6 for d in v):
-            raise ValueError("Days must be between 0 (Monday) and 6 (Sunday)")
-        return sorted(set(v)) if v else None
+        """Validate day values (0-6 for Monday-Sunday), dedupe and sort."""
+        if v is None:
+            return None
+        return validate_range_list(v, min_val=0, max_val=6, field_name="Days")
 
 
 class UploadConfig(BaseModel):

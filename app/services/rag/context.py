@@ -236,8 +236,8 @@ class ContextBuilder:
         if topic.summary:
             parts.append(topic.summary)
 
-        if topic.keywords:
-            parts.append(" ".join(topic.keywords[:5]))
+        if topic.terms:
+            parts.append(" ".join(topic.terms[:5]))
 
         query = " ".join(parts)
         logger.debug(f"Built query: {query[:100]}...")

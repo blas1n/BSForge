@@ -9,7 +9,6 @@ from app.infrastructure.llm import (
     LLMConfig,
     LLMError,
     LLMResponse,
-    get_llm_client,
 )
 
 
@@ -268,41 +267,6 @@ class TestLLMClient:
 
             call_kwargs = mock_fn.call_args[1]
             assert call_kwargs["messages"] == [{"role": "user", "content": "What is Python?"}]
-
-
-class TestGetLLMClient:
-    """Test get_llm_client singleton."""
-
-    def test_returns_singleton(self) -> None:
-        """Should return same instance on multiple calls."""
-        # Reset singleton
-        import app.infrastructure.llm as llm_module
-
-        llm_module._llm_client = None
-
-        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}):
-            client1 = get_llm_client()
-            client2 = get_llm_client()
-
-            assert client1 is client2
-
-        # Cleanup
-        llm_module._llm_client = None
-
-    def test_creates_new_if_none(self) -> None:
-        """Should create new client if none exists."""
-        import app.infrastructure.llm as llm_module
-
-        llm_module._llm_client = None
-
-        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}):
-            client = get_llm_client()
-
-            assert client is not None
-            assert isinstance(client, LLMClient)
-
-        # Cleanup
-        llm_module._llm_client = None
 
 
 class TestLLMError:

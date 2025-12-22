@@ -1,34 +1,30 @@
 """Series configuration models.
 
-All string values (keywords, categories) are automatically
-lowercased on load for consistent matching with normalized topic data.
+All string values (terms) are automatically lowercased on load
+for consistent matching with normalized topic data.
 """
 
 from pydantic import BaseModel, Field, field_validator
+
+from app.config.validators import normalize_string_list
 
 
 class SeriesCriteria(BaseModel):
     """Criteria for matching topics to a series.
 
     Attributes:
-        keywords: Common keywords for the series - lowercased on load
-        categories: Common categories for the series - lowercased on load
+        terms: Common terms for the series - lowercased on load
         min_similarity: Minimum similarity threshold for matching (0-1)
     """
 
-    keywords: list[str] = Field(default_factory=list)
-    categories: list[str] = Field(default_factory=list)
+    terms: list[str] = Field(default_factory=list)
     min_similarity: float = Field(default=0.6, ge=0.0, le=1.0)
 
-    @field_validator("keywords", mode="before")
+    @field_validator("terms", mode="before")
     @classmethod
-    def lowercase_keywords(cls, v: list[str]) -> list[str]:
-        return [k.lower() for k in v] if v else []
-
-    @field_validator("categories", mode="before")
-    @classmethod
-    def lowercase_categories(cls, v: list[str]) -> list[str]:
-        return [c.lower() for c in v] if v else []
+    def lowercase_terms(cls, v: list[str]) -> list[str]:
+        """Normalize terms to lowercase."""
+        return normalize_string_list(v)
 
 
 class SeriesConfig(BaseModel):

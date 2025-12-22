@@ -7,13 +7,15 @@ import uuid
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
-import httpx
 import pytest
 from bs4 import BeautifulSoup
 
 from app.config.sources import WebScraperConfig
+from app.infrastructure.http_client import HTTPClient
 from app.services.collector.base import RawTopic
 from app.services.collector.sources.web_scraper import WebScraperSource
+
+from .conftest import create_mock_response
 
 
 class ConcreteWebScraper(WebScraperSource):
@@ -58,13 +60,7 @@ class ConcreteWebScraper(WebScraperSource):
 
 
 @pytest.fixture
-def source_id() -> uuid.UUID:
-    """Create a test source UUID."""
-    return uuid.uuid4()
-
-
-@pytest.fixture
-def web_scraper(source_id: uuid.UUID) -> ConcreteWebScraper:
+def web_scraper(source_id: uuid.UUID, mock_http_client: HTTPClient) -> ConcreteWebScraper:
     """Create a web scraper with test config."""
     config = WebScraperConfig(
         base_url="https://example.com/articles",
@@ -72,7 +68,7 @@ def web_scraper(source_id: uuid.UUID) -> ConcreteWebScraper:
         limit=10,
         min_score=5,
     )
-    return ConcreteWebScraper(config=config, source_id=source_id)
+    return ConcreteWebScraper(config=config, source_id=source_id, http_client=mock_http_client)
 
 
 @pytest.fixture
@@ -105,121 +101,108 @@ class TestWebScraperCollect:
     """Tests for WebScraperSource.collect() method."""
 
     @pytest.mark.asyncio
-    async def test_collect_success(self, web_scraper: ConcreteWebScraper, mock_html: str):
+    async def test_collect_success(
+        self, web_scraper: ConcreteWebScraper, mock_http_client: HTTPClient, mock_html: str
+    ):
         """Test successful collection of articles."""
-        with patch("app.services.collector.sources.web_scraper.httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_instance
+        mock_response = create_mock_response(text_data=mock_html)
+        mock_http_client.get.return_value = mock_response
 
-            mock_response = AsyncMock()
-            mock_response.text = mock_html
-            mock_response.raise_for_status = lambda: None
-            mock_instance.get.return_value = mock_response
+        topics = await web_scraper.collect()
 
-            topics = await web_scraper.collect()
-
-            # Should have 2 articles (one filtered by min_score)
-            assert len(topics) == 2
-            assert topics[0].title == "First Article Title"
-            assert topics[0].metrics["score"] == 100
+        # Should have 2 articles (one filtered by min_score)
+        assert len(topics) == 2
+        assert topics[0].title == "First Article Title"
+        assert topics[0].metrics["score"] == 100
 
     @pytest.mark.asyncio
-    async def test_collect_respects_limit(self, web_scraper: ConcreteWebScraper, mock_html: str):
+    async def test_collect_respects_limit(
+        self, web_scraper: ConcreteWebScraper, mock_http_client: HTTPClient, mock_html: str
+    ):
         """Test that collection respects limit parameter."""
-        with patch("app.services.collector.sources.web_scraper.httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_instance
+        mock_response = create_mock_response(text_data=mock_html)
+        mock_http_client.get.return_value = mock_response
 
-            mock_response = AsyncMock()
-            mock_response.text = mock_html
-            mock_response.raise_for_status = lambda: None
-            mock_instance.get.return_value = mock_response
+        topics = await web_scraper.collect(params={"limit": 1})
 
-            topics = await web_scraper.collect(params={"limit": 1})
-
-            assert len(topics) == 1
+        assert len(topics) == 1
 
     @pytest.mark.asyncio
     async def test_collect_filters_by_min_score(
-        self, web_scraper: ConcreteWebScraper, mock_html: str
+        self, web_scraper: ConcreteWebScraper, mock_http_client: HTTPClient, mock_html: str
     ):
         """Test that low-score items are filtered."""
-        with patch("app.services.collector.sources.web_scraper.httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_instance
+        mock_response = create_mock_response(text_data=mock_html)
+        mock_http_client.get.return_value = mock_response
 
-            mock_response = AsyncMock()
-            mock_response.text = mock_html
-            mock_response.raise_for_status = lambda: None
-            mock_instance.get.return_value = mock_response
+        # Collect with high min_score
+        topics = await web_scraper.collect(params={"min_score": 60})
 
-            # Collect with high min_score
-            topics = await web_scraper.collect(params={"min_score": 60})
-
-            # Only the first article (score 100) should pass
-            assert len(topics) == 1
-            assert topics[0].metrics["score"] == 100
+        # Only the first article (score 100) should pass
+        assert len(topics) == 1
+        assert topics[0].metrics["score"] == 100
 
     @pytest.mark.asyncio
-    async def test_collect_handles_empty_base_url(self, source_id: uuid.UUID):
+    async def test_collect_handles_empty_base_url(
+        self, source_id: uuid.UUID, mock_http_client: HTTPClient
+    ):
         """Test handling when base_url is not configured."""
         config = WebScraperConfig(base_url=None, name="Test Scraper")
-        scraper = ConcreteWebScraper(config=config, source_id=source_id)
+        scraper = ConcreteWebScraper(
+            config=config, source_id=source_id, http_client=mock_http_client
+        )
 
         topics = await scraper.collect()
 
         assert len(topics) == 0
 
     @pytest.mark.asyncio
-    async def test_collect_handles_fetch_error(self, web_scraper: ConcreteWebScraper):
+    async def test_collect_handles_fetch_error(
+        self, web_scraper: ConcreteWebScraper, mock_http_client: HTTPClient
+    ):
         """Test graceful handling of HTTP errors."""
-        with patch("app.services.collector.sources.web_scraper.httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_instance
+        mock_http_client.get.side_effect = Exception("Connection failed")
 
-            mock_instance.get.side_effect = httpx.ConnectError("Connection failed")
+        topics = await web_scraper.collect()
 
-            topics = await web_scraper.collect()
-
-            assert len(topics) == 0
+        assert len(topics) == 0
 
 
 class TestWebScraperHealthCheck:
     """Tests for WebScraperSource.health_check() method."""
 
     @pytest.mark.asyncio
-    async def test_health_check_success(self, web_scraper: ConcreteWebScraper):
+    async def test_health_check_success(
+        self, web_scraper: ConcreteWebScraper, mock_http_client: HTTPClient
+    ):
         """Test health check returns True when site is accessible."""
-        with patch("app.services.collector.sources.web_scraper.httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_instance
+        mock_response = create_mock_response(status_code=200)
+        mock_http_client.get.return_value = mock_response
 
-            mock_response = AsyncMock()
-            mock_response.status_code = 200
-            mock_instance.get.return_value = mock_response
+        result = await web_scraper.health_check()
 
-            result = await web_scraper.health_check()
-
-            assert result is True
+        assert result is True
 
     @pytest.mark.asyncio
-    async def test_health_check_failure(self, web_scraper: ConcreteWebScraper):
+    async def test_health_check_failure(
+        self, web_scraper: ConcreteWebScraper, mock_http_client: HTTPClient
+    ):
         """Test health check returns False when site is down."""
-        with patch("app.services.collector.sources.web_scraper.httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_instance
+        mock_http_client.get.side_effect = Exception("Connection failed")
 
-            mock_instance.get.side_effect = httpx.ConnectError("Connection failed")
+        result = await web_scraper.health_check()
 
-            result = await web_scraper.health_check()
-
-            assert result is False
+        assert result is False
 
     @pytest.mark.asyncio
-    async def test_health_check_no_base_url(self, source_id: uuid.UUID):
+    async def test_health_check_no_base_url(
+        self, source_id: uuid.UUID, mock_http_client: HTTPClient
+    ):
         """Test health check returns False when no base_url configured."""
         config = WebScraperConfig(base_url=None, name="Test Scraper")
-        scraper = ConcreteWebScraper(config=config, source_id=source_id)
+        scraper = ConcreteWebScraper(
+            config=config, source_id=source_id, http_client=mock_http_client
+        )
 
         result = await scraper.health_check()
 
@@ -230,28 +213,34 @@ class TestWebScraperRateLimiting:
     """Tests for rate limiting functionality."""
 
     @pytest.mark.asyncio
-    async def test_rate_limit_applies_delay(self, source_id: uuid.UUID):
+    async def test_rate_limit_applies_delay(
+        self, source_id: uuid.UUID, mock_http_client: HTTPClient
+    ):
         """Test that rate limiting adds delay between requests."""
         config = WebScraperConfig(
             base_url="https://example.com",
             name="Test Scraper",
             rate_limit_delay=0.1,
         )
-        scraper = ConcreteWebScraper(config=config, source_id=source_id)
+        scraper = ConcreteWebScraper(
+            config=config, source_id=source_id, http_client=mock_http_client
+        )
 
         with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
             await scraper._rate_limit()
             mock_sleep.assert_called_once_with(0.1)
 
     @pytest.mark.asyncio
-    async def test_no_delay_when_zero(self, source_id: uuid.UUID):
+    async def test_no_delay_when_zero(self, source_id: uuid.UUID, mock_http_client: HTTPClient):
         """Test no delay when rate_limit_delay is 0."""
         config = WebScraperConfig(
             base_url="https://example.com",
             name="Test Scraper",
             rate_limit_delay=0,
         )
-        scraper = ConcreteWebScraper(config=config, source_id=source_id)
+        scraper = ConcreteWebScraper(
+            config=config, source_id=source_id, http_client=mock_http_client
+        )
 
         with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
             await scraper._rate_limit()
@@ -270,14 +259,16 @@ class TestWebScraperHeaders:
         assert "Accept" in headers
         assert "Accept-Language" in headers
 
-    def test_custom_user_agent(self, source_id: uuid.UUID):
+    def test_custom_user_agent(self, source_id: uuid.UUID, mock_http_client: HTTPClient):
         """Test custom User-Agent from config."""
         config = WebScraperConfig(
             base_url="https://example.com",
             name="Test Scraper",
             user_agent="CustomBot/1.0",
         )
-        scraper = ConcreteWebScraper(config=config, source_id=source_id)
+        scraper = ConcreteWebScraper(
+            config=config, source_id=source_id, http_client=mock_http_client
+        )
 
         headers = scraper._get_headers()
 

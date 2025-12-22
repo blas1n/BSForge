@@ -5,7 +5,7 @@ This module handles:
 2. Translation (EN→KO or KO→EN as needed)
 3. Title cleaning and normalization
 4. Summary generation
-5. Classification (categories, keywords, entities)
+5. Classification (terms, entities)
 6. Hash generation for deduplication
 """
 
@@ -17,9 +17,9 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from app.core.config import settings
+from app.core.config import get_config
 from app.core.logging import get_logger
-from app.infrastructure.llm import LLMClient, LLMConfig, get_llm_client
+from app.infrastructure.llm import LLMClient, LLMConfig
 from app.prompts.manager import PromptType, get_prompt_manager
 from app.services.collector.base import NormalizedTopic, RawTopic
 
@@ -29,8 +29,7 @@ logger = get_logger(__name__)
 class ClassificationResult(BaseModel):
     """LLM classification result."""
 
-    categories: list[str]
-    keywords: list[str]
+    terms: list[str]
     entities: dict[str, list[str]]
     summary: str
 
@@ -42,13 +41,13 @@ class TopicNormalizer:
     Implements caching to reduce API costs.
     """
 
-    def __init__(self, llm_client: LLMClient | None = None):
+    def __init__(self, llm_client: LLMClient):
         """Initialize normalizer with API clients.
 
         Args:
-            llm_client: LLMClient instance (default: singleton)
+            llm_client: LLMClient instance
         """
-        self.llm_client = llm_client or get_llm_client()
+        self.llm_client = llm_client
         self.supported_languages = {"en", "ko"}
         self.prompt_manager = get_prompt_manager()
 
@@ -98,7 +97,7 @@ class TopicNormalizer:
             classification = await self._classify(raw.title, raw.content)
 
             # Generate content hash for deduplication
-            content_hash = self._generate_hash(title_normalized, classification.keywords)
+            content_hash = self._generate_hash(title_normalized, classification.terms)
 
             normalized = NormalizedTopic(
                 source_id=source_id,
@@ -107,20 +106,20 @@ class TopicNormalizer:
                 title_translated=title_translated,
                 title_normalized=title_normalized,
                 summary=classification.summary,
-                categories=classification.categories,
-                keywords=classification.keywords,
+                terms=classification.terms,
                 entities=classification.entities,
                 language=language,
                 published_at=raw.published_at,
                 content_hash=content_hash,
                 metrics=raw.metrics,
+                metadata=raw.metadata,
             )
 
             logger.info(
                 "Topic normalized",
                 title=title_normalized[:50],
                 language=language,
-                categories=classification.categories,
+                terms=classification.terms,
             )
             return normalized
 
@@ -177,9 +176,10 @@ class TopicNormalizer:
                 text=text,
             )
 
+            cfg = get_config()
             config = LLMConfig(
-                model=settings.llm_model_light,
-                max_tokens=settings.llm_model_light_max_tokens,
+                model=cfg.llm_model_light,
+                max_tokens=cfg.llm_model_light_max_tokens,
                 temperature=0.3,
             )
 
@@ -239,7 +239,7 @@ class TopicNormalizer:
     async def _classify(self, title: str, content: str | None) -> ClassificationResult:
         """Classify topic using LLM.
 
-        Extracts categories, keywords, and named entities.
+        Extracts terms and named entities.
         Generates a concise summary.
 
         Args:
@@ -260,9 +260,10 @@ class TopicNormalizer:
                 text_to_analyze=text_to_analyze,
             )
 
+            cfg = get_config()
             config = LLMConfig(
-                model=settings.llm_model_light,
-                max_tokens=settings.llm_model_light_max_tokens,
+                model=cfg.llm_model_light,
+                max_tokens=cfg.llm_model_light_max_tokens,
                 temperature=0.0,
             )
 
@@ -287,21 +288,18 @@ class TopicNormalizer:
             # Extract first JSON object (handle extra text after JSON)
             result_dict = self._extract_first_json_object(response_text)
 
-            # Lowercase categories and keywords for consistent matching
-            categories = [c.lower() for c in result_dict.get("categories", [])]
-            keywords = [k.lower() for k in result_dict.get("keywords", [])]
+            # Lowercase terms for consistent matching
+            terms = [t.lower() for t in result_dict.get("terms", [])]
 
             result = ClassificationResult(
-                categories=categories,
-                keywords=keywords,
+                terms=terms,
                 entities=result_dict.get("entities", {}),
                 summary=result_dict.get("summary", title[:200]),
             )
 
             logger.debug(
                 "Classification complete",
-                categories=result.categories,
-                keyword_count=len(result.keywords),
+                terms=result.terms,
             )
             return result
 
@@ -309,8 +307,7 @@ class TopicNormalizer:
             logger.error("Classification failed", error=str(e), exc_info=True)
             # Return fallback classification
             return ClassificationResult(
-                categories=["general"],
-                keywords=[],
+                terms=["general"],
                 entities={},
                 summary=title[:200],
             )
@@ -375,24 +372,24 @@ class TopicNormalizer:
         # If we get here, no complete object was found
         raise json.JSONDecodeError("Incomplete JSON object", text, len(text))
 
-    def _generate_hash(self, title: str, keywords: list[str]) -> str:
+    def _generate_hash(self, title: str, terms: list[str]) -> str:
         """Generate SHA-256 hash for deduplication.
 
-        Hash is based on normalized title and keywords to catch
+        Hash is based on normalized title and terms to catch
         near-duplicates with slight title variations.
 
         Args:
             title: Normalized title (already lowercase)
-            keywords: Extracted keywords (already lowercase)
+            terms: Extracted terms (already lowercase)
 
         Returns:
             SHA-256 hash (64 hex characters)
         """
-        # Sort keywords for consistency (already lowercase)
-        keywords_sorted = sorted(keywords)
+        # Sort terms for consistency (already lowercase)
+        terms_sorted = sorted(terms)
 
         # Combine for hashing
-        hash_input = f"{title}|{'|'.join(keywords_sorted)}"
+        hash_input = f"{title}|{'|'.join(terms_sorted)}"
 
         # Generate SHA-256 hash
         hash_bytes = hashlib.sha256(hash_input.encode("utf-8")).digest()

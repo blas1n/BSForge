@@ -4,23 +4,19 @@ Tests use mocked HTTP responses to avoid external API calls.
 """
 
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
-import httpx
 import pytest
 
 from app.config.sources import YouTubeTrendingConfig
+from app.infrastructure.http_client import HTTPClient
 from app.services.collector.sources.youtube_trending import YouTubeTrendingSource
 
-
-@pytest.fixture
-def source_id() -> uuid.UUID:
-    """Create a test source UUID."""
-    return uuid.uuid4()
+from .conftest import create_mock_response
 
 
 @pytest.fixture
-def yt_source(source_id: uuid.UUID) -> YouTubeTrendingSource:
+def yt_source(source_id: uuid.UUID, mock_http_client: HTTPClient) -> YouTubeTrendingSource:
     """Create YouTube Trending source with test config including API key."""
     config = YouTubeTrendingConfig(
         regions=["KR"],
@@ -29,7 +25,7 @@ def yt_source(source_id: uuid.UUID) -> YouTubeTrendingSource:
         request_timeout=15.0,
         api_key="test_api_key",
     )
-    return YouTubeTrendingSource(config=config, source_id=source_id)
+    return YouTubeTrendingSource(config=config, source_id=source_id, http_client=mock_http_client)
 
 
 @pytest.fixture
@@ -78,123 +74,109 @@ class TestYouTubeTrendingCollect:
 
     @pytest.mark.asyncio
     async def test_collect_success(
-        self, yt_source: YouTubeTrendingSource, mock_video_response: dict
+        self,
+        yt_source: YouTubeTrendingSource,
+        mock_http_client: HTTPClient,
+        mock_video_response: dict,
     ):
         """Test successful collection of trending videos."""
-        with patch(
-            "app.services.collector.sources.youtube_trending.httpx.AsyncClient"
-        ) as mock_client:
-            mock_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_instance
+        mock_response = create_mock_response(json_data=mock_video_response)
+        mock_http_client.get.return_value = mock_response
 
-            mock_response = AsyncMock()
-            mock_response.json = lambda: mock_video_response
-            mock_response.raise_for_status = lambda: None
-            mock_instance.get.return_value = mock_response
+        topics = await yt_source.collect()
 
-            topics = await yt_source.collect()
-
-            assert len(topics) == 2
-            assert topics[0].title == "Test Video Title"
-            assert topics[0].metrics["views"] == 1000000
+        assert len(topics) == 2
+        assert topics[0].title == "Test Video Title"
+        assert topics[0].metrics["views"] == 1000000
 
     @pytest.mark.asyncio
-    async def test_collect_without_api_key(self, source_id: uuid.UUID):
+    async def test_collect_without_api_key(
+        self, source_id: uuid.UUID, mock_http_client: HTTPClient
+    ):
         """Test that collection returns empty list without API key."""
         config = YouTubeTrendingConfig(regions=["KR"], limit=5)  # No api_key
-        source = YouTubeTrendingSource(config=config, source_id=source_id)
+        source = YouTubeTrendingSource(
+            config=config, source_id=source_id, http_client=mock_http_client
+        )
 
-        # Patch settings to not have api key
-        with patch("app.services.collector.sources.youtube_trending.settings") as mock_settings:
-            mock_settings.youtube_api_key = None
+        # Patch get_config to not have api key
+        with patch("app.services.collector.sources.youtube_trending.get_config") as mock_get_config:
+            mock_config = mock_get_config.return_value
+            mock_config.youtube_api_key = None
 
             topics = await source.collect()
 
             assert len(topics) == 0
 
     @pytest.mark.asyncio
-    async def test_collect_multiple_regions(self, source_id: uuid.UUID, mock_video_response: dict):
+    async def test_collect_multiple_regions(
+        self, source_id: uuid.UUID, mock_http_client: HTTPClient, mock_video_response: dict
+    ):
         """Test collection from multiple regions."""
         config = YouTubeTrendingConfig(regions=["KR", "US"], limit=10, api_key="test_key")
-        source = YouTubeTrendingSource(config=config, source_id=source_id)
+        source = YouTubeTrendingSource(
+            config=config, source_id=source_id, http_client=mock_http_client
+        )
 
-        with patch(
-            "app.services.collector.sources.youtube_trending.httpx.AsyncClient"
-        ) as mock_client:
-            mock_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_instance
+        mock_response = create_mock_response(json_data=mock_video_response)
+        mock_http_client.get.return_value = mock_response
 
-            mock_response = AsyncMock()
-            mock_response.json = lambda: mock_video_response
-            mock_response.raise_for_status = lambda: None
-            mock_instance.get.return_value = mock_response
+        await source.collect()
 
-            await source.collect()
-
-            # Should collect from both regions
-            assert mock_instance.get.call_count == 2
+        # Should collect from both regions
+        assert mock_http_client.get.call_count == 2
 
     @pytest.mark.asyncio
-    async def test_collect_handles_api_error(self, yt_source: YouTubeTrendingSource):
+    async def test_collect_handles_api_error(
+        self, yt_source: YouTubeTrendingSource, mock_http_client: HTTPClient
+    ):
         """Test graceful handling of API errors."""
-        with patch(
-            "app.services.collector.sources.youtube_trending.httpx.AsyncClient"
-        ) as mock_client:
-            mock_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_instance
+        mock_http_client.get.side_effect = Exception("API Error")
 
-            mock_instance.get.side_effect = httpx.HTTPStatusError(
-                "API Error", request=None, response=None
-            )
+        topics = await yt_source.collect()
 
-            topics = await yt_source.collect()
-
-            assert len(topics) == 0  # Should return empty list on error
+        assert len(topics) == 0  # Should return empty list on error
 
 
 class TestYouTubeTrendingHealthCheck:
     """Tests for YouTubeTrendingSource.health_check() method."""
 
     @pytest.mark.asyncio
-    async def test_health_check_success(self, yt_source: YouTubeTrendingSource):
+    async def test_health_check_success(
+        self, yt_source: YouTubeTrendingSource, mock_http_client: HTTPClient
+    ):
         """Test health check returns True when API is accessible."""
-        with patch(
-            "app.services.collector.sources.youtube_trending.httpx.AsyncClient"
-        ) as mock_client:
-            mock_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_instance
+        mock_response = create_mock_response(status_code=200)
+        mock_http_client.get.return_value = mock_response
 
-            mock_response = AsyncMock()
-            mock_response.status_code = 200
-            mock_instance.get.return_value = mock_response
+        result = await yt_source.health_check()
 
-            result = await yt_source.health_check()
-
-            assert result is True
+        assert result is True
 
     @pytest.mark.asyncio
-    async def test_health_check_failure(self, yt_source: YouTubeTrendingSource):
+    async def test_health_check_failure(
+        self, yt_source: YouTubeTrendingSource, mock_http_client: HTTPClient
+    ):
         """Test health check returns False when API is down."""
-        with patch(
-            "app.services.collector.sources.youtube_trending.httpx.AsyncClient"
-        ) as mock_client:
-            mock_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_instance
+        mock_http_client.get.side_effect = Exception("Connection failed")
 
-            mock_instance.get.side_effect = httpx.ConnectError("Connection failed")
+        result = await yt_source.health_check()
 
-            result = await yt_source.health_check()
-
-            assert result is False
+        assert result is False
 
     @pytest.mark.asyncio
-    async def test_health_check_no_api_key(self, source_id: uuid.UUID):
+    async def test_health_check_no_api_key(
+        self, source_id: uuid.UUID, mock_http_client: HTTPClient
+    ):
         """Test health check returns False without API key."""
         config = YouTubeTrendingConfig(regions=["KR"])  # No api_key
-        source = YouTubeTrendingSource(config=config, source_id=source_id)
+        source = YouTubeTrendingSource(
+            config=config, source_id=source_id, http_client=mock_http_client
+        )
 
-        with patch("app.services.collector.sources.youtube_trending.settings") as mock_settings:
-            mock_settings.youtube_api_key = None
+        with patch("app.services.collector.sources.youtube_trending.get_config") as mock_get_config:
+            mock_config = mock_get_config.return_value
+            mock_config.youtube_api_key = None
 
             result = await source.health_check()
 

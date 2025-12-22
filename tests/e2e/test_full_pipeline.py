@@ -18,11 +18,12 @@ from app.config.persona import (
     VoiceConfig,
     VoiceSettings,
 )
-from app.config.video import CompositionConfig
+from app.config.video import CompositionConfig, SubtitleConfig
 from app.models.scene import SceneScript
 from app.services.collector.base import ScoredTopic
 from app.services.generator.compositor import FFmpegCompositor
 from app.services.generator.subtitle import SubtitleGenerator
+from app.services.generator.templates import ASSTemplateLoader
 from app.services.generator.thumbnail import ThumbnailGenerator
 from app.services.generator.tts.base import TTSConfig as TTSConfigDataclass
 from app.services.generator.tts.edge import EdgeTTSEngine
@@ -61,8 +62,7 @@ class TestPersonaBasedGeneration:
         """Create sample scored topic for testing."""
         return create_scored_topic(
             title="ChatGPT 최신 업데이트 분석",
-            keywords=["ChatGPT", "AI", "OpenAI"],
-            categories=["tech"],
+            terms=["chatgpt", "ai", "openai", "tech"],
             engagement_score=500,
             score_total=85,
         )
@@ -125,7 +125,11 @@ OpenAI가 최근 발표한 새로운 기능들이 정말 대단한데요.
         assert tts_result.audio_path.exists()
 
         # Step 2: Generate subtitles
-        subtitle_gen = SubtitleGenerator()
+        subtitle_gen = SubtitleGenerator(
+            config=SubtitleConfig(),
+            composition_config=CompositionConfig(),
+            template_loader=ASSTemplateLoader(),
+        )
 
         if tts_result.word_timestamps:
             subtitle_file = subtitle_gen.generate_from_timestamps(tts_result.word_timestamps)
@@ -183,7 +187,11 @@ class TestBatchVideoGeneration:
 
         tts_engine = EdgeTTSEngine()
         fallback_gen = FallbackGenerator()
-        subtitle_gen = SubtitleGenerator()
+        subtitle_gen = SubtitleGenerator(
+            config=SubtitleConfig(),
+            composition_config=CompositionConfig(),
+            template_loader=ASSTemplateLoader(),
+        )
         compositor = FFmpegCompositor(CompositionConfig())
         thumb_gen = ThumbnailGenerator()
 
@@ -250,7 +258,11 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_empty_script_handling(self, temp_output_dir: Path) -> None:
         """Test handling of empty script."""
-        subtitle_gen = SubtitleGenerator()
+        subtitle_gen = SubtitleGenerator(
+            config=SubtitleConfig(),
+            composition_config=CompositionConfig(),
+            template_loader=ASSTemplateLoader(),
+        )
 
         # Empty script should return empty subtitle file
         subtitle_file = subtitle_gen.generate_from_script("", 5.0)
@@ -442,7 +454,11 @@ class TestSceneBasedVideoGeneration:
         """Test video composition with scene-based structure."""
         tts_engine = EdgeTTSEngine()
         tts_config = TTSConfigDataclass(voice_id="ko-KR-SunHiNeural")
-        subtitle_gen = SubtitleGenerator()
+        subtitle_gen = SubtitleGenerator(
+            config=SubtitleConfig(),
+            composition_config=CompositionConfig(),
+            template_loader=ASSTemplateLoader(),
+        )
         fallback_gen = FallbackGenerator()
         compositor = FFmpegCompositor(CompositionConfig())
 
@@ -541,7 +557,11 @@ class TestFullPipelineIntegration:
         # Step 3: Video generation
         tts_engine = EdgeTTSEngine()
         tts_config = TTSConfigDataclass(voice_id="ko-KR-InJoonNeural")
-        subtitle_gen = SubtitleGenerator()
+        subtitle_gen = SubtitleGenerator(
+            config=SubtitleConfig(),
+            composition_config=CompositionConfig(),
+            template_loader=ASSTemplateLoader(),
+        )
         fallback_gen = FallbackGenerator()
         compositor = FFmpegCompositor(CompositionConfig())
         thumb_gen = ThumbnailGenerator()

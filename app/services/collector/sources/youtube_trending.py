@@ -5,15 +5,13 @@ Requires YOUTUBE_API_KEY environment variable.
 """
 
 import contextlib
-import uuid
 from datetime import datetime
 from typing import Any
 
-import httpx
 from pydantic import HttpUrl
 
 from app.config.sources import YouTubeTrendingConfig
-from app.core.config import settings
+from app.core.config import get_config
 from app.core.logging import get_logger
 from app.services.collector.base import BaseSource, RawTopic
 
@@ -41,18 +39,28 @@ class YouTubeTrendingSource(BaseSource[YouTubeTrendingConfig]):
         YOUTUBE_API_KEY: Required YouTube Data API v3 key
     """
 
-    def __init__(
-        self,
-        config: YouTubeTrendingConfig,
-        source_id: uuid.UUID,
-    ):
-        """Initialize YouTube Trending source collector.
+    # Global source: collected once, shared across all channels
+    is_global = True
+
+    @classmethod
+    def build_config(cls, overrides: dict[str, Any]) -> YouTubeTrendingConfig:
+        """Build YouTubeTrendingConfig from channel overrides.
 
         Args:
-            config: Typed configuration object
-            source_id: UUID of the source
+            overrides: Configuration overrides with optional keys:
+                - params.regions: List of region codes (optional)
+                - params.category_id: Video category ID (optional)
+                - limit: Maximum videos per region (optional)
+
+        Returns:
+            YouTubeTrendingConfig instance
         """
-        super().__init__(config, source_id)
+        params = overrides.get("params", {})
+        return YouTubeTrendingConfig(
+            regions=params.get("regions", ["KR", "US"]),
+            category_id=params.get("category_id", 0),
+            limit=overrides.get("limit", 20),
+        )
 
     def _get_api_key(self) -> str | None:
         """Get YouTube API key from settings or config.
@@ -60,10 +68,10 @@ class YouTubeTrendingSource(BaseSource[YouTubeTrendingConfig]):
         Returns:
             API key or None if not configured
         """
-        # Try config first, then settings
+        # Try config first, then global config
         if self._config.api_key:
             return self._config.api_key
-        return getattr(settings, "youtube_api_key", None)
+        return getattr(get_config(), "youtube_api_key", None)
 
     async def collect(self, params: dict[str, Any] | None = None) -> list[RawTopic]:
         """Collect trending videos from YouTube.
@@ -91,28 +99,23 @@ class YouTubeTrendingSource(BaseSource[YouTubeTrendingConfig]):
         )
 
         topics: list[RawTopic] = []
-
-        async with httpx.AsyncClient(timeout=self._config.request_timeout) as client:
-            for region in regions:
-                try:
-                    region_topics = await self._fetch_trending(
-                        client, api_key, region, limit, category_id
-                    )
-                    topics.extend(region_topics)
-                except Exception as e:
-                    logger.error(
-                        "Failed to fetch YouTube Trending",
-                        region=region,
-                        error=str(e),
-                    )
-                    continue
+        for region in regions:
+            try:
+                region_topics = await self._fetch_trending(api_key, region, limit, category_id)
+                topics.extend(region_topics)
+            except Exception as e:
+                logger.error(
+                    "Failed to fetch YouTube Trending",
+                    region=region,
+                    error=str(e),
+                )
+                continue
 
         logger.info("YouTube Trending collection complete", collected=len(topics))
         return topics
 
     async def _fetch_trending(
         self,
-        client: httpx.AsyncClient,
         api_key: str,
         region: str,
         limit: int,
@@ -121,7 +124,6 @@ class YouTubeTrendingSource(BaseSource[YouTubeTrendingConfig]):
         """Fetch trending videos for a specific region.
 
         Args:
-            client: HTTP client
             api_key: YouTube API key
             region: Region code (ISO 3166-1 alpha-2)
             limit: Maximum videos to fetch
@@ -142,7 +144,7 @@ class YouTubeTrendingSource(BaseSource[YouTubeTrendingConfig]):
         if category_id > 0:
             params["videoCategoryId"] = str(category_id)
 
-        response = await client.get(url, params=params)
+        response = await self._http_client.get(url, params=params)
         response.raise_for_status()
         data = response.json()
 
@@ -200,6 +202,7 @@ class YouTubeTrendingSource(BaseSource[YouTubeTrendingConfig]):
                     "comments": int(statistics.get("commentCount", 0)),
                 },
                 metadata={
+                    "source_name": "YouTube",
                     "video_id": video_id,
                     "channel_id": snippet.get("channelId"),
                     "channel_title": snippet.get("channelTitle"),
@@ -231,17 +234,17 @@ class YouTubeTrendingSource(BaseSource[YouTubeTrendingConfig]):
             return False
 
         try:
-            async with httpx.AsyncClient(timeout=self._config.request_timeout) as client:
-                url = f"{YOUTUBE_API_BASE}/videos"
-                params: dict[str, str | int] = {
-                    "part": "snippet",
-                    "chart": "mostPopular",
-                    "regionCode": "US",
-                    "maxResults": 1,
-                    "key": api_key,
-                }
-                response = await client.get(url, params=params)
-                return response.status_code == 200
+            url = f"{YOUTUBE_API_BASE}/videos"
+            params: dict[str, str | int] = {
+                "part": "snippet",
+                "chart": "mostPopular",
+                "regionCode": "US",
+                "maxResults": 1,
+                "key": api_key,
+            }
+
+            response = await self._http_client.get(url, params=params)
+            return response.status_code == 200
         except Exception as e:
             logger.warning("YouTube API health check failed", error=str(e))
             return False

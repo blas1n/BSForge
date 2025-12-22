@@ -5,11 +5,9 @@ Subclasses implement site-specific parsing logic.
 """
 
 import asyncio
-import uuid
 from abc import abstractmethod
 from typing import Any
 
-import httpx
 from bs4 import BeautifulSoup
 
 from app.config.sources import WebScraperConfig
@@ -41,19 +39,6 @@ class WebScraperSource(BaseSource[WebScraperConfig]):
         rate_limit_delay: Delay between requests (default: 1s)
     """
 
-    def __init__(
-        self,
-        config: WebScraperConfig,
-        source_id: uuid.UUID,
-    ):
-        """Initialize web scraper source.
-
-        Args:
-            config: Typed configuration object
-            source_id: UUID of the source
-        """
-        super().__init__(config, source_id)
-
     def _get_headers(self) -> dict[str, str]:
         """Get HTTP headers for requests.
 
@@ -68,21 +53,20 @@ class WebScraperSource(BaseSource[WebScraperConfig]):
             "Connection": "keep-alive",
         }
 
-    async def _fetch_html(self, client: httpx.AsyncClient, url: str) -> str | None:
+    async def _fetch_html(self, url: str) -> str | None:
         """Fetch HTML content from URL.
 
         Args:
-            client: HTTP client
             url: URL to fetch
 
         Returns:
             HTML content or None if fetch failed
         """
         try:
-            response = await client.get(url, headers=self._get_headers())
+            response = await self._http_client.get(url, headers=self._get_headers())
             response.raise_for_status()
             return response.text
-        except httpx.HTTPError as e:
+        except Exception as e:
             logger.warning("Failed to fetch URL", url=url, error=str(e))
             return None
 
@@ -120,38 +104,7 @@ class WebScraperSource(BaseSource[WebScraperConfig]):
         topics: list[RawTopic] = []
 
         try:
-            async with httpx.AsyncClient(
-                timeout=self._config.request_timeout, follow_redirects=True
-            ) as client:
-                # Get list page URLs to scrape
-                list_urls = self._get_list_urls(base_url, params)
-
-                for list_url in list_urls:
-                    if len(topics) >= limit:
-                        break
-
-                    html = await self._fetch_html(client, list_url)
-                    if not html:
-                        continue
-
-                    soup = BeautifulSoup(html, "html.parser")
-                    items = self._parse_list_page(soup, list_url)
-
-                    for item in items:
-                        if len(topics) >= limit:
-                            break
-
-                        # Check minimum score
-                        score = item.get("score", 0)
-                        if score < min_score:
-                            continue
-
-                        topic = self._to_raw_topic(item)
-                        if topic:
-                            topics.append(topic)
-
-                    await self._rate_limit()
-
+            topics = await self._collect_topics(base_url, params, limit, min_score)
         except Exception as e:
             logger.error(
                 "Scraper collection failed",
@@ -165,6 +118,57 @@ class WebScraperSource(BaseSource[WebScraperConfig]):
             source_name=name,
             collected=len(topics),
         )
+        return topics
+
+    async def _collect_topics(
+        self,
+        base_url: str,
+        params: dict[str, Any],
+        limit: int,
+        min_score: int,
+    ) -> list[RawTopic]:
+        """Collect topics from web pages.
+
+        Args:
+            base_url: Base URL from config
+            params: Collection parameters
+            limit: Max items to collect
+            min_score: Minimum score threshold
+
+        Returns:
+            List of collected RawTopics
+        """
+        topics: list[RawTopic] = []
+
+        # Get list page URLs to scrape
+        list_urls = self._get_list_urls(base_url, params)
+
+        for list_url in list_urls:
+            if len(topics) >= limit:
+                break
+
+            html = await self._fetch_html(list_url)
+            if not html:
+                continue
+
+            soup = BeautifulSoup(html, "html.parser")
+            items = self._parse_list_page(soup, list_url)
+
+            for item in items:
+                if len(topics) >= limit:
+                    break
+
+                # Check minimum score
+                score = item.get("score", 0)
+                if score < min_score:
+                    continue
+
+                topic = self._to_raw_topic(item)
+                if topic:
+                    topics.append(topic)
+
+            await self._rate_limit()
+
         return topics
 
     def _get_list_urls(self, base_url: str, _params: dict[str, Any]) -> list[str]:
@@ -221,11 +225,8 @@ class WebScraperSource(BaseSource[WebScraperConfig]):
             return False
 
         try:
-            async with httpx.AsyncClient(
-                timeout=self._config.request_timeout, follow_redirects=True
-            ) as client:
-                response = await client.get(base_url, headers=self._get_headers())
-                return response.status_code == 200
+            response = await self._http_client.get(base_url, headers=self._get_headers())
+            return response.status_code == 200
         except Exception as e:
             logger.warning(
                 "Scraper health check failed",

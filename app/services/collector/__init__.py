@@ -11,10 +11,10 @@ This package implements the topic collection pipeline:
 
 from app.config import (
     DedupConfig,
+    FilteringConfig,
     QueueConfig,
     ScoringConfig,
     ScoringWeights,
-    TopicFilterConfig,
 )
 from app.services.collector.base import (
     BaseSource,
@@ -51,7 +51,7 @@ __all__ = [
     "DedupReason",
     # Filter
     "TopicFilter",
-    "TopicFilterConfig",
+    "FilteringConfig",
     "FilterResult",
     "FilterReason",
     # Scorer

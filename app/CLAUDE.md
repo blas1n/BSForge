@@ -14,7 +14,7 @@ async def generate_script(
 class TopicCreate(BaseModel):
     title: str
     source_url: HttpUrl
-    keywords: list[str] = []
+    terms: list[str] = []
 
 # SQLAlchemy 2.0 style
 class Topic(Base):
@@ -43,7 +43,7 @@ from fastapi import Depends
 from pydantic import BaseModel
 
 # 3. Local
-from app.core.config import settings
+from app.core.config import get_config
 from app.models import Topic
 ```
 

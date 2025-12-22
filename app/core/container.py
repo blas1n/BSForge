@@ -33,7 +33,7 @@ from redis import Redis
 from redis.asyncio import Redis as AsyncRedis
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.core.config import settings
+from app.core.config import Config, get_config
 
 
 class InfrastructureContainer(containers.DeclarativeContainer):
@@ -42,7 +42,7 @@ class InfrastructureContainer(containers.DeclarativeContainer):
     These are typically Singleton or have special lifecycle management.
     """
 
-    config = providers.Configuration()
+    global_config = providers.Dependency(instance_of=Config)
 
     # ============================================
     # Redis
@@ -50,7 +50,7 @@ class InfrastructureContainer(containers.DeclarativeContainer):
 
     redis_async_client = providers.Singleton(
         AsyncRedis.from_url,
-        url=config.redis_url,
+        url=global_config.provided.redis_url,
         encoding="utf-8",
         decode_responses=True,
         socket_connect_timeout=5,
@@ -59,7 +59,7 @@ class InfrastructureContainer(containers.DeclarativeContainer):
 
     redis_sync_client = providers.Singleton(
         Redis.from_url,
-        url=config.redis_url,
+        url=global_config.provided.redis_url,
         encoding="utf-8",
         decode_responses=True,
         socket_connect_timeout=5,
@@ -72,8 +72,8 @@ class InfrastructureContainer(containers.DeclarativeContainer):
 
     db_engine = providers.Singleton(
         create_async_engine,
-        url=config.database_url,
-        echo=config.debug,
+        url=global_config.provided.database_url,
+        echo=global_config.provided.debug,
         pool_pre_ping=True,
         pool_size=5,
         max_overflow=10,
@@ -120,12 +120,20 @@ class InfrastructureContainer(containers.DeclarativeContainer):
 
     anthropic_client = providers.Singleton(
         "anthropic.AsyncAnthropic",
-        api_key=config.anthropic_api_key,
+        api_key=global_config.provided.anthropic_api_key,
     )
 
     # Unified LLM client (LiteLLM-based, provider-agnostic)
     llm_client = providers.Singleton(
         "app.infrastructure.llm.LLMClient",
+    )
+
+    # ============================================
+    # HTTP Client
+    # ============================================
+
+    http_client = providers.Singleton(
+        "app.infrastructure.http_client.HTTPClient",
     )
 
 
@@ -137,8 +145,8 @@ class ConfigContainer(containers.DeclarativeContainer):
     """
 
     # Collector configs - can be overridden per channel
-    topic_filter_config = providers.Singleton(
-        "app.config.filtering.TopicFilterConfig",
+    filtering_config = providers.Singleton(
+        "app.config.filtering.FilteringConfig",
     )
 
     series_matcher_config = providers.Singleton(
@@ -254,7 +262,7 @@ class ServiceContainer(containers.DeclarativeContainer):
     They receive infrastructure dependencies via injection.
     """
 
-    config = providers.Configuration()
+    global_config = providers.Dependency(instance_of=Config)
     infrastructure = providers.DependenciesContainer()
     configs = providers.DependenciesContainer()
 
@@ -264,6 +272,14 @@ class ServiceContainer(containers.DeclarativeContainer):
 
     video_template_loader = providers.Singleton(
         "app.core.template_loader.VideoTemplateLoader",
+    )
+
+    # ============================================
+    # ASS Subtitle Template Loader
+    # ============================================
+
+    ass_template_loader = providers.Singleton(
+        "app.services.generator.templates.ASSTemplateLoader",
     )
 
     # ============================================
@@ -289,6 +305,7 @@ class ServiceContainer(containers.DeclarativeContainer):
 
     topic_normalizer = providers.Factory(
         "app.services.collector.normalizer.TopicNormalizer",
+        llm_client=infrastructure.llm_client,
     )
 
     topic_filter = providers.Factory(
@@ -299,6 +316,28 @@ class ServiceContainer(containers.DeclarativeContainer):
     series_matcher = providers.Factory(
         "app.services.collector.series_matcher.SeriesMatcher",
         config=configs.series_matcher_config,
+    )
+
+    global_topic_pool = providers.Factory(
+        "app.services.collector.global_pool.GlobalTopicPool",
+        redis=infrastructure.redis_async_client,
+    )
+
+    scoped_source_cache = providers.Factory(
+        "app.services.collector.global_pool.ScopedSourceCache",
+        redis=infrastructure.redis_async_client,
+    )
+
+    topic_collection_pipeline = providers.Factory(
+        "app.services.collector.pipeline.TopicCollectionPipeline",
+        session=infrastructure.db_session,
+        http_client=infrastructure.http_client,
+        normalizer=topic_normalizer,
+        redis=infrastructure.redis_async_client,
+        deduplicator=topic_deduplicator,
+        scorer=topic_scorer,
+        global_pool=global_topic_pool,
+        scoped_cache=scoped_source_cache,
     )
 
     # ============================================
@@ -372,24 +411,24 @@ class ServiceContainer(containers.DeclarativeContainer):
 
     elevenlabs_engine = providers.Singleton(
         "app.services.generator.tts.elevenlabs.ElevenLabsEngine",
-        api_key=config.elevenlabs_api_key,
+        api_key=global_config.provided.elevenlabs_api_key,
     )
 
     tts_factory = providers.Factory(
         "app.services.generator.tts.factory.TTSEngineFactory",
         config=configs.tts_config,
-        elevenlabs_api_key=config.elevenlabs_api_key,
+        elevenlabs_api_key=global_config.provided.elevenlabs_api_key,
     )
 
     # Visual Sourcing Services
     pexels_client = providers.Singleton(
         "app.services.generator.visual.pexels.PexelsClient",
-        api_key=config.pexels_api_key,
+        api_key=global_config.provided.pexels_api_key,
     )
 
     ai_image_generator = providers.Singleton(
         "app.services.generator.visual.ai_image.AIImageGenerator",
-        api_key=config.openai_api_key,
+        api_key=global_config.provided.openai_api_key,
         config=configs.visual_config,
     )
 
@@ -409,6 +448,8 @@ class ServiceContainer(containers.DeclarativeContainer):
     subtitle_generator = providers.Factory(
         "app.services.generator.subtitle.SubtitleGenerator",
         config=configs.subtitle_config,
+        composition_config=configs.composition_config,
+        template_loader=ass_template_loader,
     )
 
     # FFmpeg Compositor
@@ -456,12 +497,14 @@ class ApplicationContainer(containers.DeclarativeContainer):
     Composes all sub-containers and provides the main entry point.
     """
 
-    config = providers.Configuration()
+    # Global Config singleton (environment variables)
+    # Uses get_config() to ensure same instance across the app
+    config = providers.Singleton(get_config)
 
     # Sub-containers
     infrastructure = providers.Container(
         InfrastructureContainer,
-        config=config,
+        global_config=config,
     )
 
     configs = providers.Container(
@@ -470,7 +513,7 @@ class ApplicationContainer(containers.DeclarativeContainer):
 
     services = providers.Container(
         ServiceContainer,
-        config=config,
+        global_config=config,
         infrastructure=infrastructure,
         configs=configs,
     )
@@ -483,6 +526,11 @@ class ApplicationContainer(containers.DeclarativeContainer):
     redis = providers.Singleton(
         lambda client: client,
         client=infrastructure.redis_async_client,
+    )
+
+    http_client = providers.Singleton(
+        lambda client: client,
+        client=infrastructure.http_client,
     )
 
     redis_sync = providers.Singleton(
@@ -595,23 +643,7 @@ def create_container() -> ApplicationContainer:
     Returns:
         Configured ApplicationContainer instance
     """
-    container = ApplicationContainer()
-
-    # Wire configuration from settings
-    container.config.from_dict(
-        {
-            "redis_url": str(settings.redis_url),
-            "database_url": str(settings.database_url),
-            "debug": settings.debug,
-            "anthropic_api_key": settings.anthropic_api_key,
-            # Video generation API keys
-            "elevenlabs_api_key": settings.elevenlabs_api_key,
-            "pexels_api_key": settings.pexels_api_key,
-            "openai_api_key": settings.openai_api_key,
-        }
-    )
-
-    return container
+    return ApplicationContainer()
 
 
 # Global container instance
@@ -626,6 +658,9 @@ container = create_container()
 def get_container() -> ApplicationContainer:
     """Get the global container (for FastAPI Depends)."""
     return container
+
+
+# get_config is re-exported from app.core.config for convenience
 
 
 async def get_redis() -> AsyncRedis:
@@ -713,11 +748,12 @@ __all__ = [
     "ServiceContainer",
     "container",
     "create_container",
+    "get_config",
     "get_container",
+    "get_db_session",
     "get_redis",
     "get_redis_sync",
-    "get_db_session",
-    "TaskScope",
-    "override_redis",
     "override_db_session",
+    "override_redis",
+    "TaskScope",
 ]

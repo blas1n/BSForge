@@ -70,6 +70,7 @@ See [architecture/](./architecture/) for detailed design documents.
 | **Embedding** | BGE-M3 (HuggingFace) |
 | **LLM** | LiteLLM (Anthropic, OpenAI, Gemini) |
 | **TTS** | Edge TTS / ElevenLabs |
+| **BGM** | yt-dlp (YouTube audio extraction) |
 | **Video** | FFmpeg |
 | **Queue** | Celery + Redis |
 | **Dashboard** | React + TypeScript |
@@ -173,9 +174,9 @@ bsforge/
 │   ├── services/
 │   │   ├── collector/         # Topic collection
 │   │   ├── rag/               # Persona RAG
-│   │   ├── generator/         # Video generation
-│   │   ├── uploader/          # YouTube upload
-│   │   └── analyzer/          # Analytics
+│   │   ├── generator/         # Video generation (TTS, visual, bgm, ffmpeg)
+│   │   ├── uploader/          # YouTube upload (Phase 6)
+│   │   └── analyzer/          # Analytics (Phase 6)
 │   ├── workers/               # Celery tasks
 │   └── main.py                # FastAPI app
 ├── config/
@@ -245,6 +246,7 @@ bsforge/
 - TTS: Edge TTS (free) / ElevenLabs (premium) with word-level timestamps
 - Visuals: Pexels stock → AI image → Fallback (priority-based)
 - FFmpeg composition + ASS subtitles with karaoke effects
+- **BGM system**: YouTube-sourced royalty-free music with yt-dlp
 
 ### 4️⃣ Upload & Scheduling
 - YouTube Analytics-based optimal time analysis

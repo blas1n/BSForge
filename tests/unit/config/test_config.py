@@ -70,9 +70,8 @@ def test_scoring_weights_valid():
     assert weights.source_score == 0.15
     assert weights.freshness == 0.20
     assert weights.trend_momentum == 0.10
-    assert weights.category_relevance == 0.15
-    assert weights.keyword_relevance == 0.10
-    assert weights.entity_relevance == 0.05
+    assert weights.term_relevance == 0.20
+    assert weights.entity_relevance == 0.10
     assert weights.novelty == 0.10
 
 
@@ -84,9 +83,8 @@ def test_scoring_weights_custom():
         source_score=0.10,  # -0.05 from default (to balance)
         freshness=0.30,  # +0.10 from default
         trend_momentum=0.05,  # -0.05 from default
-        category_relevance=0.10,  # -0.05 from default (to balance)
-        keyword_relevance=0.10,
-        entity_relevance=0.05,
+        term_relevance=0.15,  # -0.05 from default (to balance)
+        entity_relevance=0.10,
         novelty=0.10,
     )
     assert weights.source_credibility == 0.20
@@ -350,17 +348,16 @@ def test_scoring_config_custom():
             source_score=0.05,  # -0.10 from default
             freshness=0.30,  # +0.10 from default (to balance)
             trend_momentum=0.10,
-            category_relevance=0.15,
-            keyword_relevance=0.10,
-            entity_relevance=0.05,
+            term_relevance=0.20,
+            entity_relevance=0.10,
             novelty=0.10,
         ),
         freshness_half_life_hours=12,
-        target_categories=["tech", "ai"],
+        target_terms=["tech", "ai"],
     )
     assert scoring.weights.freshness == 0.30
     assert scoring.freshness_half_life_hours == 12
-    assert scoring.target_categories == ["tech", "ai"]
+    assert scoring.target_terms == ["tech", "ai"]
 
 
 @pytest.mark.unit
@@ -459,9 +456,8 @@ def test_full_channel_config(tmp_path):
                 "source_score": 0.15,
                 "freshness": 0.20,
                 "trend_momentum": 0.10,
-                "category_relevance": 0.15,
-                "keyword_relevance": 0.10,
-                "entity_relevance": 0.05,
+                "term_relevance": 0.20,
+                "entity_relevance": 0.10,
                 "novelty": 0.10,
             },
             "freshness_half_life_hours": 24,

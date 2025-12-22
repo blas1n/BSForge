@@ -4,10 +4,13 @@ Collects trending search topics from Google Trends using pytrends.
 Supports multiple regions and real-time/daily trends.
 """
 
-import uuid
 from datetime import UTC, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
+import pycountry
+import pytz
+from babel.core import get_global
 from pydantic import HttpUrl
 from pytrends.request import TrendReq
 
@@ -16,6 +19,64 @@ from app.core.logging import get_logger
 from app.services.collector.base import BaseSource, RawTopic
 
 logger = get_logger(__name__)
+
+
+def get_host_language_for_region(region: str) -> str:
+    """Get primary language code for a region using babel CLDR data.
+
+    Args:
+        region: ISO 3166-1 alpha-2 country code (e.g., 'KR', 'US')
+
+    Returns:
+        Language code for pytrends (e.g., 'ko', 'en-US')
+    """
+    region = region.upper()
+    territory_languages = get_global("territory_languages")
+
+    languages = territory_languages.get(region, {})
+    if not languages:
+        return region.lower()
+
+    # Find language with highest population_percent
+    primary_lang = max(languages.items(), key=lambda x: x[1].get("population_percent", 0))[0]
+
+    # Normalize script variants (zh_Hant -> zh)
+    if "_" in primary_lang:
+        primary_lang = primary_lang.split("_")[0]
+
+    # Format for pytrends: add region suffix for languages with regional variants
+    if primary_lang in ("en", "zh", "pt", "es"):
+        return f"{primary_lang}-{region}"
+
+    return primary_lang
+
+
+def get_timezone_offset_for_region(region: str) -> int:
+    """Get timezone offset in minutes for a region using pytz.
+
+    Uses the first (primary) timezone for the country.
+
+    Args:
+        region: ISO 3166-1 alpha-2 country code (e.g., 'KR', 'US')
+
+    Returns:
+        Timezone offset in minutes from UTC
+    """
+    timezones = pytz.country_timezones.get(region.upper(), [])
+    if not timezones:
+        return 0
+
+    # Use first timezone (usually capital/most populous city)
+    tz_name = timezones[0]
+    try:
+        tz = ZoneInfo(tz_name)
+        now = datetime.now(tz)
+        offset = now.utcoffset()
+        if offset is not None:
+            return int(offset.total_seconds() / 60)
+    except Exception:
+        pass
+    return 0
 
 
 class GoogleTrendsSource(BaseSource[GoogleTrendsConfig]):
@@ -34,18 +95,30 @@ class GoogleTrendsSource(BaseSource[GoogleTrendsConfig]):
         limit: Override limit per region
     """
 
-    def __init__(
-        self,
-        config: GoogleTrendsConfig,
-        source_id: uuid.UUID,
-    ):
-        """Initialize Google Trends source collector.
+    # Global source: collected once, shared across all channels
+    is_global = True
+
+    @classmethod
+    def build_config(cls, overrides: dict[str, Any]) -> GoogleTrendsConfig:
+        """Build GoogleTrendsConfig from channel overrides.
 
         Args:
-            config: Typed configuration object
-            source_id: UUID of the source
+            overrides: Configuration overrides with optional keys:
+                - params.regions: List of region codes (optional)
+                - params.timeframe: Timeframe for trends (optional)
+                - params.category: Category ID (optional)
+                - limit: Maximum trends per region (optional)
+
+        Returns:
+            GoogleTrendsConfig instance
         """
-        super().__init__(config, source_id)
+        params = overrides.get("params", {})
+        return GoogleTrendsConfig(
+            regions=params.get("regions", []),
+            timeframe=params.get("timeframe", "now 1-d"),
+            category=params.get("category", 0),
+            limit=overrides.get("limit", 20),
+        )
 
     async def collect(self, params: dict[str, Any] | None = None) -> list[RawTopic]:
         """Collect trending topics from Google Trends.
@@ -93,8 +166,12 @@ class GoogleTrendsSource(BaseSource[GoogleTrendsConfig]):
         Returns:
             List of RawTopic
         """
+        # Get region-specific language and timezone
+        host_language = get_host_language_for_region(region)
+        timezone_offset = get_timezone_offset_for_region(region)
+
         # pytrends is synchronous, but we wrap it for consistency
-        pytrends = TrendReq(hl="en-US", tz=360)
+        pytrends = TrendReq(hl=host_language, tz=timezone_offset)
 
         # Get daily trending searches
         try:
@@ -149,6 +226,7 @@ class GoogleTrendsSource(BaseSource[GoogleTrendsConfig]):
                     "region": region,
                 },
                 metadata={
+                    "source_name": "GoogleTrends",
                     "google_query": query,
                     "region": region,
                     "trends_url": (
@@ -166,47 +244,38 @@ class GoogleTrendsSource(BaseSource[GoogleTrendsConfig]):
             return None
 
     def _get_pn_code(self, region: str) -> str:
-        """Convert region code to pytrends pn code.
+        """Convert ISO alpha-2 country code to pytrends pn format.
+
+        Uses pycountry to dynamically convert ISO codes to pytrends format.
 
         Args:
-            region: ISO region code (e.g., 'KR', 'US')
+            region: ISO 3166-1 alpha-2 country code (e.g., 'KR', 'US')
 
         Returns:
-            pytrends pn code
+            pytrends pn format (e.g., 'south_korea', 'united_states')
         """
-        pn_map = {
-            "KR": "south_korea",
-            "US": "united_states",
-            "JP": "japan",
-            "GB": "united_kingdom",
-            "DE": "germany",
-            "FR": "france",
-            "CN": "china",
-            "IN": "india",
-            "BR": "brazil",
-            "CA": "canada",
-            "AU": "australia",
-        }
-        return pn_map.get(region, "united_states")
+        country = pycountry.countries.get(alpha_2=region.upper())
+        if not country:
+            logger.warning(f"Unknown country code: {region}, using as-is")
+            return region.lower()
+
+        # Prefer common_name if available (e.g., 'South Korea' instead of 'Korea, Republic of')
+        name: str = getattr(country, "common_name", None) or country.name
+
+        # Convert to pytrends format: lowercase with underscores
+        return name.lower().replace(" ", "_").replace("-", "_")
 
     def _get_region_name(self, region: str) -> str:
-        """Convert region code to region name for realtime trends.
+        """Get region name for realtime trends (uses ISO code directly).
 
         Args:
-            region: ISO region code
+            region: ISO 3166-1 alpha-2 country code
 
         Returns:
-            Region name for pytrends
+            ISO code for pytrends realtime_trending_searches
         """
-        region_map = {
-            "KR": "KR",
-            "US": "US",
-            "JP": "JP",
-            "GB": "GB",
-            "DE": "DE",
-            "FR": "FR",
-        }
-        return region_map.get(region, "US")
+        # realtime_trending_searches uses ISO codes directly
+        return region.upper()
 
     async def health_check(self) -> bool:
         """Check if Google Trends API is accessible.
@@ -215,7 +284,8 @@ class GoogleTrendsSource(BaseSource[GoogleTrendsConfig]):
             True if API responds successfully
         """
         try:
-            pytrends = TrendReq(hl="en-US", tz=360)
+            # Use US as default for health check
+            pytrends = TrendReq(hl="en-US", tz=-300)
             # Try a simple trending search
             df = pytrends.trending_searches(pn="united_states")
             return df is not None and not df.empty

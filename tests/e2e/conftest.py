@@ -17,12 +17,28 @@ from app.services.collector.base import NormalizedTopic, RawTopic, ScoredTopic
 
 
 @pytest.fixture
-def temp_output_dir() -> Path:
-    """Create a temporary directory for test outputs."""
-    temp_dir = Path(tempfile.mkdtemp(prefix="bsforge_e2e_"))
+def temp_output_dir(request: pytest.FixtureRequest) -> Path:
+    """Create a temporary directory for test outputs.
+
+    Set KEEP_OUTPUT=1 to preserve output files after test completion.
+    Set OUTPUT_DIR=/path/to/dir to use a specific output directory.
+    """
+    import os
+
+    keep_output = os.environ.get("KEEP_OUTPUT", "").lower() in ("1", "true", "yes")
+    custom_dir = os.environ.get("OUTPUT_DIR")
+
+    if custom_dir:
+        temp_dir = Path(custom_dir)
+        temp_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        temp_dir = Path(tempfile.mkdtemp(prefix="bsforge_e2e_"))
+
     yield temp_dir
-    # Cleanup after test
-    shutil.rmtree(temp_dir, ignore_errors=True)
+
+    # Cleanup after test (unless KEEP_OUTPUT is set or custom dir is used)
+    if not keep_output and not custom_dir:
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 @pytest.fixture
@@ -70,8 +86,7 @@ def create_normalized_topic(
     source_url: str = "https://example.com/topic/1",
     title_translated: str | None = None,
     summary: str = "Test summary",
-    categories: list[str] | None = None,
-    keywords: list[str] | None = None,
+    terms: list[str] | None = None,
     entities: dict[str, list[str]] | None = None,
     language: str = "ko",
     published_at: datetime | None = None,
@@ -97,8 +112,7 @@ def create_normalized_topic(
         title_translated=title_translated,
         title_normalized=title,
         summary=summary,
-        categories=categories or ["tech"],
-        keywords=keywords or ["test"],
+        terms=terms or ["tech", "test"],
         entities=entities or {},
         language=language,
         published_at=published_at or datetime.now(UTC),
@@ -113,8 +127,7 @@ def create_scored_topic(
     source_url: str = "https://example.com/topic/1",
     title_translated: str | None = None,
     summary: str = "Test summary",
-    categories: list[str] | None = None,
-    keywords: list[str] | None = None,
+    terms: list[str] | None = None,
     entities: dict[str, list[str]] | None = None,
     language: str = "ko",
     published_at: datetime | None = None,
@@ -145,8 +158,7 @@ def create_scored_topic(
         title_translated=title_translated,
         title_normalized=title,
         summary=summary,
-        categories=categories or ["tech"],
-        keywords=keywords or ["test"],
+        terms=terms or ["tech", "test"],
         entities=entities or {},
         language=language,
         published_at=published_at or datetime.now(UTC),
@@ -157,6 +169,47 @@ def create_scored_topic(
         score_trend=score_trend,
         score_relevance=score_relevance,
         score_total=score_total,
+    )
+
+
+# =============================================================================
+# Config Fixtures
+# =============================================================================
+
+
+@pytest.fixture
+def subtitle_config():
+    """Create default SubtitleConfig."""
+    from app.config.video import SubtitleConfig
+
+    return SubtitleConfig()
+
+
+@pytest.fixture
+def composition_config():
+    """Create default CompositionConfig."""
+    from app.config.video import CompositionConfig
+
+    return CompositionConfig()
+
+
+@pytest.fixture
+def ass_template_loader():
+    """Create an ASSTemplateLoader."""
+    from app.services.generator.templates import ASSTemplateLoader
+
+    return ASSTemplateLoader()
+
+
+@pytest.fixture
+def subtitle_generator(subtitle_config, composition_config, ass_template_loader):
+    """Create a SubtitleGenerator with DI-injected configs."""
+    from app.services.generator.subtitle import SubtitleGenerator
+
+    return SubtitleGenerator(
+        config=subtitle_config,
+        composition_config=composition_config,
+        template_loader=ass_template_loader,
     )
 
 

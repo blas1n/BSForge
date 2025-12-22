@@ -55,7 +55,7 @@ class ContentChunk(Base, UUIDMixin, TimestampMixin):
         is_opinion: Whether chunk contains opinion/perspective
         is_example: Whether chunk contains examples
         is_analogy: Whether chunk uses analogies
-        keywords: Keywords extracted from chunk
+        terms: Terms extracted from chunk
         embedding: Vector embedding (1024 dimensions for BGE-M3)
         embedding_model: Model used for embedding
         performance_score: Performance score if from published content (0-1)
@@ -91,7 +91,7 @@ class ContentChunk(Base, UUIDMixin, TimestampMixin):
     is_opinion: Mapped[bool] = mapped_column(nullable=False, default=False, index=True)
     is_example: Mapped[bool] = mapped_column(nullable=False, default=False, index=True)
     is_analogy: Mapped[bool] = mapped_column(nullable=False, default=False)
-    keywords: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    terms: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
 
     # Vector Embedding (stored in PostgreSQL via pgvector)
     embedding: Mapped[Any] = mapped_column(Vector(1024), nullable=True)  # BGE-M3 dimension

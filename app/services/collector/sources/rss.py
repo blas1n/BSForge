@@ -4,13 +4,11 @@ Generic collector for RSS and Atom feeds.
 Uses feedparser for parsing various feed formats.
 """
 
-import uuid
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import Any
 
 import feedparser
-import httpx
 from pydantic import HttpUrl
 
 from app.config.sources import RSSConfig
@@ -34,18 +32,32 @@ class RSSSource(BaseSource[RSSConfig]):
         limit: Override entry limit
     """
 
-    def __init__(
-        self,
-        config: RSSConfig,
-        source_id: uuid.UUID,
-    ):
-        """Initialize RSS source collector.
+    # Scoped source: requires channel-specific feed_url
+    is_global = False
+
+    @classmethod
+    def build_config(cls, overrides: dict[str, Any]) -> RSSConfig | None:
+        """Build RSSConfig from channel overrides.
 
         Args:
-            config: Typed configuration object
-            source_id: UUID of the source
+            overrides: Configuration overrides with required keys:
+                - params.feed_url: URL of the RSS/Atom feed (required)
+                - params.name: Display name for the source (optional)
+                - limit: Maximum entries (optional)
+
+        Returns:
+            RSSConfig instance or None if feed_url not provided
         """
-        super().__init__(config, source_id)
+        params = overrides.get("params", {})
+        feed_url = params.get("feed_url")
+        if not feed_url:
+            return None
+
+        return RSSConfig(
+            feed_url=feed_url,
+            name=params.get("name", "RSS Feed"),
+            limit=overrides.get("limit", 20),
+        )
 
     async def collect(self, params: dict[str, Any] | None = None) -> list[RawTopic]:
         """Collect entries from RSS/Atom feed.
@@ -74,10 +86,9 @@ class RSSSource(BaseSource[RSSConfig]):
 
         try:
             # Fetch feed content
-            async with httpx.AsyncClient(timeout=self._config.request_timeout) as client:
-                response = await client.get(feed_url)
-                response.raise_for_status()
-                content = response.text
+            response = await self._http_client.get(feed_url)
+            response.raise_for_status()
+            content = response.text
 
             # Parse feed
             feed = feedparser.parse(content)
@@ -104,9 +115,6 @@ class RSSSource(BaseSource[RSSConfig]):
             )
             return topics
 
-        except httpx.HTTPError as e:
-            logger.error("RSS feed fetch failed", feed_url=feed_url, error=str(e))
-            raise
         except Exception as e:
             logger.error("RSS collection failed", feed_url=feed_url, error=str(e), exc_info=True)
             raise
@@ -251,9 +259,8 @@ class RSSSource(BaseSource[RSSConfig]):
             return False
 
         try:
-            async with httpx.AsyncClient(timeout=self._config.request_timeout) as client:
-                response = await client.get(feed_url)
-                return response.status_code == 200
+            response = await self._http_client.get(feed_url)
+            return response.status_code == 200
         except Exception as e:
             logger.warning("RSS health check failed", feed_url=feed_url, error=str(e))
             return False

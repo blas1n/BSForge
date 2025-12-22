@@ -6,7 +6,6 @@ Supports scene-based composition with per-scene visual styles.
 """
 
 import shutil
-import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,6 +13,7 @@ from typing import TYPE_CHECKING
 
 from app.config.video import CompositionConfig
 from app.core.logging import get_logger
+from app.infrastructure.fonts import find_font_by_name
 from app.services.generator.ffmpeg import FFmpegWrapper, get_ffmpeg_wrapper
 from app.services.generator.tts.base import TTSResult
 from app.services.generator.visual.base import VisualAsset
@@ -1214,80 +1214,6 @@ class FFmpegCompositor:
         headline_config = self.template.layout.headline
         return headline_config is not None and headline_config.enabled
 
-    def _resolve_font_path(self, font_name: str) -> str:
-        """Resolve font name to actual file path.
-
-        Searches for fonts in common locations:
-        - User fonts: ~/.local/share/fonts/
-        - System fonts: /usr/share/fonts/
-
-        Args:
-            font_name: Font name (e.g., "Noto Sans CJK KR")
-
-        Returns:
-            Path to font file, or fallback font if not found
-        """
-        # Try to find font using fc-match
-        try:
-            result = subprocess.run(
-                ["fc-match", "-f", "%{file}", font_name],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                font_path = result.stdout.strip()
-                if Path(font_path).exists():
-                    logger.debug(f"Resolved font '{font_name}' to {font_path}")
-                    return font_path
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            pass
-
-        # Fallback: check common locations directly
-        user_fonts_dir = Path.home() / ".local" / "share" / "fonts"
-        system_fonts_dirs = [
-            Path("/usr/share/fonts"),
-            Path("/usr/local/share/fonts"),
-        ]
-
-        # Map font names to possible file patterns
-        font_patterns = {
-            # Korean fonts
-            "Noto Sans CJK KR": [
-                "NotoSansCJKkr-Bold.otf",
-                "NotoSansCJK-Bold.ttc",
-                "NotoSansCJKkr-Regular.otf",
-            ],
-            "Noto Sans KR": [
-                "NotoSansKR-Bold.otf",
-                "NotoSansCJKkr-Bold.otf",
-            ],
-            # Pretendard
-            "Pretendard-Bold": ["Pretendard-Bold.otf", "Pretendard-Bold.ttf"],
-            "Pretendard": ["Pretendard-Regular.otf", "Pretendard-Regular.ttf"],
-        }
-
-        patterns = font_patterns.get(font_name, [f"{font_name}.otf", f"{font_name}.ttf"])
-
-        # Search in user fonts first
-        for pattern in patterns:
-            candidate = user_fonts_dir / pattern
-            if candidate.exists():
-                logger.debug(f"Found font at {candidate}")
-                return str(candidate)
-
-        # Search in system fonts
-        for fonts_dir in system_fonts_dirs:
-            for pattern in patterns:
-                for found_path in fonts_dir.rglob(pattern):
-                    logger.debug(f"Found font at {found_path}")
-                    return str(found_path)
-
-        # Ultimate fallback
-        fallback = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-        logger.warning(f"Font '{font_name}' not found, using fallback: {fallback}")
-        return fallback
-
     async def _add_headline_overlay(
         self,
         video_path: Path,
@@ -1323,7 +1249,7 @@ class FFmpegCompositor:
             return
 
         # Get settings from template
-        font_path = self._resolve_font_path(headline_config.font_name)
+        font_path = find_font_by_name(headline_config.font_name)
         outline_color = headline_config.outline_color.lstrip("#")
 
         # Line 1 settings (keyword with accent color)

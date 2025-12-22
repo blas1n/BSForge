@@ -6,13 +6,14 @@ Uses Redis as both broker and result backend.
 
 from celery import Celery
 
-from app.core.config import settings
+from app.core.config import get_config
 
 # Create Celery app
+_config = get_config()
 celery_app = Celery(
     "bsforge",
-    broker=str(settings.celery_broker_url),
-    backend=str(settings.celery_result_backend),
+    broker=str(_config.celery_broker_url),
+    backend=str(_config.celery_result_backend),
 )
 
 # Celery configuration

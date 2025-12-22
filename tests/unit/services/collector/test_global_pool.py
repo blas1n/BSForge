@@ -13,13 +13,10 @@ from pydantic import HttpUrl
 
 from app.services.collector.base import RawTopic
 from app.services.collector.global_pool import (
-    SOURCE_SCOPES,
     GlobalTopicPool,
     ScopedSourceCache,
-    SourceScope,
-    get_source_scope,
-    is_global_source,
 )
+from app.services.collector.sources.factory import is_global_source
 
 
 @pytest.fixture
@@ -73,40 +70,8 @@ def sample_topics() -> list[RawTopic]:
     ]
 
 
-class TestSourceScope:
-    """Tests for SourceScope enum and helpers."""
-
-    def test_source_scope_values(self):
-        """Test SourceScope enum values."""
-        assert SourceScope.GLOBAL.value == "global"
-        assert SourceScope.SCOPED.value == "scoped"
-
-    def test_source_scopes_mapping(self):
-        """Test SOURCE_SCOPES has expected entries."""
-        assert SOURCE_SCOPES["hackernews"] == SourceScope.GLOBAL
-        assert SOURCE_SCOPES["google_trends"] == SourceScope.GLOBAL
-        assert SOURCE_SCOPES["youtube_trending"] == SourceScope.GLOBAL
-        assert SOURCE_SCOPES["reddit"] == SourceScope.SCOPED
-        assert SOURCE_SCOPES["dcinside"] == SourceScope.SCOPED
-        assert SOURCE_SCOPES["clien"] == SourceScope.SCOPED
-        assert SOURCE_SCOPES["rss"] == SourceScope.SCOPED
-
-    def test_get_source_scope_global(self):
-        """Test get_source_scope for global sources."""
-        assert get_source_scope("hackernews") == SourceScope.GLOBAL
-        assert get_source_scope("google_trends") == SourceScope.GLOBAL
-        assert get_source_scope("youtube_trending") == SourceScope.GLOBAL
-
-    def test_get_source_scope_scoped(self):
-        """Test get_source_scope for scoped sources."""
-        assert get_source_scope("reddit") == SourceScope.SCOPED
-        assert get_source_scope("dcinside") == SourceScope.SCOPED
-        assert get_source_scope("clien") == SourceScope.SCOPED
-        assert get_source_scope("rss") == SourceScope.SCOPED
-
-    def test_get_source_scope_unknown(self):
-        """Test get_source_scope for unknown source defaults to SCOPED."""
-        assert get_source_scope("unknown_source") == SourceScope.SCOPED
+class TestIsGlobalSource:
+    """Tests for is_global_source helper from factory."""
 
     def test_is_global_source_true(self):
         """Test is_global_source for global sources."""
@@ -119,8 +84,13 @@ class TestSourceScope:
         assert is_global_source("reddit") is False
         assert is_global_source("dcinside") is False
         assert is_global_source("clien") is False
+        assert is_global_source("ruliweb") is False
+        assert is_global_source("fmkorea") is False
         assert is_global_source("rss") is False
-        assert is_global_source("unknown") is False
+
+    def test_is_global_source_unknown(self):
+        """Test is_global_source for unknown source returns False."""
+        assert is_global_source("unknown_source") is False
 
 
 class TestGlobalTopicPoolInit:

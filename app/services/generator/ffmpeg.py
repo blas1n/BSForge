@@ -6,19 +6,29 @@ All operations use the SDK approach - no subprocess calls.
 
 Usage:
     >>> wrapper = FFmpegWrapper()
-    >>> stream = wrapper.image_to_video(image_path, output_path, duration=5.0)
+    >>> stream = wrapper.image_to_video(image_path, output_path, duration=5.0, size=(1080, 1920))
     >>> await wrapper.run(stream)
 """
 
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 import ffmpeg
 
+from app.core.config_loader import load_defaults
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+@lru_cache(maxsize=1)
+def _get_generator_defaults() -> dict[str, Any]:
+    """Get generator defaults from config/defaults.yaml."""
+    defaults = load_defaults()
+    generator = defaults.get("generator", {})
+    return generator if isinstance(generator, dict) else {}
 
 
 class FFmpegError(Exception):
@@ -158,8 +168,8 @@ class FFmpegWrapper:
         image_path: Path | str,
         output_path: Path | str,
         duration: float,
+        size: tuple[int, int],
         fps: int = 30,
-        size: tuple[int, int] = (1080, 1920),
     ) -> ffmpeg.nodes.OutputStream:
         """Create a video from a static image.
 
@@ -167,8 +177,8 @@ class FFmpegWrapper:
             image_path: Path to input image
             output_path: Path to output video
             duration: Video duration in seconds
-            fps: Frames per second
             size: Output size (width, height)
+            fps: Frames per second
 
         Returns:
             FFmpeg output stream (call .run() to execute)
@@ -192,9 +202,9 @@ class FFmpegWrapper:
         image_path: Path | str,
         output_path: Path | str,
         duration: float,
+        size: tuple[int, int],
         effect: str = "zoompan",
         fps: int = 30,
-        size: tuple[int, int] = (1080, 1920),
     ) -> ffmpeg.nodes.OutputStream:
         """Create a video from image with Ken Burns effect.
 
@@ -202,9 +212,9 @@ class FFmpegWrapper:
             image_path: Path to input image
             output_path: Path to output video
             duration: Video duration in seconds
+            size: Output size (width, height)
             effect: Effect type ("zoompan" for Ken Burns)
             fps: Frames per second
-            size: Output size (width, height)
 
         Returns:
             FFmpeg output stream
@@ -213,12 +223,17 @@ class FFmpegWrapper:
         total_frames = int(duration * fps)
 
         if effect == "zoompan":
-            # Ken Burns effect - zoom from 100% to 120%
+            # Ken Burns effect - get parameters from config
+            defaults = _get_generator_defaults()
+            ken_burns = defaults.get("ken_burns", {})
+            zoom_increment = ken_burns.get("zoom_increment", 0.001)
+            max_zoom = ken_burns.get("max_zoom", 1.2)
+
             stream = (
                 ffmpeg.input(str(image_path))
                 .filter(
                     "zoompan",
-                    z="min(zoom+0.001,1.2)",
+                    z=f"min(zoom+{zoom_increment},{max_zoom})",
                     d=total_frames,
                     s=f"{width}x{height}",
                     fps=fps,
@@ -228,7 +243,7 @@ class FFmpegWrapper:
             )
         else:
             # Fallback to static
-            stream = self.image_to_video(image_path, output_path, duration, fps, size)
+            stream = self.image_to_video(image_path, output_path, duration, size, fps)
             return stream
 
         if self.overwrite:
@@ -369,18 +384,11 @@ class FFmpegWrapper:
         """
         video = ffmpeg.input(str(video_path))
 
-        # Build subtitle filter string
-        sub_path_escaped = str(subtitle_path).replace(":", r"\:")
-        sub_filter = f"subtitles='{sub_path_escaped}'"
+        # Apply subtitle filter with optional font directory
         if font_dir:
-            font_dir_escaped = font_dir.replace(":", r"\:")
-            sub_filter += f":fontsdir='{font_dir_escaped}'"
-
-        stream = (
-            video.filter("subtitles", str(subtitle_path), fontsdir=font_dir)
-            if font_dir
-            else video.filter("subtitles", str(subtitle_path))
-        )
+            stream = video.filter("subtitles", str(subtitle_path), fontsdir=font_dir)
+        else:
+            stream = video.filter("subtitles", str(subtitle_path))
 
         stream = stream.output(str(output_path), vcodec="libx264", acodec="copy")
 
@@ -393,16 +401,16 @@ class FFmpegWrapper:
         self,
         output_path: Path | str,
         duration: float,
+        size: tuple[int, int],
         fps: int = 30,
-        size: tuple[int, int] = (1080, 1920),
     ) -> ffmpeg.nodes.OutputStream:
         """Create a black video.
 
         Args:
             output_path: Path to output video
             duration: Video duration in seconds
-            fps: Frames per second
             size: Output size (width, height)
+            fps: Frames per second
 
         Returns:
             FFmpeg output stream
@@ -421,7 +429,7 @@ class FFmpegWrapper:
         self,
         video_path: Path | str,
         output_path: Path | str,
-        size: tuple[int, int] = (1080, 1920),
+        size: tuple[int, int],
         colorgrade: bool = True,
     ) -> ffmpeg.nodes.OutputStream:
         """Scale video and apply color grading.
@@ -540,59 +548,6 @@ class FFmpegWrapper:
             stream = stream.overwrite_output()
 
         return stream
-
-    def video_with_complex_filter(
-        self,
-        input_path: Path | str,
-        output_path: Path | str,
-        filter_complex: str,
-        duration: float | None = None,
-        loop: bool = False,
-        output_options: dict[str, Any] | None = None,
-    ) -> ffmpeg.nodes.OutputStream:
-        """Create video with complex filtergraph.
-
-        Args:
-            input_path: Path to input file
-            output_path: Path to output video
-            filter_complex: Complex filter string
-            duration: Optional duration limit
-            loop: Whether to loop input (for images)
-            output_options: Additional output options
-
-        Returns:
-            FFmpeg output stream
-        """
-        input_kwargs: dict[str, Any] = {}
-        if loop:
-            input_kwargs["loop"] = 1
-        if duration:
-            input_kwargs["t"] = duration
-
-        stream = ffmpeg.input(str(input_path), **input_kwargs)
-        stream = stream.filter_multi_output("split")[0]  # Placeholder for complex
-
-        # For complex filters, we use output with filter_complex option
-        default_output = {
-            "vcodec": "libx264",
-            "pix_fmt": "yuv420p",
-        }
-        if output_options:
-            default_output.update(output_options)
-
-        # Build the stream using low-level approach for filter_complex
-        output_stream = ffmpeg.output(
-            ffmpeg.input(str(input_path), **input_kwargs),
-            str(output_path),
-            **default_output,
-        ).filter(
-            "null"
-        )  # Placeholder
-
-        if self.overwrite:
-            output_stream = output_stream.overwrite_output()
-
-        return output_stream
 
     def image_to_video_with_filters(
         self,

@@ -4,7 +4,7 @@ Calculates comprehensive scores for topics based on multiple factors:
 - Source credibility
 - Freshness (time decay)
 - Trend momentum
-- Channel relevance (category, keyword, entity matching)
+- Channel relevance (term and entity matching)
 - Novelty (not covered before)
 - Series bonus (continuation of successful series)
 """
@@ -15,10 +15,18 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from app.config import ScoringConfig, ScoringWeights
+from app.core.config_loader import load_defaults
 from app.core.logging import get_logger
 from app.services.collector.base import NormalizedTopic, ScoredTopic
 
 logger = get_logger(__name__)
+
+
+def _get_scoring_defaults() -> dict[str, Any]:
+    """Get scoring defaults from config/defaults.yaml."""
+    defaults = load_defaults()
+    scoring = defaults.get("scoring", {})
+    return scoring if isinstance(scoring, dict) else {}
 
 
 class ScoreComponents(BaseModel):
@@ -29,8 +37,7 @@ class ScoreComponents(BaseModel):
     freshness: float = Field(ge=0.0, le=1.0, description="Time decay factor")
     trend_momentum: float = Field(ge=0.0, le=1.0, description="Trend rising factor")
     multi_source_bonus: float = Field(ge=0.0, le=0.3, description="Multiple sources bonus")
-    category_relevance: float = Field(ge=0.0, le=1.0, description="Category match score")
-    keyword_relevance: float = Field(ge=0.0, le=1.0, description="Keyword match score")
+    term_relevance: float = Field(ge=0.0, le=1.0, description="Term match score")
     entity_relevance: float = Field(ge=0.0, le=1.0, description="Entity match score")
     novelty: float = Field(ge=0.0, le=1.0, description="Topic newness score")
     series_bonus: float = Field(ge=0.0, le=0.3, description="Series continuation bonus")
@@ -48,8 +55,7 @@ class TopicScorer:
     - source_score: Engagement metrics from source (likes, comments, etc.)
     - freshness: Time decay based on publish time
     - trend_momentum: How fast the topic is trending
-    - category_relevance: Match with channel's target categories
-    - keyword_relevance: Match with channel's target keywords
+    - term_relevance: Match with channel's target terms
     - entity_relevance: Match with channel's target entities
     - novelty: Has this topic been covered before?
     - series_bonus: Part of a successful series?
@@ -68,7 +74,7 @@ class TopicScorer:
         topic: NormalizedTopic,
         source_credibility: float = 5.0,
         trend_data: dict[str, Any] | None = None,
-        history_keywords: set[str] | None = None,
+        history_terms: set[str] | None = None,
         series_performance: float | None = None,
         multi_source_count: int = 1,
     ) -> ScoredTopic:
@@ -77,8 +83,8 @@ class TopicScorer:
         Args:
             topic: Normalized topic to score
             source_credibility: Source credibility (1-10 scale)
-            trend_data: Optional trend information for keywords
-            history_keywords: Keywords from recently used topics (for novelty)
+            trend_data: Optional trend information for terms
+            history_terms: Terms from recently used topics (for novelty)
             series_performance: Performance of matching series (0-1), None if no series
             multi_source_count: Number of sources mentioning this topic
 
@@ -89,7 +95,7 @@ class TopicScorer:
             topic=topic,
             source_credibility=source_credibility,
             trend_data=trend_data or {},
-            history_keywords=history_keywords or set(),
+            history_terms=history_terms or set(),
             series_performance=series_performance,
             multi_source_count=multi_source_count,
         )
@@ -101,8 +107,7 @@ class TopicScorer:
             + components.source_score * weights.source_score
             + components.freshness * weights.freshness
             + components.trend_momentum * weights.trend_momentum
-            + components.category_relevance * weights.category_relevance
-            + components.keyword_relevance * weights.keyword_relevance
+            + components.term_relevance * weights.term_relevance
             + components.entity_relevance * weights.entity_relevance
             + components.novelty * weights.novelty
         )
@@ -113,12 +118,8 @@ class TopicScorer:
         # Convert to 0-100 scale
         total_score_100 = int(min(100, max(0, total_score * 100)))
 
-        # Calculate relevance as average of category, keyword, entity relevance
-        relevance = (
-            components.category_relevance
-            + components.keyword_relevance
-            + components.entity_relevance
-        ) / 3
+        # Calculate relevance as average of term, entity relevance
+        relevance = (components.term_relevance + components.entity_relevance) / 2
 
         logger.debug(
             "Topic scored",
@@ -143,7 +144,7 @@ class TopicScorer:
         topic: NormalizedTopic,
         source_credibility: float,
         trend_data: dict[str, Any],
-        history_keywords: set[str],
+        history_terms: set[str],
         series_performance: float | None,
         multi_source_count: int,
     ) -> ScoreComponents:
@@ -153,7 +154,7 @@ class TopicScorer:
             topic: Topic to score
             source_credibility: Source credibility (1-10)
             trend_data: Trend momentum data
-            history_keywords: Previously used keywords
+            history_terms: Previously used terms
             series_performance: Series performance (0-1) or None
             multi_source_count: Number of sources
 
@@ -164,12 +165,11 @@ class TopicScorer:
             source_credibility=self._calc_source_credibility(source_credibility),
             source_score=self._calc_source_score(topic),
             freshness=self._calc_freshness(topic.published_at),
-            trend_momentum=self._calc_trend_momentum(topic.keywords, trend_data),
+            trend_momentum=self._calc_trend_momentum(topic.terms, trend_data),
             multi_source_bonus=self._calc_multi_source_bonus(multi_source_count),
-            category_relevance=self._calc_category_relevance(topic.categories),
-            keyword_relevance=self._calc_keyword_relevance(topic.keywords),
+            term_relevance=self._calc_term_relevance(topic.terms),
             entity_relevance=self._calc_entity_relevance(topic.entities),
-            novelty=self._calc_novelty(topic.keywords, history_keywords),
+            novelty=self._calc_novelty(topic.terms, history_terms),
             series_bonus=self._calc_series_bonus(series_performance),
         )
 
@@ -182,7 +182,9 @@ class TopicScorer:
         Returns:
             Normalized credibility (0-1)
         """
-        return max(0.0, min(1.0, credibility / 10.0))
+        defaults = _get_scoring_defaults()
+        credibility_scale = float(defaults.get("source_credibility_scale", 10.0))
+        return max(0.0, min(1.0, credibility / credibility_scale))
 
     def _calc_source_score(self, topic: NormalizedTopic) -> float:
         """Calculate normalized source engagement score.
@@ -200,7 +202,8 @@ class TopicScorer:
         # If not available, return neutral score
         if topic.metrics and "normalized_score" in topic.metrics:
             return float(topic.metrics["normalized_score"])
-        return 0.5  # Neutral if no metrics
+        defaults = _get_scoring_defaults()
+        return float(defaults.get("default_source_score", 0.5))
 
     def _calc_freshness(self, published_at: datetime | None) -> float:
         """Calculate freshness score with exponential decay.
@@ -227,28 +230,30 @@ class TopicScorer:
 
         # Exponential decay with half-life
         half_life = self.config.freshness_half_life_hours
-        freshness = 2.0 ** (-age_hours / half_life)
+        defaults = _get_scoring_defaults()
+        decay_base = defaults.get("freshness_decay_base", 2.0)
+        freshness = decay_base ** (-age_hours / half_life)
 
         return float(max(self.config.freshness_min, freshness))
 
-    def _calc_trend_momentum(self, keywords: list[str], trend_data: dict[str, Any]) -> float:
-        """Calculate trend momentum based on keyword trends.
+    def _calc_trend_momentum(self, terms: list[str], trend_data: dict[str, Any]) -> float:
+        """Calculate trend momentum based on term trends.
 
         Args:
-            keywords: Topic keywords
-            trend_data: Dict mapping keywords to momentum scores (0-1)
+            terms: Topic terms
+            trend_data: Dict mapping terms to momentum scores (0-1)
 
         Returns:
             Average trend momentum (0-1)
         """
-        if not keywords or not trend_data:
+        if not terms or not trend_data:
             return 0.0
 
         momentums = []
-        for keyword in keywords:
-            keyword_lower = keyword.lower()
-            if keyword_lower in trend_data:
-                momentum = trend_data[keyword_lower]
+        for term in terms:
+            term_lower = term.lower()
+            if term_lower in trend_data:
+                momentum = trend_data[term_lower]
                 if isinstance(momentum, (int, float)):
                     momentums.append(float(momentum))
 
@@ -270,52 +275,31 @@ class TopicScorer:
         """
         if source_count <= 1:
             return 0.0
+
+        defaults = _get_scoring_defaults()
+        bonuses = defaults.get("multi_source_bonuses", {2: 0.1, 3: 0.2, 4: 0.3})
+
         if source_count == 2:
-            return 0.1
+            return float(bonuses.get(2, 0.1))
         if source_count == 3:
-            return 0.2
-        return 0.3  # Cap at 0.3 for 4+ sources
+            return float(bonuses.get(3, 0.2))
+        return float(bonuses.get(4, 0.3))  # Cap at bonus for 4+ sources
 
-    def _calc_category_relevance(self, categories: list[str]) -> float:
-        """Calculate category match with channel targets.
-
-        Args:
-            categories: Topic categories
-
-        Returns:
-            Category relevance (0-1)
-        """
-        target_categories = self.config.target_categories
-        if not target_categories or not categories:
-            return 0.5  # Neutral if no targets defined
-
-        # Calculate Jaccard similarity
-        topic_set = {c.lower() for c in categories}
-        target_set = {c.lower() for c in target_categories}
-
-        intersection = len(topic_set & target_set)
-        union = len(topic_set | target_set)
-
-        if union == 0:
-            return 0.5
-
-        return intersection / union
-
-    def _calc_keyword_relevance(self, keywords: list[str]) -> float:
-        """Calculate keyword match with channel targets.
+    def _calc_term_relevance(self, terms: list[str]) -> float:
+        """Calculate term match with channel targets.
 
         Args:
-            keywords: Topic keywords
+            terms: Topic terms
 
         Returns:
-            Keyword relevance (0-1)
+            Term relevance (0-1)
         """
-        target_keywords = self.config.target_keywords
-        if not target_keywords or not keywords:
+        target_terms = self.config.target_terms
+        if not target_terms or not terms:
             return 0.5  # Neutral if no targets defined
 
-        topic_set = {k.lower() for k in keywords}
-        target_set = {k.lower() for k in target_keywords}
+        topic_set = {t.lower() for t in terms}
+        target_set = {t.lower() for t in target_terms}
 
         intersection = len(topic_set & target_set)
         union = len(topic_set | target_set)
@@ -356,26 +340,26 @@ class TopicScorer:
 
         return intersection / union
 
-    def _calc_novelty(self, keywords: list[str], history_keywords: set[str]) -> float:
-        """Calculate novelty score based on keyword overlap with history.
+    def _calc_novelty(self, terms: list[str], history_terms: set[str]) -> float:
+        """Calculate novelty score based on term overlap with history.
 
         Lower overlap = higher novelty (topic not covered recently).
 
         Args:
-            keywords: Topic keywords
-            history_keywords: Keywords from recently used topics
+            terms: Topic terms
+            history_terms: Terms from recently used topics
 
         Returns:
             Novelty score (0-1)
         """
-        if not keywords:
+        if not terms:
             return 0.5
 
-        if not history_keywords:
+        if not history_terms:
             return 1.0  # Completely novel if no history
 
-        topic_set = {k.lower() for k in keywords}
-        history_set = {k.lower() for k in history_keywords}
+        topic_set = {t.lower() for t in terms}
+        history_set = {t.lower() for t in history_terms}
 
         overlap = len(topic_set & history_set)
         total = len(topic_set)
@@ -399,11 +383,19 @@ class TopicScorer:
         if series_performance is None:
             return 0.0
 
-        if series_performance >= 0.8:
-            return 0.3  # High-performing series
-        if series_performance >= 0.5:
-            return 0.15  # Medium-performing series
-        return 0.05  # Low-performing but has series continuity
+        defaults = _get_scoring_defaults()
+        series_config = defaults.get("series_performance", {})
+        high_threshold = float(series_config.get("high_threshold", 0.8))
+        medium_threshold = float(series_config.get("medium_threshold", 0.5))
+        high_bonus = float(series_config.get("high_bonus", 0.3))
+        medium_bonus = float(series_config.get("medium_bonus", 0.15))
+        low_bonus = float(series_config.get("low_bonus", 0.05))
+
+        if series_performance >= high_threshold:
+            return high_bonus
+        if series_performance >= medium_threshold:
+            return medium_bonus
+        return low_bonus
 
 
 # Re-export config classes for backward compatibility

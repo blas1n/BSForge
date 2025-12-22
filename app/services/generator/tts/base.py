@@ -102,8 +102,12 @@ class VoiceInfo:
 
 
 @dataclass
-class TTSConfig:
-    """Configuration for TTS synthesis.
+class TTSSynthesisConfig:
+    """Configuration for TTS synthesis parameters.
+
+    This controls the runtime synthesis behavior (speed, pitch, volume).
+    For provider-level settings (default voices, API keys), see TTSProviderConfig
+    in app/config/video.py.
 
     Attributes:
         voice_id: Voice identifier to use
@@ -127,6 +131,10 @@ class TTSConfig:
             raise ValueError("Pitch must be between -50 and 50")
         if not -50 <= self.volume <= 50:
             raise ValueError("Volume must be between -50 and 50")
+
+
+# Backward compatibility alias
+TTSConfig = TTSSynthesisConfig
 
 
 # Korean voice constants for Edge TTS
@@ -226,7 +234,7 @@ class BaseTTSEngine(ABC):
     async def synthesize(
         self,
         text: str,
-        config: TTSConfig,
+        config: TTSSynthesisConfig,
         output_path: Path,
     ) -> TTSResult:
         """Synthesize speech from text.
@@ -271,7 +279,7 @@ class BaseTTSEngine(ABC):
     async def synthesize_scenes(
         self,
         scenes: list["Scene"],
-        config: TTSConfig,
+        config: TTSSynthesisConfig,
         output_dir: Path,
     ) -> list[SceneTTSResult]:
         """Synthesize audio for each scene separately.
@@ -326,7 +334,8 @@ __all__ = [
     "WordTimestamp",
     "TTSResult",
     "SceneTTSResult",
-    "TTSConfig",
+    "TTSSynthesisConfig",
+    "TTSConfig",  # Backward compatibility alias
     "VoiceInfo",
     "BaseTTSEngine",
     "EDGE_TTS_VOICES_KO",

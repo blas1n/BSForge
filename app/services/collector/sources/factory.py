@@ -5,156 +5,162 @@ based on configuration, enabling config-driven source selection.
 """
 
 import uuid
-from typing import Any
+from typing import Any, Final
 
-from app.config.sources import (
-    ClienConfig,
-    DCInsideConfig,
-    FmkoreaConfig,
-    GoogleTrendsConfig,
-    HackerNewsConfig,
-    RedditConfig,
-    RSSConfig,
-    RuliwebConfig,
-    YouTubeTrendingConfig,
-)
 from app.core.logging import get_logger
+from app.infrastructure.http_client import HTTPClient
 from app.services.collector.base import BaseSource
+from app.services.collector.sources.clien import ClienSource
+from app.services.collector.sources.dcinside import DCInsideSource
+from app.services.collector.sources.fmkorea import FmkoreaSource
+from app.services.collector.sources.google_trends import GoogleTrendsSource
+from app.services.collector.sources.hackernews import HackerNewsSource
+from app.services.collector.sources.reddit import RedditSource
+from app.services.collector.sources.rss import RSSSource
+from app.services.collector.sources.ruliweb import RuliwebSource
+from app.services.collector.sources.youtube_trending import YouTubeTrendingSource
 
 logger = get_logger(__name__)
+
+# Default values for source configuration
+DEFAULT_LIMIT: Final[int] = 10
+DEFAULT_RSS_LIMIT: Final[int] = 20
+
+# Source name to class mapping
+SOURCE_CLASSES: dict[str, type[BaseSource[Any]]] = {
+    "hackernews": HackerNewsSource,
+    "reddit": RedditSource,
+    "youtube_trending": YouTubeTrendingSource,
+    "google_trends": GoogleTrendsSource,
+    "dcinside": DCInsideSource,
+    "clien": ClienSource,
+    "ruliweb": RuliwebSource,
+    "fmkorea": FmkoreaSource,
+    "rss": RSSSource,
+}
+
+
+def get_source_class(source_name: str) -> type[BaseSource[Any]] | None:
+    """Get the source class for a given source name.
+
+    Args:
+        source_name: Name of the source (e.g., "hackernews", "reddit")
+
+    Returns:
+        Source class or None if source type is unknown
+    """
+    # Handle custom RSS names like "sbs_ent_rss"
+    if source_name.endswith("_rss"):
+        return RSSSource
+    return SOURCE_CLASSES.get(source_name)
+
+
+def is_global_source(source_name: str) -> bool:
+    """Check if a source is collected globally (shared across all channels).
+
+    Global sources are collected once and shared. Scoped sources require
+    channel-specific parameters and are collected per channel.
+
+    Args:
+        source_name: Name of the source (e.g., "hackernews", "reddit")
+
+    Returns:
+        True if source is global, False if scoped or unknown
+    """
+    source_class = get_source_class(source_name)
+    if source_class is None:
+        return False
+    return getattr(source_class, "is_global", False)
 
 
 def create_source(
     source_name: str,
+    http_client: HTTPClient,
     overrides: dict[str, Any] | None = None,
     source_id: uuid.UUID | None = None,
-) -> BaseSource | None:
+) -> BaseSource[Any]:
     """Create a topic source instance from name and config overrides.
+
+    Each Source class defines its own build_config() classmethod that knows
+    how to construct the appropriate config from overrides.
 
     Args:
         source_name: Name of the source (e.g., "hackernews", "reddit")
+        http_client: Shared HTTP client for connection reuse
         overrides: Configuration overrides from channel config
         source_id: Optional source ID (generates new UUID if not provided)
 
     Returns:
-        TopicSource instance or None if source type is unknown
+        TopicSource instance
+
+    Raises:
+        ValueError: If source type is unknown or required parameters are missing
     """
-    # Lazy imports to avoid circular dependencies
-    from app.services.collector.sources.clien import ClienSource
-    from app.services.collector.sources.dcinside import DCInsideSource
-    from app.services.collector.sources.fmkorea import FmkoreaSource
-    from app.services.collector.sources.google_trends import GoogleTrendsSource
-    from app.services.collector.sources.hackernews import HackerNewsSource
-    from app.services.collector.sources.reddit import RedditSource
-    from app.services.collector.sources.rss import RSSSource
-    from app.services.collector.sources.ruliweb import RuliwebSource
-    from app.services.collector.sources.youtube_trending import YouTubeTrendingSource
+    source_class = get_source_class(source_name)
+    if source_class is None:
+        raise ValueError(f"Unknown source type: {source_name}")
 
     overrides = overrides or {}
     source_id = source_id or uuid.uuid4()
 
-    if source_name == "hackernews":
-        min_score = overrides.get("filters", {}).get("min_score", 50)
-        limit = overrides.get("limit", 10)
-        config = HackerNewsConfig(limit=limit, min_score=min_score)
-        return HackerNewsSource(config=config, source_id=source_id)
+    # Each Source class implements build_config classmethod
+    config = source_class.build_config(overrides)
 
-    elif source_name == "reddit":
-        subreddits = overrides.get("params", {}).get("subreddits", ["news", "worldnews"])
-        min_score = overrides.get("filters", {}).get("min_score", 30)
-        limit = overrides.get("limit", 10)
-        config = RedditConfig(subreddits=subreddits, limit=limit, min_score=min_score)
-        return RedditSource(config=config, source_id=source_id)
+    if config is None:
+        raise ValueError(f"Failed to build config for {source_name}")
 
-    elif source_name == "youtube_trending":
-        region = overrides.get("params", {}).get("region", "KR")
-        category = overrides.get("params", {}).get("category", "0")
-        limit = overrides.get("limit", 10)
-        config = YouTubeTrendingConfig(region=region, category_id=category, limit=limit)
-        return YouTubeTrendingSource(config=config, source_id=source_id)
+    return source_class(config=config, source_id=source_id, http_client=http_client)
 
-    elif source_name == "google_trends":
-        region = overrides.get("params", {}).get("region", "south_korea")
-        limit = overrides.get("limit", 10)
-        config = GoogleTrendsConfig(region=region, limit=limit)
-        return GoogleTrendsSource(config=config, source_id=source_id)
 
-    elif source_name == "dcinside":
-        params = overrides.get("params", {})
-        galleries = params.get("galleries", ["hit"])
-        gallery_type = params.get("gallery_type", "major")
-        limit = overrides.get("limit", 10)
-        min_score = overrides.get("filters", {}).get("min_score", 0)
-        config = DCInsideConfig(
-            galleries=galleries, gallery_type=gallery_type, limit=limit, min_score=min_score
-        )
-        return DCInsideSource(config=config, source_id=source_id)
+def get_all_source_names() -> list[str]:
+    """Get all registered source names.
 
-    elif source_name == "clien":
-        params = overrides.get("params", {})
-        boards = params.get("boards", ["park"])
-        limit = overrides.get("limit", 10)
-        min_score = overrides.get("filters", {}).get("min_score", 0)
-        config = ClienConfig(boards=boards, limit=limit, min_score=min_score)
-        return ClienSource(config=config, source_id=source_id)
+    Returns:
+        List of source names
+    """
+    return list(SOURCE_CLASSES.keys())
 
-    elif source_name == "ruliweb":
-        params = overrides.get("params", {})
-        boards = params.get("boards", ["best/humor"])
-        limit = overrides.get("limit", 10)
-        min_score = overrides.get("filters", {}).get("min_score", 0)
-        config = RuliwebConfig(boards=boards, limit=limit, min_score=min_score)
-        return RuliwebSource(config=config, source_id=source_id)
 
-    elif source_name == "fmkorea":
-        params = overrides.get("params", {})
-        boards = params.get("boards", ["best"])
-        limit = overrides.get("limit", 10)
-        min_score = overrides.get("filters", {}).get("min_score", 0)
-        config = FmkoreaConfig(boards=boards, limit=limit, min_score=min_score)
-        return FmkoreaSource(config=config, source_id=source_id)
+def get_global_source_names() -> list[str]:
+    """Get names of all global sources.
 
-    elif source_name == "rss" or source_name.endswith("_rss"):
-        # Support both "rss" and custom names like "sbs_ent_rss"
-        params = overrides.get("params", {})
-        feed_url = params.get("feed_url", "")
-        if not feed_url:
-            logger.warning(f"RSS source '{source_name}' requires feed_url in config")
-            return None
-        name = params.get("name", source_name)
-        limit = overrides.get("limit", 20)
-        config = RSSConfig(feed_url=feed_url, name=name, limit=limit)
-        return RSSSource(config=config, source_id=source_id)
+    Returns:
+        List of global source names
+    """
+    return [name for name in SOURCE_CLASSES if is_global_source(name)]
 
-    else:
-        logger.warning(f"Unknown source type: {source_name}")
-        return None
+
+def get_scoped_source_names() -> list[str]:
+    """Get names of all scoped sources.
+
+    Returns:
+        List of scoped source names
+    """
+    return [name for name in SOURCE_CLASSES if not is_global_source(name)]
 
 
 async def collect_from_sources(
     enabled_sources: list[str],
+    http_client: HTTPClient,
     source_overrides: dict[str, Any] | None = None,
-) -> list:
+) -> list[Any]:
     """Collect topics from multiple sources.
 
     Args:
         enabled_sources: List of source names to collect from
+        http_client: Shared HTTP client for connection reuse
         source_overrides: Per-source configuration overrides
 
     Returns:
         List of RawTopic objects from all sources
     """
     source_overrides = source_overrides or {}
-    all_topics = []
+    all_topics: list[Any] = []
 
     for source_name in enabled_sources:
         overrides = source_overrides.get(source_name, {})
-        source = create_source(source_name, overrides)
-
-        if source is None:
-            continue
-
         try:
+            source = create_source(source_name, http_client, overrides)
             topics = await source.collect()
             all_topics.extend(topics)
             logger.info(f"Collected {len(topics)} topics from {source_name}")
@@ -164,4 +170,13 @@ async def collect_from_sources(
     return all_topics
 
 
-__all__ = ["create_source", "collect_from_sources"]
+__all__ = [
+    "create_source",
+    "collect_from_sources",
+    "get_source_class",
+    "is_global_source",
+    "get_all_source_names",
+    "get_global_source_names",
+    "get_scoped_source_names",
+    "SOURCE_CLASSES",
+]

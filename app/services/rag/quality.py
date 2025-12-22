@@ -6,14 +6,22 @@ Extracted from generator.py for better separation of concerns.
 
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any
 
 from app.config.rag import QualityCheckConfig
+from app.core.config_loader import load_quality_config
 from app.core.logging import get_logger
 from app.models.channel import Persona
 from app.models.scene import SceneScript, SceneType
 
 logger = get_logger(__name__)
+
+
+@lru_cache(maxsize=1)
+def _get_quality_defaults() -> dict[str, Any]:
+    """Get quality defaults from config/quality.yaml."""
+    return load_quality_config()
 
 
 @dataclass
@@ -60,9 +68,6 @@ class ScriptQualityChecker:
     Attributes:
         config: Quality check configuration
     """
-
-    # Default speech rate (words per minute)
-    WORDS_PER_MINUTE = 150
 
     def __init__(self, config: QualityCheckConfig | None = None) -> None:
         """Initialize quality checker.
@@ -164,7 +169,7 @@ class ScriptQualityChecker:
     def estimate_duration(self, script_text: str) -> int:
         """Estimate script duration in seconds.
 
-        Assumes ~150 words per minute for natural speech.
+        Uses words_per_minute from config/quality.yaml for natural speech rate.
 
         Args:
             script_text: Script text
@@ -172,8 +177,12 @@ class ScriptQualityChecker:
         Returns:
             Estimated duration in seconds
         """
+        defaults = _get_quality_defaults()
+        script_config = defaults.get("script", {})
+        words_per_minute = script_config.get("words_per_minute", 150)
+
         word_count = len(script_text.split())
-        duration_seconds = int((word_count / self.WORDS_PER_MINUTE) * 60)
+        duration_seconds = int((word_count / words_per_minute) * 60)
         return duration_seconds
 
     def calculate_style_score(self, script_text: str, persona: Persona) -> float:

@@ -1244,6 +1244,76 @@ class FineTuningDataCollector {
    - 품질 게이트: style_score ≥ 0.7, hook_score ≥ 0.5
    - 실패 시 자동 재시도 (최대 2회)
    - 스크립트 저장 → 청킹 → 임베딩 → 벡터 DB 저장
+   - **Scene 기반 스크립트 생성** (`generate_scene_script()` 메서드)
+
+### 8.3 Scene 기반 스크립트 생성 (BSForge 핵심 차별점)
+
+BSForge의 핵심 차별점은 **AI 페르소나가 사실(Fact)과 의견(Opinion)을 명확히 구분하여 표현**하는 것입니다.
+이를 위해 Scene 기반 스크립트 구조를 사용합니다.
+
+**Scene 타입 (8가지)**:
+```python
+class SceneType(str, Enum):
+    # 정보 전달 (Factual)
+    HOOK = "hook"              # 0-3초, 주의 끌기
+    INTRO = "intro"            # 3-5초, 맥락 설정
+    CONTENT = "content"        # 5-10초, 핵심 정보
+    EXAMPLE = "example"        # 3-5초, 구체적 예시
+
+    # 페르소나 의견 (Commentary) ← BSForge 핵심
+    COMMENTARY = "commentary"  # 3-8초, 페르소나 생각/해석/의견
+    REACTION = "reaction"      # 2-4초, 짧은 리액션
+
+    # 마무리
+    CONCLUSION = "conclusion"  # 2-4초, 요약
+    CTA = "cta"               # 2-3초, 행동 유도 (선택적)
+```
+
+**Scene 기반 스크립트 생성 흐름**:
+```
+주제 + 페르소나
+    ↓
+LLM이 Scene 단위로 스크립트 생성
+    ↓
+각 Scene에 scene_type 태그 부여
+    ↓
+COMMENTARY/REACTION Scene에 자동으로 VisualStyle.PERSONA 적용
+    ↓
+Scene 간 트랜지션 자동 추천 (Fact→Opinion: FLASH)
+```
+
+**SceneScript 모델**:
+```python
+class SceneScript(BaseModel):
+    scenes: list[Scene]           # 장면 목록
+    title_text: str | None        # 썸네일/오버레이용 제목
+    headline_keyword: str | None  # 2줄 헤드라인 (키워드)
+    headline_hook: str | None     # 2줄 헤드라인 (훅)
+
+    def validate_structure(self) -> list[str]:
+        """스크립트 구조 검증 (HOOK 시작, 길이 체크, COMMENTARY 권장)"""
+
+    def apply_recommended_transitions(self) -> None:
+        """자동 트랜지션 적용 (Fact→Opinion: FLASH 등)"""
+```
+
+**Scene 모델**:
+```python
+class Scene(BaseModel):
+    scene_type: SceneType          # 장면 유형
+    text: str                      # 자막 텍스트
+    tts_text: str | None           # TTS 발음 (다를 경우만)
+    keyword: str | None            # 비주얼 검색 키워드
+    visual_hint: VisualHintType    # 비주얼 소싱 힌트
+    visual_style: VisualStyle | None  # 시각 스타일 (자동 추론)
+    transition_in: TransitionType  # 진입 전환
+    emphasis_words: list[str]      # 강조 단어
+
+    @property
+    def is_persona_scene(self) -> bool:
+        """COMMENTARY 또는 REACTION인지 확인"""
+        return self.scene_type in (SceneType.COMMENTARY, SceneType.REACTION)
+```
 
 **Configuration (app/config/rag.py)**:
 - ChunkingConfig: 패턴 리스트 (opinion/example/analogy), LLM 토글

@@ -1,6 +1,6 @@
 """Topic clustering service.
 
-Groups similar topics from multiple sources based on title/keyword similarity.
+Groups similar topics from multiple sources based on title/term similarity.
 Provides aggregated information for richer script generation.
 """
 
@@ -21,8 +21,7 @@ class TopicCluster:
         primary_topic: The highest-scored topic in the cluster
         related_topics: Other topics in the cluster
         sources: Set of source names that covered this topic
-        combined_keywords: Merged keywords from all topics
-        combined_categories: Merged categories from all topics
+        combined_terms: Merged terms from all topics
         total_engagement: Sum of engagement metrics across sources
         coverage_score: How many sources covered this topic (0-1)
     """
@@ -30,8 +29,7 @@ class TopicCluster:
     primary_topic: ScoredTopic
     related_topics: list[ScoredTopic] = field(default_factory=list)
     sources: set[str] = field(default_factory=set)
-    combined_keywords: list[str] = field(default_factory=list)
-    combined_categories: list[str] = field(default_factory=list)
+    combined_terms: list[str] = field(default_factory=list)
     total_engagement: int = 0
     coverage_score: float = 0.0
 
@@ -58,7 +56,7 @@ class TopicCluster:
         """Get all source URLs from topics in cluster."""
         return [str(t.source_url) for t in self.all_topics]
 
-    def get_summary_info(self) -> dict:
+    def get_summary_info(self) -> dict[str, object]:
         """Get summary information for script generation."""
         return {
             "primary_title": self.primary_topic.title_original,
@@ -66,39 +64,38 @@ class TopicCluster:
             "source_count": self.source_count,
             "sources": list(self.sources),
             "all_titles": self.get_all_titles(),
-            "keywords": self.combined_keywords,
-            "categories": self.combined_categories,
+            "terms": self.combined_terms,
             "total_engagement": self.total_engagement,
             "coverage_score": self.coverage_score,
         }
 
 
 class TopicClusterer:
-    """Clusters similar topics based on keyword and title similarity.
+    """Clusters similar topics based on term and title similarity.
 
-    Uses Jaccard similarity on keywords and n-gram similarity on titles
+    Uses Jaccard similarity on terms and n-gram similarity on titles
     to group related topics from different sources.
     """
 
     def __init__(
         self,
-        keyword_weight: float = 0.6,
+        term_weight: float = 0.6,
         title_weight: float = 0.4,
         similarity_threshold: float = 0.3,
-        min_keyword_overlap: int = 2,
+        min_term_overlap: int = 2,
     ):
         """Initialize clusterer with similarity parameters.
 
         Args:
-            keyword_weight: Weight for keyword similarity (0-1)
+            term_weight: Weight for term similarity (0-1)
             title_weight: Weight for title similarity (0-1)
             similarity_threshold: Minimum similarity to cluster (0-1)
-            min_keyword_overlap: Minimum keyword overlap count
+            min_term_overlap: Minimum term overlap count
         """
-        self.keyword_weight = keyword_weight
+        self.term_weight = term_weight
         self.title_weight = title_weight
         self.similarity_threshold = similarity_threshold
-        self.min_keyword_overlap = min_keyword_overlap
+        self.min_term_overlap = min_term_overlap
 
     def cluster(
         self,
@@ -169,18 +166,13 @@ class TopicClusterer:
         Returns:
             New TopicCluster
         """
-        source_name = topic.metrics.get("metadata", {}).get("source_name", "unknown")
-        if not source_name or source_name == "unknown":
-            # Try to extract from source_id or URL
-            source_name = self._extract_source_name(topic)
-
+        source_name = topic.metadata.get("source_name", "unknown")
         engagement = self._calculate_engagement(topic)
 
         cluster = TopicCluster(
             primary_topic=topic,
             sources={source_name},
-            combined_keywords=list(topic.keywords),
-            combined_categories=list(topic.categories),
+            combined_terms=list(topic.terms),
             total_engagement=engagement,
         )
 
@@ -199,20 +191,13 @@ class TopicClusterer:
         cluster.related_topics.append(topic)
 
         # Add source
-        source_name = topic.metrics.get("metadata", {}).get("source_name", "unknown")
-        if not source_name or source_name == "unknown":
-            source_name = self._extract_source_name(topic)
+        source_name = topic.metadata.get("source_name", "unknown")
         cluster.sources.add(source_name)
 
-        # Merge keywords (deduplicated)
-        for kw in topic.keywords:
-            if kw not in cluster.combined_keywords:
-                cluster.combined_keywords.append(kw)
-
-        # Merge categories (deduplicated)
-        for cat in topic.categories:
-            if cat not in cluster.combined_categories:
-                cluster.combined_categories.append(cat)
+        # Merge terms (deduplicated)
+        for term in topic.terms:
+            if term not in cluster.combined_terms:
+                cluster.combined_terms.append(term)
 
         # Update engagement
         cluster.total_engagement += self._calculate_engagement(topic)
@@ -227,7 +212,7 @@ class TopicClusterer:
     ) -> float:
         """Calculate similarity between two topics.
 
-        Uses weighted combination of keyword and title similarity.
+        Uses weighted combination of term and title similarity.
 
         Args:
             topic1: First topic
@@ -236,19 +221,19 @@ class TopicClusterer:
         Returns:
             Similarity score (0-1)
         """
-        # Keyword similarity (Jaccard)
-        kw1 = set(topic1.keywords)
-        kw2 = set(topic2.keywords)
+        # Term similarity (Jaccard)
+        terms1 = set(topic1.terms)
+        terms2 = set(topic2.terms)
 
-        if kw1 and kw2:
-            keyword_overlap = len(kw1 & kw2)
-            keyword_jaccard = keyword_overlap / len(kw1 | kw2)
+        if terms1 and terms2:
+            term_overlap = len(terms1 & terms2)
+            term_jaccard = term_overlap / len(terms1 | terms2)
 
-            # Require minimum keyword overlap
-            if keyword_overlap < self.min_keyword_overlap:
-                keyword_jaccard *= 0.5  # Penalize low overlap
+            # Require minimum term overlap
+            if term_overlap < self.min_term_overlap:
+                term_jaccard *= 0.5  # Penalize low overlap
         else:
-            keyword_jaccard = 0.0
+            term_jaccard = 0.0
 
         # Title similarity (n-gram based)
         title_sim = self._title_similarity(
@@ -256,14 +241,8 @@ class TopicClusterer:
             topic2.title_normalized,
         )
 
-        # Category bonus
-        cat_overlap = len(set(topic1.categories) & set(topic2.categories))
-        category_bonus = min(cat_overlap * 0.1, 0.2)
-
         # Combined similarity
-        combined = (
-            self.keyword_weight * keyword_jaccard + self.title_weight * title_sim + category_bonus
-        )
+        combined = self.term_weight * term_jaccard + self.title_weight * title_sim
 
         return min(combined, 1.0)
 
@@ -341,42 +320,13 @@ class TopicClusterer:
         engagement = 0
 
         # Common metric names
-        engagement += metrics.get("score", 0)
-        engagement += metrics.get("upvotes", 0)
-        engagement += metrics.get("views", 0) // 100  # Normalize views
-        engagement += metrics.get("recommends", 0)
-        engagement += metrics.get("comments", 0) * 2  # Comments are valuable
+        engagement += int(metrics.get("score", 0))
+        engagement += int(metrics.get("upvotes", 0))
+        engagement += int(metrics.get("views", 0)) // 100  # Normalize views
+        engagement += int(metrics.get("recommends", 0))
+        engagement += int(metrics.get("comments", 0)) * 2  # Comments are valuable
 
         return engagement
-
-    def _extract_source_name(self, topic: ScoredTopic) -> str:
-        """Extract source name from topic.
-
-        Args:
-            topic: Topic to extract source from
-
-        Returns:
-            Source name string
-        """
-        url = str(topic.source_url).lower()
-
-        # Known sources
-        source_patterns = {
-            "reddit.com": "Reddit",
-            "news.ycombinator.com": "HackerNews",
-            "dcinside.com": "디시인사이드",
-            "clien.net": "클리앙",
-            "ruliweb.com": "루리웹",
-            "fmkorea.com": "FM코리아",
-            "sbs.co.kr": "SBS",
-            "khan.co.kr": "경향신문",
-        }
-
-        for pattern, name in source_patterns.items():
-            if pattern in url:
-                return name
-
-        return "unknown"
 
 
 def cluster_topics(

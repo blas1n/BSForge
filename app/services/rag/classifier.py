@@ -4,9 +4,9 @@ This module provides LLM-based classification for content chunks when
 pattern-based classification is insufficient.
 """
 
-from app.core.config import settings
+from app.core.config import get_config
 from app.core.logging import get_logger
-from app.infrastructure.llm import LLMClient, LLMConfig, get_llm_client
+from app.infrastructure.llm import LLMClient, LLMConfig
 from app.prompts.manager import PromptType, get_prompt_manager
 
 logger = get_logger(__name__)
@@ -27,17 +27,17 @@ class ContentClassifier:
 
     def __init__(
         self,
-        llm_client: LLMClient | None = None,
+        llm_client: LLMClient,
         model: str | None = None,
     ):
         """Initialize ContentClassifier.
 
         Args:
-            llm_client: LLMClient instance (default: singleton)
+            llm_client: LLMClient instance
             model: Model name in LiteLLM format (default: from settings)
         """
-        self.llm_client = llm_client or get_llm_client()
-        self.model = model or settings.llm_model_light
+        self.llm_client = llm_client
+        self.model = model or get_config().llm_model_light
         self.prompt_manager = get_prompt_manager()
 
     async def classify_characteristics(self, text: str) -> dict[str, bool]:

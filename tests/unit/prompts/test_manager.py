@@ -38,7 +38,7 @@ class TestPromptManager:
 
         assert isinstance(template, PromptTemplate)
         assert template.name == "Classification Prompt"
-        assert template.version == "1.1.0"
+        assert template.version == "1.2.0"
         assert "${text_to_analyze}" in template.template
         # Check LLM settings are loaded
         assert template.llm_settings.model == "anthropic/claude-3-5-haiku-20241022"
@@ -48,7 +48,7 @@ class TestPromptManager:
     def test_load_scene_script_prompt_openai(self):
         """Should load scene script generation prompt with OpenAI model."""
         manager = PromptManager()
-        template = manager.load(PromptType.SCENE_SCRIPT_GENERATION)
+        template = manager.load(PromptType.SCRIPT_GENERATION)
 
         assert isinstance(template, PromptTemplate)
         assert template.name == "Scene Script Generation Prompt"
@@ -60,7 +60,7 @@ class TestPromptManager:
     def test_get_llm_settings(self):
         """Should return LLMSettings from prompt template."""
         manager = PromptManager()
-        settings = manager.get_llm_settings(PromptType.SCENE_SCRIPT_GENERATION)
+        settings = manager.get_llm_settings(PromptType.SCRIPT_GENERATION)
 
         assert isinstance(settings, LLMSettings)
         assert settings.model == "openai/gpt-4o-mini"
@@ -93,8 +93,7 @@ class TestPromptManager:
 
         assert "OpenAI releases GPT-4.5" in rendered
         assert "${" not in rendered
-        assert "categories" in rendered
-        assert "keywords" in rendered
+        assert "terms" in rendered
         assert "entities" in rendered
 
     def test_cache_templates(self):
