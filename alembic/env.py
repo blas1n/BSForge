@@ -10,8 +10,6 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 
 from alembic import context
-
-# TODO: This module uses get_config() directly. Consider DI if Alembic supports it.
 from app.core.config import get_config
 
 # Import Base and ALL models for autogenerate
