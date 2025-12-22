@@ -63,6 +63,7 @@ class ChannelConfig(BaseModel):
     channel: ChannelInfo
     persona: PersonaConfig
     topic_collection: TopicCollectionConfig
+    filtering: FilteringConfig = Field(default_factory=FilteringConfig)
     scoring: ScoringConfig
     content: ContentConfig
     upload: UploadConfig

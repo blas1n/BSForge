@@ -74,18 +74,16 @@ persona:
 
 # 주제 수집 설정
 topic_collection:
-  # 지역 비중
-  region_weights:
-    domestic: 0.3
-    foreign: 0.7
+  # 번역 대상 언어
+  target_language: ko
 
-  # 활성화된 소스
-  enabled_sources:
-    - "reddit"
+  # Global sources: 전체 채널에서 공유되는 소스 (캐시됨)
+  global_sources:
     - "hackernews"
-    - "techcrunch"
-    - "clien"
-    - "yozm"
+
+  # Scoped sources: 채널별 파라미터로 수집되는 소스
+  scoped_sources:
+    - "reddit"
 
   # 소스별 설정
   source_overrides:
@@ -100,11 +98,6 @@ topic_collection:
       weight: 1.3
       filters:
         min_score: 100
-    clien:
-      weight: 1.0
-      params:
-        boards:
-          - "it"  # IT수다
 
   # 트렌드 설정
   trend_config:
@@ -115,6 +108,16 @@ topic_collection:
       - "KR"
       - "US"
     min_growth_rate: 50
+
+# 콘텐츠 필터링
+filtering:
+  # 포함 용어 (하나라도 포함 필요)
+  include:
+    - "technology"
+
+  # 제외 용어
+  exclude:
+    - "Any"
 
 # 스코어링 가중치
 scoring:
@@ -134,7 +137,7 @@ scoring:
 content:
   # 형식
   format: "shorts"  # shorts | long
-  target_duration: 55  # 초 (Shorts 최대 60초)
+  target_duration: 55  # 초
 
   # 비주얼
   visual:
@@ -150,6 +153,7 @@ content:
     font_size: 48
     position: "bottom"
     highlight_current_word: true
+    accent_color: "#00d4ff"
 
 # 업로드 설정
 upload:
@@ -175,13 +179,13 @@ operation:
   # 검수 단계
   review_gates:
     topic: "auto"      # auto | manual | hybrid
-    script: "manual"
-    video: "manual"
-    upload: "auto"
+    script: "auto"
+    video: "auto"
+    upload: "manual"
 
   # 자동 승인 조건
   auto_approve:
-    max_risk_score: 20
+    max_risk_score: 30
     require_series_match: false
 
   # 알림
@@ -189,3 +193,18 @@ operation:
     telegram: true
     new_review: true
     daily_summary: true
+
+  # 배경음악 설정
+bgm:
+  enabled: true
+  volume: 0.08
+  cache_dir: "/workspace/data/bgm"
+  selection_mode: "random"
+  tracks:
+    # Audio Library - Royalty Free Music
+    - name: "upbeat_corporate"
+      youtube_url: "https://www.youtube.com/watch?v=cxWhnfQtcug"
+    - name: "modern_technology"
+      youtube_url: "https://www.youtube.com/watch?v=Hiq53IyRnGI"
+    - name: "inspiring_cinematic"
+      youtube_url: "https://www.youtube.com/watch?v=kUPW9fOYrHI"

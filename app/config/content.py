@@ -61,16 +61,28 @@ class TopicCollectionConfig(BaseModel):
     """Topic collection configuration.
 
     Attributes:
-        region_weights: Regional content weights
-        enabled_sources: List of enabled sources
+        global_sources: Global source types (hackernews, google_trends, youtube_trending)
+        scoped_sources: Scoped source types (reddit, dcinside, etc.)
+        target_language: Target language for translation (default: ko)
         source_overrides: Source-specific overrides
         trend_config: Trend detection settings
     """
 
-    region_weights: RegionWeights
-    enabled_sources: list[str] = Field(..., min_length=1)
-    source_overrides: dict[str, SourceOverride] = Field(default_factory=dict)
+    global_sources: list[str] = Field(default_factory=list)
+    scoped_sources: list[str] = Field(default_factory=list)
+    target_language: str = Field(default="ko")
+
+    source_overrides: dict[str, Any] = Field(default_factory=dict)
     trend_config: TrendConfig = Field(default_factory=TrendConfig)
+
+    @model_validator(mode="after")
+    def validate_sources(self) -> "TopicCollectionConfig":
+        """Validate that at least one source is configured."""
+        if not self.global_sources and not self.scoped_sources:
+            raise ValueError(
+                "At least one source must be configured (global_sources or scoped_sources)"
+            )
+        return self
 
 
 class ScoringWeights(BaseModel):

@@ -442,7 +442,7 @@ class ScriptGenerator:
                 position=chunk.position,
                 is_opinion=chunk.is_opinion,
                 is_example=chunk.is_example,
-                keywords=chunk.keywords,
+                keywords=chunk.terms or [],
             )
             chunk.embedding = embedding
 
