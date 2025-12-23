@@ -44,8 +44,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     command: >
-      postgres
-      -c shared_preload_libraries=pg_search
+      postgres -c shared_preload_libraries=pg_search
     volumes:
       - postgres-data:/var/lib/postgresql/data
     ports:
@@ -77,11 +76,46 @@ services:
     networks:
       - bsforge-network
 
+  # Stable Diffusion Service (SDXL Turbo)
+  # TODO: Mac GPU (Metal/MPS) support in Docker
+  #   - Docker cannot access Mac GPU (Apple blocks virtualized Metal access)
+  #   - Mac users fall back to CPU mode, or must run SD server on host
+  #     and change stable_diffusion.service_url accordingly
+  sd:
+    build:
+      context: ..
+      dockerfile: .devcontainer/sd.Dockerfile
+    container_name: sd
+    restart: unless-stopped
+    environment:
+      - SD_DEVICE=auto
+      - HF_HOME=/root/.cache/huggingface
+    ports:
+      - "7860:7860"
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:7860/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    networks:
+      - bsforge-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu ]
+
 volumes:
   claude-code-bashhistory:
   claude-code-config:
   postgres-data:
   redis-data:
+  huggingface-cache:
 
 
 networks:

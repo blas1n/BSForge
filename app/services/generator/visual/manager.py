@@ -2,6 +2,14 @@
 
 Orchestrates visual asset sourcing from multiple sources with priority-based fallback.
 Supports scene-based visual sourcing for BSForge's scene architecture.
+
+Source priority (configurable):
+1. Pexels videos
+2. Pixabay videos
+3. Pexels images
+4. Pixabay images
+5. AI images (Stable Diffusion or DALL-E)
+6. Fallback (solid color/gradient)
 """
 
 import logging
@@ -10,10 +18,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from app.config.video import VisualConfig
-from app.services.generator.visual.ai_image import AIImageGenerator
 from app.services.generator.visual.base import VisualAsset
+from app.services.generator.visual.dall_e import DALLEGenerator
 from app.services.generator.visual.fallback import FallbackGenerator
 from app.services.generator.visual.pexels import PexelsClient
+from app.services.generator.visual.pixabay import PixabayClient
+from app.services.generator.visual.stable_diffusion import StableDiffusionGenerator
 
 if TYPE_CHECKING:
     from app.models.scene import Scene, VisualHintType
@@ -46,9 +56,11 @@ class VisualSourcingManager:
 
     Orchestrates sourcing from:
     1. Stock videos (Pexels)
-    2. Stock images (Pexels)
-    3. AI-generated images (DALL-E)
-    4. Fallback backgrounds (solid/gradient)
+    2. Stock videos (Pixabay)
+    3. Stock images (Pexels)
+    4. Stock images (Pixabay)
+    5. AI-generated images (Stable Diffusion or DALL-E)
+    6. Fallback backgrounds (solid/gradient)
 
     Example:
         >>> manager = VisualSourcingManager()
@@ -63,7 +75,9 @@ class VisualSourcingManager:
         self,
         config: VisualConfig | None = None,
         pexels_client: PexelsClient | None = None,
-        ai_generator: AIImageGenerator | None = None,
+        pixabay_client: PixabayClient | None = None,
+        dalle_generator: DALLEGenerator | None = None,
+        sd_generator: StableDiffusionGenerator | None = None,
         fallback_generator: FallbackGenerator | None = None,
     ) -> None:
         """Initialize VisualSourcingManager.
@@ -71,12 +85,16 @@ class VisualSourcingManager:
         Args:
             config: Visual configuration
             pexels_client: Optional Pexels client instance
-            ai_generator: Optional AI image generator instance
+            pixabay_client: Optional Pixabay client instance
+            dalle_generator: Optional DALL-E generator instance
+            sd_generator: Optional Stable Diffusion generator instance
             fallback_generator: Optional fallback generator instance
         """
         self.config = config or VisualConfig()
         self._pexels = pexels_client or PexelsClient()
-        self._ai_generator = ai_generator or AIImageGenerator()
+        self._pixabay = pixabay_client or PixabayClient()
+        self._dalle_generator = dalle_generator or DALLEGenerator()
+        self._sd_generator = sd_generator  # Lazy initialized if needed
         self._fallback = fallback_generator or FallbackGenerator(
             default_color=self.config.fallback_color,
             default_gradient=self.config.fallback_gradient,
@@ -204,7 +222,7 @@ class VisualSourcingManager:
         query = " ".join(keywords[:3])  # Use first 3 keywords
         max_results = max(1, int(duration_needed / image_duration) + 2)
 
-        if source_type == "stock_video":
+        if source_type == "pexels_video":
             return await self._pexels.search_videos(
                 query=query,
                 max_results=max_results,
@@ -212,16 +230,37 @@ class VisualSourcingManager:
                 min_duration=3.0,
             )
 
-        elif source_type == "stock_image":
+        elif source_type == "pixabay_video":
+            return await self._pixabay.search_videos(
+                query=query,
+                max_results=max_results,
+                orientation=orientation,
+                min_duration=3.0,
+            )
+
+        elif source_type == "pexels_image":
             return await self._pexels.search_images(
                 query=query,
                 max_results=max_results,
                 orientation=orientation,
             )
 
-        elif source_type == "ai_image":
-            # Generate 1-2 AI images
-            return await self._ai_generator.generate(
+        elif source_type == "pixabay_image":
+            return await self._pixabay.search_images(
+                query=query,
+                max_results=max_results,
+                orientation=orientation,
+            )
+
+        elif source_type == "stable_diffusion":
+            return await self._generate_with_sd(
+                prompt=self._build_ai_prompt(keywords),
+                count=min(2, max_results),
+                orientation=orientation,
+            )
+
+        elif source_type == "dalle":
+            return await self._dalle_generator.generate(
                 prompt=self._build_ai_prompt(keywords),
                 count=min(2, max_results),
                 orientation=orientation,
@@ -237,6 +276,38 @@ class VisualSourcingManager:
         else:
             logger.warning(f"Unknown source type: {source_type}")
             return []
+
+    async def _generate_with_sd(
+        self,
+        prompt: str,
+        count: int,
+        orientation: Literal["portrait", "landscape", "square"],
+    ) -> list[VisualAsset]:
+        """Generate images with Stable Diffusion.
+
+        Lazily initializes SD generator and checks availability.
+
+        Args:
+            prompt: Image prompt
+            count: Number of images
+            orientation: Image orientation
+
+        Returns:
+            List of generated assets, empty if SD unavailable
+        """
+        # Lazy initialize SD generator
+        if self._sd_generator is None:
+            self._sd_generator = StableDiffusionGenerator(config=self.config.stable_diffusion)
+
+        # Check if SD service is available
+        if not await self._sd_generator.is_available():
+            return []
+
+        return await self._sd_generator.generate(
+            prompt=prompt,
+            count=count,
+            orientation=orientation,
+        )
 
     async def _download_asset(
         self,
@@ -254,8 +325,14 @@ class VisualSourcingManager:
         """
         if asset.source == "pexels":
             return await self._pexels.download(asset, output_dir)
+        elif asset.source == "pixabay":
+            return await self._pixabay.download(asset, output_dir)
         elif asset.source == "dalle":
-            return await self._ai_generator.download(asset, output_dir)
+            return await self._dalle_generator.download(asset, output_dir)
+        elif asset.source == "stable_diffusion":
+            if self._sd_generator is None:
+                self._sd_generator = StableDiffusionGenerator(config=self.config.stable_diffusion)
+            return await self._sd_generator.download(asset, output_dir)
         elif asset.source == "fallback":
             return await self._fallback.download(asset, output_dir)
         else:
@@ -398,19 +475,19 @@ class VisualSourcingManager:
 
         # Map visual hint to source type
         hint_to_source = {
-            VisualHintType.STOCK_VIDEO: "stock_video",
-            VisualHintType.STOCK_IMAGE: "stock_image",
-            VisualHintType.AI_GENERATED: "ai_image",
+            VisualHintType.STOCK_VIDEO: "pexels_video",
+            VisualHintType.STOCK_IMAGE: "pexels_image",
+            VisualHintType.AI_GENERATED: "stable_diffusion",
             VisualHintType.TEXT_OVERLAY: "solid_color",
             VisualHintType.SOLID_COLOR: "solid_color",
         }
 
-        preferred_source = hint_to_source.get(visual_hint, "stock_image")
+        preferred_source = hint_to_source.get(visual_hint, "pexels_image")
 
         # Build source priority based on hint
         # Preferred source first, then fallback through others
         source_order = [preferred_source]
-        for src in ["stock_image", "stock_video", "ai_image", "solid_color"]:
+        for src in ["pexels_image", "pexels_video", "stable_diffusion", "dalle", "solid_color"]:
             if src not in source_order:
                 source_order.append(src)
 
@@ -481,7 +558,10 @@ class VisualSourcingManager:
     async def close(self) -> None:
         """Close all clients."""
         await self._pexels.close()
-        await self._ai_generator.close()
+        await self._pixabay.close()
+        await self._dalle_generator.close()
+        if self._sd_generator:
+            await self._sd_generator.close()
 
 
 __all__ = ["VisualSourcingManager", "SceneVisualResult"]
