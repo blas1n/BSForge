@@ -118,11 +118,6 @@ class InfrastructureContainer(containers.DeclarativeContainer):
     # LLM Clients
     # ============================================
 
-    anthropic_client = providers.Singleton(
-        "anthropic.AsyncAnthropic",
-        api_key=global_config.provided.anthropic_api_key,
-    )
-
     # Unified LLM client (LiteLLM-based, provider-agnostic)
     llm_client = providers.Singleton(
         "app.infrastructure.llm.LLMClient",
@@ -357,7 +352,7 @@ class ServiceContainer(containers.DeclarativeContainer):
         retrieval_config=configs.retrieval_config,
         query_config=configs.query_expansion_config,
         bm25_search=infrastructure.bm25_search,
-        llm_client=infrastructure.anthropic_client,
+        llm_client=infrastructure.llm_client,
     )
 
     rag_reranker = providers.Factory(

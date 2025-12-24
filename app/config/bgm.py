@@ -50,7 +50,7 @@ class BGMConfig(BaseModel):
         description="BGM volume (0.0-1.0)",
     )
     cache_dir: str = Field(
-        default="/data/bgm",
+        default="data/bgm",
         description="Path for caching downloaded BGM files",
     )
     selection_mode: str = Field(

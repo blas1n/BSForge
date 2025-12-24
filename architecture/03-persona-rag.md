@@ -83,7 +83,6 @@ interface Persona {
 
   // === 관점/사고방식 ===
   perspective: {
-    approach: 'analytical' | 'practical' | 'creative' | 'balanced';
     coreValues: string[];              // ["실용성", "솔직함", "깊이"]
     biases: string[];                  // 인정하는 편향
     contrarian?: string[];             // 주류와 다른 의견 (있다면)
@@ -183,7 +182,6 @@ const techPersona: Persona = {
   },
 
   perspective: {
-    approach: 'practical',
     coreValues: ['실용성', '솔직함', '깊이있는 단순함'],
     biases: [
       '오버엔지니어링 싫어함',

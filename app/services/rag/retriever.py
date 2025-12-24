@@ -7,13 +7,13 @@ and specialized retrievers for opinions, examples, and hooks.
 import uuid
 from datetime import datetime
 
-from anthropic import AsyncAnthropic
 from sqlalchemy import and_, select
 
 from app.config.rag import QueryExpansionConfig, RetrievalConfig
 from app.core.logging import get_logger
 from app.core.types import SessionFactory
 from app.infrastructure.bm25_search import BM25Search
+from app.infrastructure.llm import LLMClient, LLMConfig
 from app.infrastructure.pgvector_db import PgVectorDB
 from app.models.content_chunk import ChunkPosition, ContentChunk
 from app.prompts.manager import PromptManager, PromptType, get_prompt_manager
@@ -117,7 +117,7 @@ class RAGRetriever:
         retrieval_config: RetrievalConfig,
         query_config: QueryExpansionConfig,
         bm25_search: BM25Search | None = None,
-        llm_client: AsyncAnthropic | None = None,
+        llm_client: LLMClient | None = None,
         prompt_manager: PromptManager | None = None,
     ):
         """Initialize RAGRetriever.
@@ -247,7 +247,7 @@ class RAGRetriever:
         return results
 
     async def _expand_query(self, query: str) -> list[str]:
-        """Expand query using Claude API.
+        """Expand query using LLM.
 
         Generates additional related queries to improve recall.
 
@@ -269,21 +269,17 @@ class RAGRetriever:
                 num_expansions=self.query_config.num_expansions,
             )
 
-            # Get LLM settings from template
+            # Get LLM settings from template and create config
             llm_settings = self.prompt_manager.get_llm_settings(PromptType.QUERY_EXPANSION)
+            llm_config = LLMConfig.from_prompt_settings(llm_settings)
 
-            response = await self.llm_client.messages.create(
-                model=llm_settings.model,
-                max_tokens=llm_settings.max_tokens,
+            # Use unified LLMClient (handles provider prefixes via LiteLLM)
+            response = await self.llm_client.complete(
+                config=llm_config,
                 messages=[{"role": "user", "content": prompt}],
             )
 
-            # Extract text from response
-            content_block = response.content[0]
-            if not hasattr(content_block, "text"):
-                raise ValueError(f"Unexpected content type: {type(content_block)}")
-
-            expanded_text = content_block.text.strip()
+            expanded_text = response.content.strip()
             expanded_queries = [q.strip() for q in expanded_text.split("\n") if q.strip()]
 
             # Return original + expanded
