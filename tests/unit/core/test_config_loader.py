@@ -51,7 +51,7 @@ def valid_config_data():
                 "formality": "casual",
             },
             "perspective": {
-                "approach": "practical",
+                "core_values": ["실용성"],
             },
         },
         "topic_collection": {

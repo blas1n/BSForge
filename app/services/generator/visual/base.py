@@ -39,6 +39,7 @@ class VisualAsset:
         license: License information
         keywords: Keywords/tags associated with the asset
         metadata: Additional metadata
+        metadata_score: Metadata matching score (0.0-1.0) from title/tags
     """
 
     type: VisualSourceType
@@ -54,6 +55,7 @@ class VisualAsset:
     license: str | None = None
     keywords: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+    metadata_score: float | None = None
 
     @property
     def is_video(self) -> bool:

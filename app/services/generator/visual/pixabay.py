@@ -22,6 +22,60 @@ logger = logging.getLogger(__name__)
 PIXABAY_API_BASE = "https://pixabay.com/api"
 
 
+def _calculate_metadata_score(query: str, result: dict[str, Any]) -> float:
+    """Calculate metadata matching score between query and result.
+
+    Uses tags and page URL to determine relevance.
+    Score is based on keyword token overlap.
+
+    Args:
+        query: Search query
+        result: API result dict with potential metadata
+
+    Returns:
+        Score between 0.0 and 1.0
+    """
+    # Normalize query tokens
+    query_tokens = set(query.lower().split())
+    if not query_tokens:
+        return 0.0
+
+    # Gather metadata text
+    metadata_text = []
+
+    # Get tags (Pixabay provides comma-separated tags)
+    tags = result.get("tags", "")
+    if tags:
+        metadata_text.append(tags.lower())
+
+    # Get page URL (contains descriptive slug)
+    page_url = result.get("pageURL", "")
+    if page_url:
+        # Extract meaningful parts from URL
+        parts = page_url.replace("-", " ").replace("_", " ").replace("/", " ").lower()
+        metadata_text.append(parts)
+
+    # Get user (sometimes indicative of theme)
+    user = result.get("user", "")
+    if user:
+        metadata_text.append(user.lower())
+
+    # Combine all metadata
+    full_text = " ".join(metadata_text)
+    if not full_text.strip():
+        # No metadata available, return neutral score
+        return 0.5
+
+    # Calculate token overlap
+    text_tokens = set(full_text.replace(",", " ").split())
+    matches = query_tokens & text_tokens
+
+    # Score = matched tokens / query tokens
+    score = len(matches) / len(query_tokens)
+
+    return min(1.0, score)
+
+
 class PixabayClient(BaseVisualSource):
     """Pixabay API client for stock video and image sourcing.
 
@@ -190,6 +244,7 @@ class PixabayClient(BaseVisualSource):
                         "views": video.get("views"),
                         "downloads": video.get("downloads"),
                     },
+                    metadata_score=_calculate_metadata_score(query, video),
                 )
             )
 
@@ -278,6 +333,7 @@ class PixabayClient(BaseVisualSource):
                         "views": photo.get("views"),
                         "downloads": photo.get("downloads"),
                     },
+                    metadata_score=_calculate_metadata_score(query, photo),
                 )
             )
 

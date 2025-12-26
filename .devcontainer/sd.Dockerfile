@@ -3,9 +3,11 @@
 
 FROM python:3.11-slim
 
-# System dependencies for image processing
+# System dependencies for image processing and OpenCV
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
+    libgl1 \
+    libglib2.0-dev \
     curl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
@@ -22,7 +24,8 @@ RUN pip install --no-cache-dir \
     fastapi>=0.109.0 \
     uvicorn>=0.27.0 \
     httpx>=0.26.0 \
-    pillow>=10.0.0
+    pillow>=10.0.0 \
+    opencv-python-headless>=4.9.0
 
 # Copy SD server
 COPY services/sd/sd_server.py /app/

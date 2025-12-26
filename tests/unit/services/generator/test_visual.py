@@ -10,6 +10,7 @@ from app.config.video import (
     StableDiffusionConfig,
     VisualConfig,
 )
+from app.infrastructure.http_client import HTTPClient
 from app.services.generator.visual.base import VisualAsset, VisualSourceType
 from app.services.generator.visual.fallback import FallbackGenerator
 from app.services.generator.visual.manager import VisualSourcingManager
@@ -155,14 +156,21 @@ class TestVisualSourcingManager:
         return generator
 
     @pytest.fixture
+    def http_client(self) -> HTTPClient:
+        """Create HTTP client."""
+        return HTTPClient()
+
+    @pytest.fixture
     def manager(
         self,
+        http_client: HTTPClient,
         mock_pexels: AsyncMock,
         mock_dalle_generator: AsyncMock,
         mock_fallback: AsyncMock,
     ) -> VisualSourcingManager:
         """Create a VisualSourcingManager with mocked dependencies."""
         return VisualSourcingManager(
+            http_client=http_client,
             config=VisualConfig(),
             pexels_client=mock_pexels,
             dalle_generator=mock_dalle_generator,
@@ -276,31 +284,6 @@ class TestPixabayConfig:
         assert config.min_duration == 10
 
 
-class TestStableDiffusionConfig:
-    """Test Stable Diffusion configuration."""
-
-    def test_default_config(self) -> None:
-        """Test default SD configuration."""
-        config = StableDiffusionConfig()
-
-        assert config.service_url == "http://sd:7860"
-        assert config.enabled is True
-        assert config.num_inference_steps == 4  # Turbo
-        assert config.guidance_scale == 0.0  # Turbo
-
-    def test_custom_config(self) -> None:
-        """Test custom SD configuration."""
-        config = StableDiffusionConfig(
-            service_url="http://localhost:7860",
-            timeout=60.0,
-            num_inference_steps=8,
-        )
-
-        assert config.service_url == "http://localhost:7860"
-        assert config.timeout == 60.0
-        assert config.num_inference_steps == 8
-
-
 class TestPixabayClient:
     """Test suite for PixabayClient."""
 
@@ -365,6 +348,11 @@ class TestStableDiffusionGenerator:
     """Test suite for StableDiffusionGenerator."""
 
     @pytest.fixture
+    def http_client(self) -> HTTPClient:
+        """Create HTTP client."""
+        return HTTPClient()
+
+    @pytest.fixture
     def config(self) -> StableDiffusionConfig:
         """Create SD config."""
         return StableDiffusionConfig(
@@ -373,15 +361,17 @@ class TestStableDiffusionGenerator:
         )
 
     @pytest.fixture
-    def generator(self, config: StableDiffusionConfig) -> StableDiffusionGenerator:
+    def generator(
+        self, http_client: HTTPClient, config: StableDiffusionConfig
+    ) -> StableDiffusionGenerator:
         """Create a StableDiffusionGenerator instance."""
-        return StableDiffusionGenerator(config=config)
+        return StableDiffusionGenerator(http_client=http_client, config=config)
 
     @pytest.fixture
-    def disabled_generator(self) -> StableDiffusionGenerator:
+    def disabled_generator(self, http_client: HTTPClient) -> StableDiffusionGenerator:
         """Create a disabled StableDiffusionGenerator instance."""
         config = StableDiffusionConfig(enabled=False)
-        return StableDiffusionGenerator(config=config)
+        return StableDiffusionGenerator(http_client=http_client, config=config)
 
     @pytest.mark.asyncio
     async def test_is_available_returns_false_when_disabled(
@@ -427,27 +417,6 @@ class TestStableDiffusionGenerator:
         )
 
         assert assets == []
-
-    def test_get_dimensions_portrait(self, generator: StableDiffusionGenerator) -> None:
-        """Test dimension calculation for portrait orientation."""
-        width, height = generator._get_dimensions("portrait")
-
-        assert width == 512
-        assert height == 768
-
-    def test_get_dimensions_landscape(self, generator: StableDiffusionGenerator) -> None:
-        """Test dimension calculation for landscape orientation."""
-        width, height = generator._get_dimensions("landscape")
-
-        assert width == 768
-        assert height == 512
-
-    def test_get_dimensions_square(self, generator: StableDiffusionGenerator) -> None:
-        """Test dimension calculation for square orientation."""
-        width, height = generator._get_dimensions("square")
-
-        assert width == 512
-        assert height == 512
 
     @pytest.mark.asyncio
     async def test_download_saves_base64_image(
@@ -524,8 +493,14 @@ class TestVisualSourcingManagerWithPixabay:
         return generator
 
     @pytest.fixture
+    def http_client(self) -> HTTPClient:
+        """Create HTTP client."""
+        return HTTPClient()
+
+    @pytest.fixture
     def manager_with_all_sources(
         self,
+        http_client: HTTPClient,
         mock_pixabay: AsyncMock,
         mock_sd_generator: AsyncMock,
     ) -> VisualSourcingManager:
@@ -546,6 +521,7 @@ class TestVisualSourcingManagerWithPixabay:
         mock_fallback.download = AsyncMock()
 
         return VisualSourcingManager(
+            http_client=http_client,
             config=VisualConfig(),
             pexels_client=mock_pexels,
             pixabay_client=mock_pixabay,
@@ -576,10 +552,8 @@ class TestVisualSourcingManagerWithPixabay:
         self,
         manager_with_all_sources: VisualSourcingManager,
         mock_pixabay: AsyncMock,
-        mock_sd_generator: AsyncMock,
     ) -> None:
-        """Test that close() closes all clients including Pixabay and SD."""
+        """Test that close() closes all clients including Pixabay."""
         await manager_with_all_sources.close()
 
         mock_pixabay.close.assert_called_once()
-        mock_sd_generator.close.assert_called_once()

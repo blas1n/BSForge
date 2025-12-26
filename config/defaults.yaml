@@ -90,3 +90,31 @@ video:
     height: 1920  # Shorts format (9:16)
   default_fps: 30
   default_format: "mp4"
+
+# Visual sourcing defaults
+visual:
+  # Scene types that reuse previous visual instead of sourcing new one
+  # Use lowercase scene type names: hook, content, commentary, cta, etc.
+  reuse_previous_visual_types:
+    - cta
+
+# Stable Diffusion (AI image generation)
+stable_diffusion:
+  service_url: "http://sd:7860"
+  enabled: true
+  timeout: 120.0
+
+  # Generation parameters
+  base_width: 768
+  base_height: 1024
+  output_width: 1080
+  output_height: 1920
+  num_inference_steps: 8
+  guidance_scale: 2.0
+
+  # Prompts
+  negative_prompt: "blurry, low quality, distorted, deformed, ugly, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, mutation"
+  ai_quality_suffix: "high quality, professional, sharp focus, 4k"
+
+  # img2img transformation
+  img2img_strength: 0.5

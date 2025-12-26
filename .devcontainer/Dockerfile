@@ -1,34 +1,26 @@
 FROM python:3.11-slim
 
-ARG TZ
-ENV TZ="$TZ"
-
 ARG CLAUDE_CODE_VERSION=latest
 
 # Use KAIST mirror for main repos (reliable Korean mirror)
 # Keep security.debian.org as-is (no mirror needed)
 RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
-        sed -i 's|http://deb.debian.org/debian|http://ftp.kaist.ac.kr/debian|g' /etc/apt/sources.list.d/debian.sources; \
+    sed -i 's|http://deb.debian.org/debian|http://ftp.kaist.ac.kr/debian|g' /etc/apt/sources.list.d/debian.sources; \
     elif [ -f /etc/apt/sources.list ]; then \
-        sed -i 's|http://deb.debian.org/debian|http://ftp.kaist.ac.kr/debian|g' /etc/apt/sources.list; \
+    sed -i 's|http://deb.debian.org/debian|http://ftp.kaist.ac.kr/debian|g' /etc/apt/sources.list; \
     fi
 
 # Install basic development tools (without nodejs/npm from apt)
 # Retry logic for transient network failures
 RUN apt-get update && \
     for i in 1 2 3; do \
-        apt-get install -y --no-install-recommends \
-            less git procps sudo fzf curl zsh man-db unzip gnupg2 gh \
-            iptables ipset iproute2 dnsutils aggregate jq vim ca-certificates \
-            postgresql-client locales ffmpeg fonts-noto-cjk fonts-noto-cjk-extra \
-        && break || { echo "Retry $i..."; sleep 5; apt-get update; }; \
+    apt-get install -y --no-install-recommends \
+    less git procps sudo fzf curl zsh man-db unzip gnupg2 gh nodejs npm \
+    iptables ipset iproute2 dnsutils aggregate jq vim ca-certificates \
+    postgresql-client locales ffmpeg fonts-noto-cjk fonts-noto-cjk-extra \
+    && break || { echo "Retry $i..."; sleep 5; apt-get update; }; \
     done && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# Install Node.js 20 LTS from NodeSource (avoids Debian package conflicts)
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Generate locale
 RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && \

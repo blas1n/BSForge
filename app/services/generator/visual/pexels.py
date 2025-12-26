@@ -22,6 +22,60 @@ logger = logging.getLogger(__name__)
 PEXELS_API_BASE = "https://api.pexels.com"
 
 
+def _calculate_metadata_score(query: str, result: dict[str, Any]) -> float:
+    """Calculate metadata matching score between query and result.
+
+    Uses title, description, and keywords to determine relevance.
+    Score is based on keyword token overlap.
+
+    Args:
+        query: Search query
+        result: API result dict with potential metadata
+
+    Returns:
+        Score between 0.0 and 1.0
+    """
+    # Normalize query tokens
+    query_tokens = set(query.lower().split())
+    if not query_tokens:
+        return 0.0
+
+    # Gather metadata text
+    metadata_text = []
+
+    # Get URL (often contains descriptive text like "pexels-photo-1234-mountain-sunset")
+    url = result.get("url", "")
+    if url:
+        # Extract meaningful parts from URL
+        parts = url.replace("-", " ").replace("_", " ").lower()
+        metadata_text.append(parts)
+
+    # Get photographer (can be indicative of theme)
+    photographer = result.get("user", {}).get("name", "") or result.get("photographer", "")
+    if photographer:
+        metadata_text.append(photographer.lower())
+
+    # Get alt text (Pexels images have this)
+    alt = result.get("alt", "")
+    if alt:
+        metadata_text.append(alt.lower())
+
+    # Combine all metadata
+    full_text = " ".join(metadata_text)
+    if not full_text.strip():
+        # No metadata available, return neutral score
+        return 0.5
+
+    # Calculate token overlap
+    text_tokens = set(full_text.split())
+    matches = query_tokens & text_tokens
+
+    # Score = matched tokens / query tokens
+    score = len(matches) / len(query_tokens)
+
+    return min(1.0, score)
+
+
 class PexelsClient(BaseVisualSource):
     """Pexels API client for stock video and image sourcing.
 
@@ -177,6 +231,7 @@ class PexelsClient(BaseVisualSource):
                         "photographer": video.get("user", {}).get("name"),
                         "pexels_url": video.get("url"),
                     },
+                    metadata_score=_calculate_metadata_score(query, video),
                 )
             )
 
@@ -262,6 +317,7 @@ class PexelsClient(BaseVisualSource):
                         "pexels_url": photo.get("url"),
                         "avg_color": photo.get("avg_color"),
                     },
+                    metadata_score=_calculate_metadata_score(query, photo),
                 )
             )
 

@@ -60,24 +60,14 @@ class TransitionType(str, Enum):
     SLIDE = "slide"  # 0.4-0.6초, slide in from edge
 
 
-class VisualHintType(str, Enum):
-    """Hint for visual sourcing strategy."""
-
-    STOCK_VIDEO = "stock_video"  # Prefer stock video
-    STOCK_IMAGE = "stock_image"  # Prefer stock image
-    AI_GENERATED = "ai_generated"  # Use AI image generation
-    TEXT_OVERLAY = "text_overlay"  # Text on solid/gradient background
-    SOLID_COLOR = "solid_color"  # Simple solid color background
-
-
 # Scene type to visual style mapping
 SCENE_TYPE_STYLE_MAP: dict[SceneType, VisualStyle] = {
     SceneType.HOOK: VisualStyle.NEUTRAL,
     SceneType.INTRO: VisualStyle.NEUTRAL,
     SceneType.CONTENT: VisualStyle.NEUTRAL,
     SceneType.EXAMPLE: VisualStyle.NEUTRAL,
-    SceneType.COMMENTARY: VisualStyle.PERSONA,  # ← 페르소나 스타일
-    SceneType.REACTION: VisualStyle.PERSONA,  # ← 페르소나 스타일
+    SceneType.COMMENTARY: VisualStyle.PERSONA,
+    SceneType.REACTION: VisualStyle.PERSONA,
     SceneType.CONCLUSION: VisualStyle.EMPHASIS,
     SceneType.CTA: VisualStyle.EMPHASIS,
 }
@@ -132,7 +122,7 @@ class Scene(BaseModel):
         text: Display text for subtitles (original notation: GPT-4, Claude 3.5)
         tts_text: TTS pronunciation text (optional, only when differs from text)
         keyword: Primary keyword for visual search
-        visual_hint: Hint for visual sourcing strategy
+        visual_strategy: Visual sourcing strategy
         visual_style: Override visual style (auto-inferred from scene_type if None)
         transition_in: Transition effect entering this scene
         transition_out: Transition effect leaving this scene
@@ -157,10 +147,10 @@ class Scene(BaseModel):
     )
 
     # Visual
-    keyword: str | None = Field(default=None, description="Visual search keyword")
-    visual_hint: VisualHintType = Field(
-        default=VisualHintType.STOCK_IMAGE,
-        description="Visual sourcing strategy hint",
+    visual_keyword: str | None = Field(
+        default=None,
+        description="English keyword for visual search (Pexels/Pixabay/Stable Diffusion). "
+        "Should be 3-5 descriptive English words. Example: 'excited fans cheering concert'",
     )
     visual_style: VisualStyle | None = Field(
         default=None,

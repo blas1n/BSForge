@@ -275,11 +275,9 @@ def test_communication_style_valid():
 @pytest.mark.unit
 def test_perspective_valid():
     """Test valid perspective."""
-    perspective = Perspective(
-        approach="practical", core_values=["실용성"], contrarian_views=["AI 만능론 반대"]
-    )
-    assert perspective.approach == "practical"
+    perspective = Perspective(core_values=["실용성"], contrarian_views=["AI 만능론 반대"])
     assert len(perspective.core_values) == 1
+    assert len(perspective.contrarian_views) == 1
 
 
 @pytest.mark.unit
@@ -290,7 +288,7 @@ def test_persona_config_valid():
         tagline="Testing",
         voice=VoiceConfig(gender="male", service="edge-tts", voice_id="test"),
         communication=CommunicationStyle(tone="friendly", formality="casual"),
-        perspective=Perspective(approach="practical"),
+        perspective=Perspective(core_values=["실용성"]),
     )
     assert persona.name == "TestBot"
     assert persona.voice.service == "edge-tts"
@@ -439,7 +437,6 @@ def test_full_channel_config(tmp_path):
                 "avoid_patterns": {"words": ["혁신적인"], "styles": ["클릭베이트"]},
             },
             "perspective": {
-                "approach": "practical",
                 "core_values": ["실용성"],
                 "contrarian_views": ["AI 만능론 반대"],
             },

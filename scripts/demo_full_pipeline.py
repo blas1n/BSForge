@@ -21,23 +21,22 @@ import asyncio
 import shutil
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING
+
+from sqlalchemy import select
 
 from app.core.config_loader import ConfigService
 from app.core.container import get_container
 from app.models.channel import Channel, Persona, TTSService
+from app.models.script import Script
+from app.models.topic import Topic
 from app.services.collector.pipeline import CollectionConfig, TopicCollectionPipeline
-
-if TYPE_CHECKING:
-    from app.models.script import Script
-    from app.models.topic import Topic
-    from app.services.generator.pipeline import VideoGenerationResult
+from app.services.generator.pipeline import VideoGenerationResult
 
 # ============================================
 # CONFIGURABLE VARIABLES
 # ============================================
 
-CHANNEL_NAME = "subculture"  # Channel config name (without .yaml)
+CHANNEL_NAME = "entertainments-kr"  # Channel config name (without .yaml)
 VIDEO_TEMPLATE_NAME = "korean_shorts_standard"
 OUTPUT_DIR = Path("/tmp/bsforge_full_demo")
 
@@ -268,8 +267,6 @@ async def main() -> None:
 
     # Create or get Channel from DB
     async with container.infrastructure.db_session() as session:
-        from sqlalchemy import select
-
         # Check if channel exists
         result = await session.execute(select(Channel).where(Channel.name == channel_info.name))
         channel = result.scalar_one_or_none()

@@ -529,11 +529,24 @@ class VisualConfig(BaseModel):
         "max_results": 10,
     }
 
-    # AI 이미지 설정
+    # AI 이미지 설정 (DALL-E)
     ai_image_config: dict = {
         "model": "dall-e-3",
         "size": "1024x1792",          # 세로
         "quality": "standard",
+    }
+
+    # Stable Diffusion 설정 (로컬 생성)
+    stable_diffusion_config: dict = {
+        "service_url": "http://sd:7860",
+        "enabled": True,
+        "base_width": 768,
+        "base_height": 1024,
+        "num_inference_steps": 8,
+        "guidance_scale": 2.0,
+        "negative_prompt": "blurry, low quality, distorted...",
+        "ai_quality_suffix": "high quality, professional, sharp focus, 4k",
+        "img2img_strength": 0.5,
     }
 
     # 폴백 설정
@@ -1445,9 +1458,12 @@ ffmpeg_cmd = [
 - 단어 타임스탬프 기반 세그먼트 분할
 
 **Visual (`app/services/generator/visual/`)**:
-- `PexelsClient`: 스톡 영상/이미지 검색
-- `AIImageGenerator`: DALL-E 이미지 생성
-- `VisualSourcingManager`: 소싱 우선순위 관리
+- `PexelsClient`: Pexels 스톡 영상/이미지 검색
+- `PixabayClient`: Pixabay 스톡 영상/이미지 검색
+- `StableDiffusionGenerator`: 로컬 SD 이미지 생성 + CLIP 평가 + img2img 변환
+- `DALLEGenerator`: DALL-E 이미지 생성
+- `FallbackGenerator`: 단색/그라데이션 폴백
+- `VisualSourcingManager`: 소싱 우선순위 관리 + 품질 평가
 
 **Compositor (`app/services/generator/`)**:
 - `FFmpegWrapper`: FFmpeg 명령어 래퍼
@@ -1482,8 +1498,12 @@ app/services/generator/
 │   └── factory.py          # TTSEngineFactory
 ├── visual/
 │   ├── __init__.py
+│   ├── base.py             # BaseVisualSource, VisualAsset
 │   ├── pexels.py           # PexelsClient
-│   ├── ai_image.py         # AIImageGenerator
+│   ├── pixabay.py          # PixabayClient
+│   ├── stable_diffusion.py # StableDiffusionGenerator (SD + CLIP)
+│   ├── dall_e.py           # DALLEGenerator
+│   ├── fallback.py         # FallbackGenerator
 │   └── manager.py          # VisualSourcingManager
 └── bgm/
     ├── __init__.py
@@ -1500,7 +1520,9 @@ app/services/generator/
 |----------|------------|------|
 | **TTS** | edge-tts, elevenlabs | 무료/유료 |
 | **자막** | 자체 ASS/SRT 생성 | 스타일링 지원 |
-| **비주얼** | httpx (Pexels API), openai (DALL-E) | 스톡/AI |
+| **비주얼 (스톡)** | httpx (Pexels, Pixabay API) | 무료 스톡 |
+| **비주얼 (AI)** | Stable Diffusion (SDXL Turbo), DALL-E | 로컬 SD / 유료 DALL-E |
+| **품질 평가** | CLIP (transformers) | 이미지-텍스트 유사도 |
 | **이미지 처리** | Pillow | 썸네일, 단색 배경 |
 | **영상 합성** | FFmpeg (subprocess) | 핵심 |
 | **음성 인식** | whisper | 타임스탬프 생성 |

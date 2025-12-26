@@ -1,7 +1,7 @@
 """Unit tests for Scene and SceneScript Pydantic models.
 
 Tests cover:
-- SceneType, VisualStyle, TransitionType, VisualHintType enums
+- SceneType, VisualStyle, TransitionType, VisualStrategy enums
 - Scene model creation and validation
 - Scene properties (inferred_visual_style, is_persona_scene, etc.)
 - Scene duration estimation
@@ -22,7 +22,6 @@ from app.models.scene import (
     SceneScript,
     SceneType,
     TransitionType,
-    VisualHintType,
     VisualStyle,
 )
 
@@ -92,18 +91,6 @@ class TestTransitionTypeEnum:
         assert len(transitions) == 6
 
 
-class TestVisualHintTypeEnum:
-    """Test VisualHintType enum."""
-
-    def test_visual_hint_type_values(self) -> None:
-        """Test VisualHintType enum values."""
-        assert VisualHintType.STOCK_VIDEO == "stock_video"
-        assert VisualHintType.STOCK_IMAGE == "stock_image"
-        assert VisualHintType.AI_GENERATED == "ai_generated"
-        assert VisualHintType.TEXT_OVERLAY == "text_overlay"
-        assert VisualHintType.SOLID_COLOR == "solid_color"
-
-
 class TestScene:
     """Test Scene Pydantic model."""
 
@@ -117,8 +104,7 @@ class TestScene:
         assert scene.scene_type == SceneType.CONTENT
         assert scene.text == "이것은 테스트 장면입니다."
         assert scene.tts_text is None
-        assert scene.keyword is None
-        assert scene.visual_hint == VisualHintType.STOCK_IMAGE
+        assert scene.visual_keyword is None
         assert scene.visual_style is None
         assert scene.transition_in == TransitionType.FADE
         assert scene.transition_out == TransitionType.FADE
@@ -170,8 +156,7 @@ class TestScene:
         scene = Scene(
             scene_type=SceneType.COMMENTARY,
             text="이건 진짜 대박이에요! AI가 이렇게 빠르게 발전할 줄 몰랐어요.",
-            keyword="AI 발전",
-            visual_hint=VisualHintType.AI_GENERATED,
+            visual_keyword="AI technology advancement future",
             visual_style=VisualStyle.PERSONA,
             transition_in=TransitionType.FLASH,
             transition_out=TransitionType.FADE,
@@ -184,8 +169,7 @@ class TestScene:
         )
 
         assert scene.scene_type == SceneType.COMMENTARY
-        assert scene.keyword == "AI 발전"
-        assert scene.visual_hint == VisualHintType.AI_GENERATED
+        assert scene.visual_keyword == "AI technology advancement future"
         assert scene.visual_style == VisualStyle.PERSONA
         assert scene.transition_in == TransitionType.FLASH
         assert "대박" in scene.emphasis_words

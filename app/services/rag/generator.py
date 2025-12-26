@@ -18,7 +18,7 @@ from app.infrastructure.llm import LLMClient, LLMConfig
 from app.infrastructure.pgvector_db import PgVectorDB
 from app.models.channel import Persona
 from app.models.content_chunk import ContentType
-from app.models.scene import Scene, SceneScript, SceneType, VisualHintType
+from app.models.scene import Scene, SceneScript, SceneType, VisualStrategy
 from app.models.script import Script, ScriptStatus
 from app.prompts.manager import PromptType, get_prompt_manager
 from app.services.rag.chunker import ScriptChunker
@@ -664,19 +664,19 @@ class ScriptGenerator:
                     )
                     scene_type = SceneType.CONTENT
 
-                # Parse visual_hint
-                visual_hint_str = raw.get("visual_hint", "stock_image")
+                # Parse visual_strategy
+                visual_strategy_str = raw.get("visual_strategy", "stock_only")
                 try:
-                    visual_hint = VisualHintType(visual_hint_str)
+                    visual_strategy = VisualStrategy(visual_strategy_str)
                 except ValueError:
-                    visual_hint = VisualHintType.STOCK_IMAGE
+                    visual_strategy = VisualStrategy.STOCK_ONLY
 
                 scenes.append(
                     Scene(
                         scene_type=scene_type,
                         text=raw.get("text", ""),
                         keyword=raw.get("keyword"),
-                        visual_hint=visual_hint,
+                        visual_strategy=visual_strategy,
                         emphasis_words=raw.get("emphasis_words", []),
                     )
                 )

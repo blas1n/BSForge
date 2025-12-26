@@ -6,12 +6,12 @@ Provides graceful fallback when SD service is unavailable.
 
 import base64
 import logging
+import random
 from pathlib import Path
 from typing import Literal
 
-import httpx
-
 from app.config.video import StableDiffusionConfig
+from app.infrastructure.http_client import HTTPClient
 from app.services.generator.visual.base import (
     BaseVisualSource,
     VisualAsset,
@@ -34,33 +34,36 @@ class StableDiffusionGenerator(BaseVisualSource):
     - Base64 image transfer
 
     Example:
-        >>> config = StableDiffusionConfig()
-        >>> generator = StableDiffusionGenerator(config)
+        >>> http_client = HTTPClient()
+        >>> generator = StableDiffusionGenerator(http_client)
         >>> if await generator.is_available():
         ...     images = await generator.generate("sunset over mountains")
         ...     downloaded = await generator.download(images[0], Path("/tmp"))
     """
 
-    def __init__(self, config: StableDiffusionConfig | None = None) -> None:
+    def __init__(
+        self,
+        http_client: HTTPClient,
+        config: StableDiffusionConfig | None = None,
+    ) -> None:
         """Initialize StableDiffusionGenerator.
 
         Args:
+            http_client: Shared HTTP client for API requests
             config: SD service configuration
         """
         self._config = config or StableDiffusionConfig()
-        self._client: httpx.AsyncClient | None = None
-        self._service_available: bool | None = None
+        self._client = http_client
+        self._service_available: bool | None = None  # None = not checked yet
 
-    async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create HTTP client."""
-        if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
-                timeout=httpx.Timeout(self._config.timeout, connect=10.0)
-            )
-        return self._client
-
-    async def is_available(self) -> bool:
+    async def is_available(self, force_check: bool = False) -> bool:
         """Check if SD service is available.
+
+        Uses cached result unless force_check=True or service was marked unavailable.
+        Call with force_check=True to re-verify after a failure.
+
+        Args:
+            force_check: Force a fresh health check
 
         Returns:
             True if service is healthy and responding
@@ -68,9 +71,11 @@ class StableDiffusionGenerator(BaseVisualSource):
         if not self._config.enabled:
             return False
 
+        if self._service_available and not force_check:
+            return True
+
         try:
-            client = await self._get_client()
-            response = await client.get(
+            response = await self._client.get(
                 f"{self._config.service_url}/health",
                 timeout=5.0,
             )
@@ -78,14 +83,13 @@ class StableDiffusionGenerator(BaseVisualSource):
             if response.status_code == 200:
                 data = response.json()
                 self._service_available = data.get("status") == "ok"
-                logger.info(
-                    f"SD service available: device={data.get('device')}, "
-                    f"model_loaded={data.get('model_loaded')}"
-                )
+                if self._service_available:
+                    logger.info(
+                        f"SD service available: device={data.get('device')}, "
+                        f"model_loaded={data.get('model_loaded')}"
+                    )
                 return self._service_available
 
-        except httpx.HTTPError as e:
-            logger.warning(f"SD service unavailable: {e}")
         except Exception as e:
             logger.warning(f"SD service check failed: {e}")
 
@@ -136,27 +140,22 @@ class StableDiffusionGenerator(BaseVisualSource):
         Returns:
             List of generated image assets (with base64 data)
         """
-        if not self._config.enabled:
-            logger.warning("SD generation disabled in config")
-            return []
-
-        # Check service availability
-        if self._service_available is None:
-            await self.is_available()
-
-        if not self._service_available:
+        if not await self.is_available():
             logger.warning("SD service not available, skipping generation")
             return []
 
         # Determine dimensions based on orientation
         width, height = self._get_dimensions(orientation)
 
-        client = await self._get_client()
         assets: list[VisualAsset] = []
 
         for i in range(count):
             try:
-                response = await client.post(
+                # Generate unique random seed for each image to ensure variety
+                # If caller provides seed, use it only for first image and increment
+                current_seed = seed + i if seed is not None else random.randint(0, 2**32 - 1)
+
+                response = await self._client.post(
                     f"{self._config.service_url}/generate",
                     json={
                         "prompt": prompt,
@@ -165,7 +164,7 @@ class StableDiffusionGenerator(BaseVisualSource):
                         "height": height,
                         "num_inference_steps": self._config.num_inference_steps,
                         "guidance_scale": self._config.guidance_scale,
-                        "seed": seed,
+                        "seed": current_seed,
                     },
                 )
                 response.raise_for_status()
@@ -195,18 +194,10 @@ class StableDiffusionGenerator(BaseVisualSource):
 
                 logger.info(f"Generated SD image {i + 1}/{count} (seed={data.get('seed')})")
 
-            except httpx.HTTPStatusError as e:
-                logger.error(
-                    f"SD API error: {e.response.status_code} - " f"{e.response.text[:500]}"
-                )
-                continue
-            except httpx.HTTPError as e:
-                logger.error(f"SD request failed: {e}")
-                # Mark service as potentially unavailable
-                self._service_available = None
-                continue
             except Exception as e:
                 logger.error(f"SD generation failed: {e}", exc_info=True)
+                # Mark service as potentially unavailable
+                self._service_available = False
                 continue
 
         logger.info(f"Generated {len(assets)} SD images for prompt: {prompt[:50]}...")
@@ -288,10 +279,173 @@ class StableDiffusionGenerator(BaseVisualSource):
             # Square - use base_width for both
             return self._config.base_width, self._config.base_width
 
-    async def close(self) -> None:
-        """Close HTTP client."""
-        if self._client and not self._client.is_closed:
-            await self._client.aclose()
+    async def evaluate(self, file_path: Path, keyword: str) -> float | None:
+        """Evaluate file-text similarity using CLIP.
+
+        For images, calls /evaluate endpoint.
+        For videos, calls /evaluate_video endpoint with multi-frame sampling.
+
+        Args:
+            file_path: Path to the image or video file
+            keyword: Text/keyword to match against file
+
+        Returns:
+            Similarity score (0.0 to 1.0), or None if evaluation fails
+        """
+        if not await self.is_available():
+            logger.warning("SD service not available, skipping CLIP evaluation")
+            return None
+
+        # Determine if file is video or image
+        suffix = file_path.suffix.lower()
+        is_video = suffix in (".mp4", ".webm", ".mov", ".avi", ".mkv")
+
+        try:
+            # Read and encode file
+            with open(file_path, "rb") as f:
+                file_base64 = base64.b64encode(f.read()).decode("utf-8")
+
+            if is_video:
+                # Use video evaluation endpoint with multi-frame sampling
+                response = await self._client.post(
+                    f"{self._config.service_url}/evaluate_video",
+                    json={
+                        "video": file_base64,
+                        "text": keyword,
+                        "num_frames": 5,  # Sample 5 frames across video
+                    },
+                    timeout=60.0,  # Video processing takes longer
+                )
+            else:
+                # Use image evaluation endpoint
+                response = await self._client.post(
+                    f"{self._config.service_url}/evaluate",
+                    json={
+                        "image": file_base64,
+                        "text": keyword,
+                    },
+                    timeout=30.0,
+                )
+
+            response.raise_for_status()
+            data = response.json()
+
+            score: float = data.get("score", 0.0)
+            if is_video:
+                min_score = data.get("min_score", score)
+                max_score = data.get("max_score", score)
+                logger.info(
+                    f"CLIP video evaluation for '{keyword}': "
+                    f"avg={score:.4f}, min={min_score:.4f}, max={max_score:.4f}"
+                )
+            else:
+                logger.info(f"CLIP evaluation for '{keyword}': {score:.4f}")
+
+            return score
+
+        except FileNotFoundError:
+            logger.error(f"File not found: {file_path}")
+            return None
+        except Exception as e:
+            logger.error(f"CLIP evaluation failed: {e}", exc_info=True)
+            self._service_available = False
+            return None
+
+    async def transform(
+        self,
+        source_image: Path,
+        prompt: str,
+        output_dir: Path,
+        strength: float | None = None,
+        negative_prompt: str | None = None,
+        seed: int | None = None,
+    ) -> VisualAsset | None:
+        """Transform image using img2img.
+
+        Calls the SD service's /img2img endpoint to transform an image.
+
+        Args:
+            source_image: Path to the source image
+            prompt: Transformation prompt
+            output_dir: Directory to save the result
+            strength: Transformation strength (0.1-0.9), uses config default if None
+            negative_prompt: Negative prompt override
+            seed: Random seed for reproducibility
+
+        Returns:
+            Transformed image asset, or None if transformation fails
+        """
+        if not await self.is_available():
+            logger.warning("SD service not available, skipping img2img")
+            return None
+
+        try:
+            # Read and encode source image
+            with open(source_image, "rb") as f:
+                image_base64 = base64.b64encode(f.read()).decode("utf-8")
+
+            # Generate random seed if not provided to ensure variety
+            current_seed = seed if seed is not None else random.randint(0, 2**32 - 1)
+
+            response = await self._client.post(
+                f"{self._config.service_url}/img2img",
+                json={
+                    "image": image_base64,
+                    "prompt": prompt,
+                    "negative_prompt": negative_prompt or self._config.negative_prompt,
+                    "strength": strength or self._config.img2img_strength,
+                    "num_inference_steps": self._config.num_inference_steps,
+                    "guidance_scale": self._config.guidance_scale,
+                    "seed": current_seed,
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            # Create output directory
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            # Save the transformed image
+            result_seed = data.get("seed", 0)
+            filename = f"sd_img2img_{result_seed}.png"
+            output_path = output_dir / filename
+
+            result_base64 = data.get("image")
+            if result_base64:
+                image_data = base64.b64decode(result_base64)
+                with open(output_path, "wb") as f:
+                    f.write(image_data)
+
+            logger.info(f"Transformed image saved: {output_path}")
+
+            return VisualAsset(
+                type=VisualSourceType.AI_IMAGE,
+                url=None,
+                width=data.get("width", 512),
+                height=data.get("height", 768),
+                source="stable_diffusion",
+                source_id=f"sd_img2img_{result_seed}",
+                path=output_path,
+                license="Local Generation",
+                keywords=prompt.split()[:5],
+                metadata={
+                    "prompt": prompt,
+                    "negative_prompt": negative_prompt or self._config.negative_prompt,
+                    "seed": result_seed,
+                    "strength": strength or self._config.img2img_strength,
+                    "source_image": str(source_image),
+                    "num_inference_steps": self._config.num_inference_steps,
+                    "guidance_scale": self._config.guidance_scale,
+                },
+            )
+
+        except FileNotFoundError:
+            logger.error(f"Source image not found: {source_image}")
+            return None
+        except Exception as e:
+            logger.error(f"img2img transformation failed: {e}", exc_info=True)
+            self._service_available = False
+            return None
 
 
 __all__ = ["StableDiffusionGenerator"]
