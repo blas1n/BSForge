@@ -19,7 +19,7 @@ from app.config.persona import (
     VoiceSettings,
 )
 from app.config.video import CompositionConfig, SubtitleConfig
-from app.models.scene import SceneScript
+from app.models.scene import Scene, SceneScript, SceneType, TransitionType, VisualStyle
 from app.services.collector.base import ScoredTopic
 from app.services.generator.compositor import FFmpegCompositor
 from app.services.generator.subtitle import SubtitleGenerator
@@ -52,7 +52,6 @@ class TestPersonaBasedGeneration:
                 formality="semi-formal",
             ),
             perspective=Perspective(
-                approach="practical",
                 core_values=["명확성", "간결함"],
             ),
         )
@@ -326,15 +325,12 @@ class TestSceneBasedVideoGeneration:
     @pytest.fixture
     def sample_scene_script(self) -> SceneScript:
         """Create sample SceneScript for testing."""
-        from app.models.scene import Scene, SceneType, VisualHintType
-
         return SceneScript(
             scenes=[
                 Scene(
                     scene_type=SceneType.HOOK,
                     text="충격적인 AI 뉴스가 있습니다!",
-                    keyword="AI news",
-                    visual_hint=VisualHintType.STOCK_IMAGE,
+                    visual_keyword="AI news announcement breaking",
                 ),
                 Scene(
                     scene_type=SceneType.CONTENT,
@@ -342,21 +338,18 @@ class TestSceneBasedVideoGeneration:
                         "OpenAI가 오늘 새로운 모델을 발표했습니다. "
                         "이 모델은 기존 대비 50% 빠른 속도를 자랑합니다."
                     ),
-                    keyword="OpenAI",
-                    visual_hint=VisualHintType.STOCK_IMAGE,
+                    visual_keyword="OpenAI technology innovation",
                 ),
                 Scene(
                     scene_type=SceneType.COMMENTARY,
                     text="제 생각에 이건 정말 게임 체인저예요. AI 발전 속도가 정말 놀랍습니다.",
-                    keyword="AI innovation",
-                    visual_hint=VisualHintType.AI_GENERATED,
+                    visual_keyword="AI innovation breakthrough future",
                     emphasis_words=["게임 체인저", "놀랍습니다"],
                 ),
                 Scene(
                     scene_type=SceneType.CONCLUSION,
                     text="AI 시대가 본격적으로 시작됐습니다. 구독과 좋아요 부탁드립니다!",
-                    keyword="future",
-                    visual_hint=VisualHintType.SOLID_COLOR,
+                    visual_keyword="future technology digital era",
                 ),
             ],
             title_text="AI 혁명의 시작",
@@ -375,8 +368,6 @@ class TestSceneBasedVideoGeneration:
 
     def test_scene_script_transitions(self, sample_scene_script: SceneScript) -> None:
         """Test recommended transitions between scenes."""
-        from app.models.scene import TransitionType
-
         transitions = sample_scene_script.get_recommended_transitions()
 
         # Should have n-1 transitions for n scenes
@@ -388,8 +379,6 @@ class TestSceneBasedVideoGeneration:
 
     def test_scene_types_classification(self, sample_scene_script: SceneScript) -> None:
         """Test scene type classification."""
-        from app.models.scene import SceneType
-
         scene_types = sample_scene_script.scene_types
 
         assert scene_types[0] == SceneType.HOOK
@@ -499,8 +488,6 @@ class TestSceneBasedVideoGeneration:
 
     def test_visual_style_inference(self, sample_scene_script: SceneScript) -> None:
         """Test visual style inference from scene types."""
-        from app.models.scene import VisualStyle
-
         for scene in sample_scene_script.scenes:
             style = scene.inferred_visual_style
 
@@ -525,8 +512,6 @@ class TestFullPipelineIntegration:
         skip_without_ffmpeg: None,
     ) -> None:
         """Test complete pipeline: Topic -> SceneScript -> Video."""
-        from app.models.scene import Scene, SceneScript, SceneType
-
         # Step 1: Simulated topic (in real system, collected from sources)
         topic_title = "GPT-5 출시 임박 소식"
         # Keywords would be used by RAG in production: ["GPT-5", "OpenAI", "AI"]
@@ -538,17 +523,17 @@ class TestFullPipelineIntegration:
                 Scene(
                     scene_type=SceneType.HOOK,
                     text="GPT-5가 곧 출시됩니다!",
-                    keyword="GPT-5",
+                    visual_keyword="GPT-5 AI announcement breaking news",
                 ),
                 Scene(
                     scene_type=SceneType.CONTENT,
                     text="OpenAI에서 새로운 모델을 준비 중입니다.",
-                    keyword="OpenAI model",
+                    visual_keyword="OpenAI model technology innovation",
                 ),
                 Scene(
                     scene_type=SceneType.COMMENTARY,
                     text="이건 정말 기대되는 소식이에요.",
-                    keyword="AI excitement",
+                    visual_keyword="AI excitement future technology",
                 ),
             ],
             title_text=topic_title,

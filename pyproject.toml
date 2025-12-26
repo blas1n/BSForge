@@ -245,6 +245,10 @@ module = [
     "dependency_injector.*",
     "feedparser.*",
     "pytrends.*",
+    "diffusers.*",
+    "transformers.*",
+    "accelerate.*",
+    "safetensors.*",
 ]
 ignore_missing_imports = true
 

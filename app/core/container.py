@@ -118,11 +118,6 @@ class InfrastructureContainer(containers.DeclarativeContainer):
     # LLM Clients
     # ============================================
 
-    anthropic_client = providers.Singleton(
-        "anthropic.AsyncAnthropic",
-        api_key=global_config.provided.anthropic_api_key,
-    )
-
     # Unified LLM client (LiteLLM-based, provider-agnostic)
     llm_client = providers.Singleton(
         "app.infrastructure.llm.LLMClient",
@@ -357,7 +352,7 @@ class ServiceContainer(containers.DeclarativeContainer):
         retrieval_config=configs.retrieval_config,
         query_config=configs.query_expansion_config,
         bm25_search=infrastructure.bm25_search,
-        llm_client=infrastructure.anthropic_client,
+        llm_client=infrastructure.llm_client,
     )
 
     rag_reranker = providers.Factory(
@@ -426,10 +421,18 @@ class ServiceContainer(containers.DeclarativeContainer):
         api_key=global_config.provided.pexels_api_key,
     )
 
-    ai_image_generator = providers.Singleton(
-        "app.services.generator.visual.ai_image.AIImageGenerator",
+    pixabay_client = providers.Singleton(
+        "app.services.generator.visual.pixabay.PixabayClient",
+        api_key=global_config.provided.pixabay_api_key,
+    )
+
+    dalle_generator = providers.Singleton(
+        "app.services.generator.visual.dall_e.DALLEGenerator",
         api_key=global_config.provided.openai_api_key,
-        config=configs.visual_config,
+    )
+
+    sd_generator = providers.Singleton(
+        "app.services.generator.visual.stable_diffusion.StableDiffusionGenerator",
     )
 
     fallback_generator = providers.Factory(
@@ -440,7 +443,9 @@ class ServiceContainer(containers.DeclarativeContainer):
         "app.services.generator.visual.manager.VisualSourcingManager",
         config=configs.visual_config,
         pexels_client=pexels_client,
-        ai_generator=ai_image_generator,
+        pixabay_client=pixabay_client,
+        dalle_generator=dalle_generator,
+        sd_generator=sd_generator,
         fallback_generator=fallback_generator,
     )
 

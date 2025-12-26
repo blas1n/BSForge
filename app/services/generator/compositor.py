@@ -245,10 +245,9 @@ class FFmpegCompositor:
                 segment_path = await self._create_scene_segment(
                     asset=visual_result.asset,
                     duration=duration,
-                    segment_index=i,
                     visual_style=visual_style,
                     persona_style=persona_style,
-                    temp_dir=temp_path,
+                    output_path=temp_path / f"scene_{i:03d}.mp4",
                 )
 
                 scene_segments.append(segment_path)
@@ -321,20 +320,18 @@ class FFmpegCompositor:
         self,
         asset: VisualAsset,
         duration: float,
-        segment_index: int,
         visual_style: "VisualStyle",
         persona_style: "PersonaStyleConfig | None",
-        temp_dir: Path,
+        output_path: Path,
     ) -> Path:
         """Create a video segment with style-appropriate effects.
 
         Args:
             asset: Visual asset for this scene
             duration: Segment duration
-            segment_index: Segment index
             visual_style: Visual style (NEUTRAL, PERSONA, EMPHASIS)
             persona_style: PersonaStyleConfig for persona scenes
-            temp_dir: Temp directory
+            output_path: Output path for the segment
 
         Returns:
             Path to video segment
@@ -343,16 +340,13 @@ class FFmpegCompositor:
             raise ValueError("Asset has no local path")
 
         logger.info(
-            f"Creating segment {segment_index}: asset.path={asset.path}, "
+            f"Creating segment: asset.path={asset.path}, "
             f"source_id={asset.source_id}, exists={asset.path.exists() if asset.path else False}"
         )
-
-        output_path = temp_dir / f"scene_segment_{segment_index}.mp4"
 
         # Build style-specific filter
         vf = self._build_style_filter(
             duration=duration,
-            segment_index=segment_index,
             visual_style=visual_style,
             persona_style=persona_style,
         )
@@ -370,7 +364,7 @@ class FFmpegCompositor:
                 no_audio=True,
             )
         else:
-            # Image asset - loop and apply Ken Burns
+            # Image asset - loop to create video
             stream = self.ffmpeg.image_to_video_with_filters(
                 image_path=asset.path,
                 output_path=output_path,
@@ -387,7 +381,6 @@ class FFmpegCompositor:
     def _build_style_filter(
         self,
         duration: float,
-        segment_index: int,
         visual_style: "VisualStyle",
         persona_style: "PersonaStyleConfig | None",
     ) -> str:
@@ -395,7 +388,6 @@ class FFmpegCompositor:
 
         Args:
             duration: Segment duration
-            segment_index: Index for alternating effects
             visual_style: Visual style enum
             persona_style: PersonaStyleConfig for colors
 
@@ -423,22 +415,12 @@ class FFmpegCompositor:
             overlay_opacity = 0.3
             border_width = 4
 
-        # Base scale and Ken Burns
-        zoom_speed = 0.0005
-        if segment_index % 2 == 0:
-            zoom_expr = f"zoom+{zoom_speed}"
-        else:
-            zoom_expr = f"if(eq(on,1),1.15,zoom-{zoom_speed})"
-
-        # Scale to 2x output resolution for zoompan headroom (safer than 8000)
-        scale_w = w * 2
-        scale_h = h * 2
-
+        # Static image - scale and crop to target resolution
         base_filter = (
-            f"scale={scale_w}:{scale_h}:force_original_aspect_ratio=increase,"
-            f"crop={scale_w}:{scale_h},"
-            f"zoompan=z='{zoom_expr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
-            f"d={total_frames}:s={w}x{h}:fps={fps},"
+            f"scale={w}:{h}:force_original_aspect_ratio=increase,"
+            f"crop={w}:{h},"
+            f"loop=loop={total_frames}:size=1:start=0,"
+            f"setpts=N/{fps}/TB,"
             f"setsar=1"
         )
 
@@ -615,8 +597,7 @@ class FFmpegCompositor:
                 segment_path = await self._prepare_video_segment(
                     asset=asset,
                     max_duration=remaining,
-                    segment_index=i,
-                    temp_dir=temp_dir,
+                    output_path=temp_dir / f"segment_{i:03d}.mp4",
                 )
                 segment_duration = min(asset.duration or remaining, remaining)
             else:
@@ -625,8 +606,7 @@ class FFmpegCompositor:
                 segment_path = await self._image_to_video(
                     asset=asset,
                     duration=segment_duration,
-                    segment_index=i,
-                    temp_dir=temp_dir,
+                    output_path=temp_dir / f"segment_{i:03d}.mp4",
                 )
 
             if segment_path:
@@ -650,24 +630,20 @@ class FFmpegCompositor:
         self,
         asset: VisualAsset,
         max_duration: float,
-        segment_index: int,
-        temp_dir: Path,
+        output_path: Path,
     ) -> Path:
         """Prepare a video segment (scale, trim, etc.).
 
         Args:
             asset: Video asset
             max_duration: Maximum duration
-            segment_index: Segment index
-            temp_dir: Temp directory
+            output_path: Output path for the segment
 
         Returns:
             Path to prepared segment
         """
         if not asset.path:
             raise ValueError("Asset has no local path")
-
-        output_path = temp_dir / f"segment_{segment_index}.mp4"
 
         # Build filter for scaling and padding
         scale_filter = self._build_scale_filter()
@@ -700,21 +676,17 @@ class FFmpegCompositor:
         self,
         asset: VisualAsset,
         duration: float,
-        segment_index: int,
-        temp_dir: Path,
-        enable_ken_burns: bool = True,
+        output_path: Path,
     ) -> Path:
-        """Convert image to video segment with Ken Burns effect.
+        """Convert image to video segment.
 
-        Ken Burns effect is enabled based on template settings.
-        If frame layout is enabled, image is placed in a centered frame.
+        If frame layout is enabled in template, image is placed in a centered frame.
+        Otherwise, uses static scaling to fill the frame.
 
         Args:
             asset: Image asset
             duration: Segment duration
-            segment_index: Segment index
-            temp_dir: Temp directory
-            enable_ken_burns: Enable zoom in/out effect
+            output_path: Output path for the segment
 
         Returns:
             Path to video segment
@@ -722,42 +694,23 @@ class FFmpegCompositor:
         if not asset.path:
             raise ValueError("Asset has no local path")
 
-        output_path = temp_dir / f"segment_{segment_index}.mp4"
-
         # Check if frame layout should be used
         if self._should_use_frame_layout():
             # Use filter_complex for frame layout
-            vf = self._build_frame_layout_filter(duration, segment_index)
-            stream = self.ffmpeg.image_to_video_with_filters(
-                image_path=asset.path,
-                output_path=output_path,
-                duration=duration,
-                vf=vf,
-                fps=self.config.fps,
-                crf=self.config.crf,
-                preset=self.config.preset,
-            )
+            vf = self._build_frame_layout_filter(duration)
         else:
-            # Check if Ken Burns should be enabled from template
-            enable_ken_burns = True  # Default
-            if self.template and self.template.visual_effects:
-                enable_ken_burns = self.template.visual_effects.ken_burns_enabled
+            # Static scaling to fill the frame
+            vf = self._build_scale_filter()
 
-            # Build filter with Ken Burns effect (zoom in/out)
-            if enable_ken_burns:
-                vf = self._build_ken_burns_filter(duration, segment_index)
-            else:
-                vf = self._build_scale_filter()
-
-            stream = self.ffmpeg.image_to_video_with_filters(
-                image_path=asset.path,
-                output_path=output_path,
-                duration=duration,
-                vf=vf,
-                fps=self.config.fps,
-                crf=self.config.crf,
-                preset=self.config.preset,
-            )
+        stream = self.ffmpeg.image_to_video_with_filters(
+            image_path=asset.path,
+            output_path=output_path,
+            duration=duration,
+            vf=vf,
+            fps=self.config.fps,
+            crf=self.config.crf,
+            preset=self.config.preset,
+        )
 
         await self.ffmpeg.run(stream)
         return output_path
@@ -765,18 +718,15 @@ class FFmpegCompositor:
     def _build_frame_layout_filter(
         self,
         duration: float,
-        segment_index: int,
     ) -> str:
         """Build filter for frame layout (양산형 스타일).
 
         Creates a video with:
         - Solid/gradient background
         - Centered, smaller image with optional border
-        - Ken Burns effect on the image
 
         Args:
             duration: Segment duration in seconds
-            segment_index: Index for alternating zoom direction
 
         Returns:
             FFmpeg filter string
@@ -798,48 +748,27 @@ class FFmpegCompositor:
         content_x = (w - content_w) // 2
         content_y = frame_cfg.content_y_offset
 
-        # Get Ken Burns settings
+        # Get color grading settings
         if self.template and self.template.visual_effects:
             vfx = self.template.visual_effects
-            zoom_speed = vfx.ken_burns_zoom_speed
-            start_scale = vfx.ken_burns_start_scale
             apply_color_grade = vfx.color_grading_enabled
             brightness = vfx.brightness
             contrast = vfx.contrast
             saturation = vfx.saturation
             warmth = vfx.warmth
         else:
-            zoom_speed = 0.0005
-            start_scale = 1.15
             apply_color_grade = True
             brightness = 0.05
             contrast = 1.1
             saturation = 1.2
             warmth = 0.1
 
-        # Alternate zoom direction
-        if segment_index % 2 == 0:
-            zoom_expr = f"zoom+{zoom_speed}"
-        else:
-            zoom_expr = f"if(eq(on,1),{start_scale},zoom-{zoom_speed})"
-
-        # Build complex filter:
-        # 1. Scale image up for Ken Burns headroom
-        # 2. Apply Ken Burns (zoompan)
-        # 3. Color grading (optional)
-        # 4. Create background
-        # 5. Overlay image on background
-
-        # Scale to 2x content size for zoompan headroom (safer than 8000)
-        scale_w = content_w * 2
-        scale_h = content_h * 2
-
-        # Scale image and apply Ken Burns to content size
+        # Build image filter: static scale and crop to content size
         image_filter = (
-            f"scale={scale_w}:{scale_h}:force_original_aspect_ratio=increase,"
-            f"crop={scale_w}:{scale_h},"
-            f"zoompan=z='{zoom_expr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
-            f"d={total_frames}:s={content_w}x{content_h}:fps={fps},"
+            f"scale={content_w}:{content_h}:force_original_aspect_ratio=increase,"
+            f"crop={content_w}:{content_h},"
+            f"loop=loop={total_frames}:size=1:start=0,"
+            f"setpts=N/{fps}/TB,"
             f"setsar=1"
         )
 
@@ -892,16 +821,14 @@ class FFmpegCompositor:
         self,
         asset: VisualAsset,
         duration: float,
-        segment_index: int,
-        temp_dir: Path,
+        output_path: Path,
     ) -> Path:
         """Convert image to video using filter_complex for frame layout.
 
         Args:
             asset: Image asset
             duration: Segment duration
-            segment_index: Segment index
-            temp_dir: Temp directory
+            output_path: Output path for the segment
 
         Returns:
             Path to video segment
@@ -909,8 +836,7 @@ class FFmpegCompositor:
         if not asset.path:
             raise ValueError("Asset has no local path")
 
-        output_path = temp_dir / f"segment_{segment_index}.mp4"
-        vf = self._build_frame_layout_filter(duration, segment_index)
+        vf = self._build_frame_layout_filter(duration)
 
         stream = self.ffmpeg.image_to_video_with_filters(
             image_path=asset.path,
@@ -924,83 +850,6 @@ class FFmpegCompositor:
 
         await self.ffmpeg.run(stream)
         return output_path
-
-    def _build_ken_burns_filter(
-        self,
-        duration: float,
-        segment_index: int,
-    ) -> str:
-        """Build Ken Burns zoom effect filter with optional color grading.
-
-        Alternates between zoom-in and zoom-out based on segment index.
-        Settings are read from template if available.
-
-        Args:
-            duration: Segment duration in seconds
-            segment_index: Index to determine zoom direction
-
-        Returns:
-            FFmpeg filter string
-        """
-        w = self.config.width
-        h = self.config.height
-        fps = self.config.fps
-        total_frames = int(duration * fps)
-
-        # Get settings from template or use defaults
-        if self.template and self.template.visual_effects:
-            vfx = self.template.visual_effects
-            zoom_speed = vfx.ken_burns_zoom_speed
-            start_scale = vfx.ken_burns_start_scale
-            apply_color_grade = vfx.color_grading_enabled
-            brightness = vfx.brightness
-            contrast = vfx.contrast
-            saturation = vfx.saturation
-            warmth = vfx.warmth
-        else:
-            # Default values when no template
-            zoom_speed = 0.0005
-            start_scale = 1.15
-            apply_color_grade = True
-            brightness = 0.05
-            contrast = 1.1
-            saturation = 1.2
-            warmth = 0.1
-
-        # Alternate between zoom-in (even) and zoom-out (odd)
-        if segment_index % 2 == 0:
-            zoom_expr = f"zoom+{zoom_speed}"
-        else:
-            zoom_expr = f"if(eq(on,1),{start_scale},zoom-{zoom_speed})"
-
-        # Scale to 2x output resolution for zoompan headroom (safer than 8000)
-        # This provides enough room for Ken Burns effect without memory issues
-        scale_w = w * 2
-        scale_h = h * 2
-
-        # Scale up first (to allow room for zooming), then apply zoompan
-        base_filter = (
-            f"scale={scale_w}:{scale_h}:force_original_aspect_ratio=increase,"
-            f"crop={scale_w}:{scale_h},"
-            f"zoompan=z='{zoom_expr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
-            f"d={total_frames}:s={w}x{h}:fps={fps},"
-            f"setsar=1"
-        )
-
-        if apply_color_grade:
-            # Add color grading from template settings
-            # colorbalance: rs=red shadows, gs=green shadows, bs=blue shadows
-            # warmth > 0 means more red, less blue
-            rs = warmth
-            gs = warmth * 0.5
-            bs = -warmth
-            color_grade = (
-                f",eq=brightness={brightness}:contrast={contrast}:saturation={saturation},"
-                f"colorbalance=rs={rs}:gs={gs}:bs={bs}"
-            )
-            return base_filter + color_grade
-
-        return base_filter
 
     async def _create_black_video(
         self,

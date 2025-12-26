@@ -1,4 +1,4 @@
-"""AI image generation using DALL-E 3.
+"""DALL-E 3 image generation.
 
 Generates custom images for video backgrounds using OpenAI's DALL-E 3 model.
 """
@@ -10,7 +10,7 @@ from typing import Literal
 
 import httpx
 
-from app.config.video import AIImageConfig
+from app.config.video import DALLEConfig
 from app.services.generator.visual.base import (
     BaseVisualSource,
     VisualAsset,
@@ -20,8 +20,8 @@ from app.services.generator.visual.base import (
 logger = logging.getLogger(__name__)
 
 
-class AIImageGenerator(BaseVisualSource):
-    """AI image generator using DALL-E 3.
+class DALLEGenerator(BaseVisualSource):
+    """DALL-E 3 image generator.
 
     Features:
     - Custom image generation from prompts
@@ -29,7 +29,7 @@ class AIImageGenerator(BaseVisualSource):
     - Style customization
 
     Example:
-        >>> generator = AIImageGenerator(api_key="your-key")
+        >>> generator = DALLEGenerator(api_key="your-key")
         >>> images = await generator.generate("futuristic city at night")
         >>> downloaded = await generator.download(images[0], Path("/tmp"))
     """
@@ -37,19 +37,19 @@ class AIImageGenerator(BaseVisualSource):
     def __init__(
         self,
         api_key: str | None = None,
-        config: AIImageConfig | None = None,
+        config: DALLEConfig | None = None,
     ) -> None:
-        """Initialize AIImageGenerator.
+        """Initialize DALLEGenerator.
 
         Args:
             api_key: OpenAI API key (or from OPENAI_API_KEY env)
-            config: AI image configuration
+            config: DALL-E configuration
         """
         self._api_key = api_key or os.environ.get("OPENAI_API_KEY")
         if not self._api_key:
             logger.warning("OPENAI_API_KEY not set, AI image generation will not work")
 
-        self._config = config or AIImageConfig()
+        self._config = config or DALLEConfig()
         self._client: httpx.AsyncClient | None = None
 
     async def _get_client(self) -> httpx.AsyncClient:
@@ -60,7 +60,7 @@ class AIImageGenerator(BaseVisualSource):
                     "Authorization": f"Bearer {self._api_key}",
                     "Content-Type": "application/json",
                 },
-                timeout=60.0,
+                timeout=httpx.Timeout(120.0, connect=10.0),  # 120초 타임아웃
             )
         return self._client
 
@@ -165,8 +165,15 @@ class AIImageGenerator(BaseVisualSource):
                             )
                         )
 
+            except httpx.HTTPStatusError as e:
+                # HTTP 상태 오류 (4xx, 5xx)
+                logger.error(
+                    f"DALL-E API error: {e.response.status_code} - " f"{e.response.text[:500]}"
+                )
+                continue
             except httpx.HTTPError as e:
-                logger.error(f"DALL-E generation failed: {e}", exc_info=True)
+                # 네트워크 오류, 타임아웃 등
+                logger.error(f"DALL-E request failed: {e}", exc_info=True)
                 continue
 
         logger.info(f"Generated {len(assets)} AI images for prompt: {prompt[:50]}...")
@@ -272,4 +279,4 @@ class AIImageGenerator(BaseVisualSource):
             await self._client.aclose()
 
 
-__all__ = ["AIImageGenerator"]
+__all__ = ["DALLEGenerator"]

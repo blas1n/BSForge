@@ -129,17 +129,84 @@ class VisualSourceConfig(BaseModel):
     )
 
 
-class AIImageConfig(BaseModel):
-    """AI image generation configuration.
+class PixabayConfig(BaseModel):
+    """Pixabay API configuration.
+
+    Pixabay provides free stock videos and images without attribution requirement.
 
     Attributes:
-        model: AI model for image generation
+        api_key_env: Environment variable name for API key
+        orientation: Preferred orientation
+        min_duration: Minimum video duration in seconds
+        max_results: Maximum search results
+        image_type: Type of images to search
+    """
+
+    api_key_env: str = Field(default="PIXABAY_API_KEY", description="API key env var")
+    orientation: Literal["portrait", "landscape", "square"] = Field(
+        default="portrait", description="Preferred orientation"
+    )
+    min_duration: int = Field(default=5, ge=1, le=60, description="Min video duration")
+    max_results: int = Field(default=10, ge=1, le=50, description="Max search results")
+    image_type: Literal["all", "photo", "illustration", "vector"] = Field(
+        default="photo", description="Image type filter"
+    )
+
+
+class StableDiffusionConfig(BaseModel):
+    """Stable Diffusion service configuration.
+
+    SD runs as a separate Docker service and communicates via HTTP API.
+    Supports CUDA (NVIDIA), MPS (Apple Silicon), and CPU (fallback).
+
+    Attributes:
+        service_url: SD service HTTP endpoint
+        enabled: Whether to use SD for image generation
+        timeout: Request timeout in seconds (longer for CPU mode)
+        base_width: Base generation width (before upscaling)
+        base_height: Base generation height (before upscaling)
+        output_width: Final output width
+        output_height: Final output height
+        num_inference_steps: Number of denoising steps (4 for Turbo)
+        guidance_scale: CFG scale (0.0 for Turbo)
+        negative_prompt: Default negative prompt
+        img2img_strength: Default img2img transformation strength (0.1-0.9)
+    """
+
+    service_url: str = Field(default="http://sd:7860", description="SD service URL")
+    enabled: bool = Field(default=True, description="Enable SD generation")
+    timeout: float = Field(default=120.0, ge=10.0, le=600.0, description="Request timeout")
+    base_width: int = Field(default=768, ge=256, le=1024, description="Base width")
+    base_height: int = Field(default=1024, ge=256, le=1024, description="Base height")
+    output_width: int = Field(default=1080, description="Output width")
+    output_height: int = Field(default=1920, description="Output height")
+    num_inference_steps: int = Field(default=8, ge=1, le=50, description="Inference steps")
+    guidance_scale: float = Field(default=2.0, ge=0.0, le=20.0, description="CFG scale")
+    negative_prompt: str = Field(
+        default="blurry, low quality, distorted, deformed, ugly, bad anatomy, "
+        "bad proportions, extra limbs, cloned face, disfigured, mutation",
+        description="Default negative prompt",
+    )
+    img2img_strength: float = Field(
+        default=0.5, ge=0.1, le=0.9, description="Default img2img strength"
+    )
+    ai_quality_suffix: str = Field(
+        default="high quality, professional, sharp focus, 4k",
+        description="Common quality suffix for AI image generation",
+    )
+
+
+class DALLEConfig(BaseModel):
+    """DALL-E image generation configuration.
+
+    Attributes:
+        model: DALL-E model version
         size: Image dimensions
         quality: Generation quality
         style: Generation style
     """
 
-    model: str = Field(default="dall-e-3", description="Image generation model")
+    model: str = Field(default="dall-e-3", description="DALL-E model")
     size: str = Field(default="1024x1792", description="Image size (portrait)")
     quality: Literal["standard", "hd"] = Field(default="standard", description="Generation quality")
     style: Literal["vivid", "natural"] = Field(default="natural", description="Generation style")
@@ -150,26 +217,66 @@ class VisualConfig(BaseModel):
 
     Attributes:
         source_priority: Priority order for visual sources
-        stock: Stock video/image configuration
-        ai_image: AI image generation configuration
+        pexels: Pexels video/image configuration
+        pixabay: Pixabay video/image configuration
+        stable_diffusion: Stable Diffusion configuration
+        dalle: DALL-E configuration
         fallback_color: Fallback solid color (hex)
         fallback_gradient: Fallback gradient colors
         cache_enabled: Enable visual caching
         cache_ttl_hours: Cache TTL in hours
+        metadata_score_threshold: Minimum metadata matching score (1st filter)
+        clip_score_threshold: CLIP similarity threshold (use image as-is)
+        clip_img2img_threshold: CLIP threshold for img2img transformation
     """
 
     source_priority: list[str] = Field(
-        default=["stock_video", "stock_image", "ai_image", "solid_color"],
+        default=[
+            "pexels_video",  # Pexels videos
+            "pixabay_video",  # Pixabay videos
+            "pexels_image",  # Pexels images
+            "pixabay_image",  # Pixabay images
+            "stable_diffusion",  # Local SD image generation
+            "dalle",  # DALL-E image generation
+            "solid_color",  # Fallback
+        ],
         description="Source priority order",
     )
-    stock: VisualSourceConfig = Field(default_factory=VisualSourceConfig)
-    ai_image: AIImageConfig = Field(default_factory=AIImageConfig)
+    pexels: VisualSourceConfig = Field(default_factory=VisualSourceConfig)
+    pixabay: PixabayConfig = Field(default_factory=PixabayConfig)
+    stable_diffusion: StableDiffusionConfig = Field(default_factory=StableDiffusionConfig)
+    dalle: DALLEConfig = Field(default_factory=DALLEConfig)
     fallback_color: str = Field(default="#1a1a2e", description="Fallback solid color")
     fallback_gradient: list[str] = Field(
         default=["#1a1a2e", "#16213e"], description="Fallback gradient colors"
     )
     cache_enabled: bool = Field(default=True, description="Enable caching")
     cache_ttl_hours: int = Field(default=24, ge=1, le=168, description="Cache TTL")
+    metadata_score_threshold: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Minimum metadata matching score (title/tags). Below this, skip asset.",
+    )
+    clip_score_threshold: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="CLIP score above this: use image as-is (good match). "
+        "Score is normalized so 0.5 = moderately relevant, 1.0 = highly relevant.",
+    )
+    clip_img2img_threshold: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="CLIP score above this but below clip_threshold: use img2img. "
+        "Below this: skip and try AI generation.",
+    )
+    reuse_previous_visual_types: list[str] = Field(
+        default=["cta"],
+        description="Scene types that reuse previous visual instead of sourcing new one. "
+        "Use lowercase scene type names: hook, content, commentary, cta, etc.",
+    )
 
 
 class CompositionConfig(BaseModel):
@@ -298,7 +405,9 @@ __all__ = [
     "SubtitleStyleConfig",
     "VisualConfig",
     "VisualSourceConfig",
-    "AIImageConfig",
+    "PixabayConfig",
+    "StableDiffusionConfig",
+    "DALLEConfig",
     "CompositionConfig",
     "ThumbnailConfig",
 ]

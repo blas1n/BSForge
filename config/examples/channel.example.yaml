@@ -62,7 +62,6 @@ persona:
 
   # 관점 & 가치관
   perspective:
-    approach: "practical"  # practical | analytical | entertaining
     core_values:
       - "실용성"
       - "솔직함"

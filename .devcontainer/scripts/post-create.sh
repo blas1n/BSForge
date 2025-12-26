@@ -39,7 +39,8 @@ source .venv/bin/activate
 echo ""
 echo "Installing Python dependencies..."
 if [ -f "pyproject.toml" ]; then
-    uv pip install -e ".[dev]"
+    # Use copy mode to avoid hardlink warnings (host volume vs container filesystem)
+    UV_LINK_MODE=copy uv pip install -e ".[dev]"
     echo "[OK] Dependencies installed successfully"
 
     # 6. Set up pre-commit hooks (after dependencies are installed)

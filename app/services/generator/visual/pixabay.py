@@ -1,7 +1,7 @@
-"""Pexels API client for stock video and image sourcing.
+"""Pixabay API client for stock video and image sourcing.
 
-Pexels provides free stock videos and images with attribution.
-API documentation: https://www.pexels.com/api/documentation/
+Pixabay provides free stock videos and images without attribution requirement.
+API documentation: https://pixabay.com/api/docs/
 """
 
 import logging
@@ -19,13 +19,13 @@ from app.services.generator.visual.base import (
 
 logger = logging.getLogger(__name__)
 
-PEXELS_API_BASE = "https://api.pexels.com"
+PIXABAY_API_BASE = "https://pixabay.com/api"
 
 
 def _calculate_metadata_score(query: str, result: dict[str, Any]) -> float:
     """Calculate metadata matching score between query and result.
 
-    Uses title, description, and keywords to determine relevance.
+    Uses tags and page URL to determine relevance.
     Score is based on keyword token overlap.
 
     Args:
@@ -43,22 +43,22 @@ def _calculate_metadata_score(query: str, result: dict[str, Any]) -> float:
     # Gather metadata text
     metadata_text = []
 
-    # Get URL (often contains descriptive text like "pexels-photo-1234-mountain-sunset")
-    url = result.get("url", "")
-    if url:
+    # Get tags (Pixabay provides comma-separated tags)
+    tags = result.get("tags", "")
+    if tags:
+        metadata_text.append(tags.lower())
+
+    # Get page URL (contains descriptive slug)
+    page_url = result.get("pageURL", "")
+    if page_url:
         # Extract meaningful parts from URL
-        parts = url.replace("-", " ").replace("_", " ").lower()
+        parts = page_url.replace("-", " ").replace("_", " ").replace("/", " ").lower()
         metadata_text.append(parts)
 
-    # Get photographer (can be indicative of theme)
-    photographer = result.get("user", {}).get("name", "") or result.get("photographer", "")
-    if photographer:
-        metadata_text.append(photographer.lower())
-
-    # Get alt text (Pexels images have this)
-    alt = result.get("alt", "")
-    if alt:
-        metadata_text.append(alt.lower())
+    # Get user (sometimes indicative of theme)
+    user = result.get("user", "")
+    if user:
+        metadata_text.append(user.lower())
 
     # Combine all metadata
     full_text = " ".join(metadata_text)
@@ -67,7 +67,7 @@ def _calculate_metadata_score(query: str, result: dict[str, Any]) -> float:
         return 0.5
 
     # Calculate token overlap
-    text_tokens = set(full_text.split())
+    text_tokens = set(full_text.replace(",", " ").split())
     matches = query_tokens & text_tokens
 
     # Score = matched tokens / query tokens
@@ -76,39 +76,37 @@ def _calculate_metadata_score(query: str, result: dict[str, Any]) -> float:
     return min(1.0, score)
 
 
-class PexelsClient(BaseVisualSource):
-    """Pexels API client for stock video and image sourcing.
+class PixabayClient(BaseVisualSource):
+    """Pixabay API client for stock video and image sourcing.
 
     Features:
     - Free high-quality stock videos and images
-    - Portrait orientation support (perfect for Shorts)
-    - No attribution required in video (only in description)
+    - No attribution required (Pixabay License)
+    - Portrait orientation support for Shorts
+    - 100 requests per minute rate limit
 
     Example:
-        >>> client = PexelsClient(api_key="your-key")
+        >>> client = PixabayClient(api_key="your-key")
         >>> videos = await client.search_videos("technology", max_results=5)
         >>> downloaded = await client.download(videos[0], Path("/tmp"))
     """
 
     def __init__(self, api_key: str | None = None) -> None:
-        """Initialize PexelsClient.
+        """Initialize PixabayClient.
 
         Args:
-            api_key: Pexels API key (or from PEXELS_API_KEY env)
+            api_key: Pixabay API key (or from PIXABAY_API_KEY env)
         """
-        self._api_key = api_key or os.environ.get("PEXELS_API_KEY")
+        self._api_key = api_key or os.environ.get("PIXABAY_API_KEY")
         if not self._api_key:
-            logger.warning("PEXELS_API_KEY not set, Pexels search will not work")
+            logger.warning("PIXABAY_API_KEY not set, Pixabay search will not work")
 
         self._client: httpx.AsyncClient | None = None
 
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create HTTP client."""
         if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
-                headers={"Authorization": self._api_key or ""},
-                timeout=30.0,
-            )
+            self._client = httpx.AsyncClient(timeout=30.0)
         return self._client
 
     async def search(
@@ -141,7 +139,7 @@ class PexelsClient(BaseVisualSource):
             )
             assets.extend(videos)
         except Exception as e:
-            logger.warning(f"Video search failed: {e}")
+            logger.warning(f"Pixabay video search failed: {e}")
 
         # If not enough videos, search images
         if len(assets) < max_results:
@@ -153,7 +151,7 @@ class PexelsClient(BaseVisualSource):
                 )
                 assets.extend(images)
             except Exception as e:
-                logger.warning(f"Image search failed: {e}")
+                logger.warning(f"Pixabay image search failed: {e}")
 
         return assets
 
@@ -169,67 +167,82 @@ class PexelsClient(BaseVisualSource):
         Args:
             query: Search query
             max_results: Maximum number of results
-            orientation: Video orientation
+            orientation: Video orientation (horizontal, vertical, or all)
             min_duration: Minimum duration in seconds
 
         Returns:
             List of video assets
         """
         if not self._api_key:
-            logger.warning("Pexels API key not set")
+            logger.warning("Pixabay API key not set")
             return []
 
         client = await self._get_client()
 
+        # Map orientation to Pixabay's parameter
+        pixabay_orientation = self._map_orientation(orientation)
+
         params: dict[str, str | int] = {
-            "query": query,
-            "per_page": min(max_results * 2, 80),  # Request more for filtering
-            "orientation": orientation,
+            "key": self._api_key,
+            "q": query,
+            "per_page": min(max_results * 2, 200),  # Request more for filtering
+            "video_type": "all",
+            "safesearch": "true",
         }
+
+        if pixabay_orientation != "all":
+            params["orientation"] = pixabay_orientation
 
         try:
             response = await client.get(
-                f"{PEXELS_API_BASE}/videos/search",
+                f"{PIXABAY_API_BASE}/videos/",
                 params=params,
             )
             response.raise_for_status()
             data = response.json()
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                f"Pixabay video API error: {e.response.status_code} - " f"{e.response.text[:500]}"
+            )
+            return []
         except httpx.HTTPError as e:
-            logger.error(f"Pexels video search failed: {e}", exc_info=True)
+            logger.error(f"Pixabay video search failed: {e}", exc_info=True)
             return []
 
         assets: list[VisualAsset] = []
 
-        for video in data.get("videos", []):
+        for video in data.get("hits", []):
             duration = video.get("duration", 0)
 
             # Filter by min_duration
             if min_duration and duration < min_duration:
                 continue
 
-            # Find best video file (HD, portrait)
-            video_file = self._select_best_video_file(
-                video.get("video_files", []),
-                orientation,
-            )
+            # Get best video URL (prefer large, then medium, then small)
+            video_url = self._select_best_video_url(video.get("videos", {}))
 
-            if not video_file:
+            if not video_url:
                 continue
+
+            # Get video dimensions
+            video_info = self._get_video_info(video.get("videos", {}))
 
             assets.append(
                 VisualAsset(
                     type=VisualSourceType.STOCK_VIDEO,
-                    url=video_file.get("link"),
+                    url=video_url,
                     duration=duration,
-                    width=video_file.get("width"),
-                    height=video_file.get("height"),
-                    source="pexels",
+                    width=video_info.get("width"),
+                    height=video_info.get("height"),
+                    source="pixabay",
                     source_id=str(video.get("id")),
-                    license="Pexels License",
-                    keywords=query.split(),
+                    license="Pixabay License",
+                    keywords=video.get("tags", "").split(", "),
                     metadata={
-                        "photographer": video.get("user", {}).get("name"),
-                        "pexels_url": video.get("url"),
+                        "user": video.get("user"),
+                        "pixabay_url": video.get("pageURL"),
+                        "views": video.get("views"),
+                        "downloads": video.get("downloads"),
                     },
                     metadata_score=_calculate_metadata_score(query, video),
                 )
@@ -238,7 +251,7 @@ class PexelsClient(BaseVisualSource):
             if len(assets) >= max_results:
                 break
 
-        logger.info(f"Found {len(assets)} Pexels videos for query: {query}")
+        logger.info(f"Found {len(assets)} Pixabay videos for query: {query}")
         return assets
 
     async def search_images(
@@ -246,7 +259,7 @@ class PexelsClient(BaseVisualSource):
         query: str,
         max_results: int = 10,
         orientation: Literal["portrait", "landscape", "square"] = "portrait",
-        exclude_ids: set[str] | None = None,
+        image_type: Literal["all", "photo", "illustration", "vector"] = "photo",
     ) -> list[VisualAsset]:
         """Search for stock images.
 
@@ -254,50 +267,52 @@ class PexelsClient(BaseVisualSource):
             query: Search query
             max_results: Maximum number of results
             orientation: Image orientation
-            exclude_ids: Set of source_ids to exclude (to avoid duplicates)
+            image_type: Type of image (photo, illustration, vector)
 
         Returns:
             List of image assets
         """
         if not self._api_key:
-            logger.warning("Pexels API key not set")
+            logger.warning("Pixabay API key not set")
             return []
 
         client = await self._get_client()
 
-        # Request more results to have room for filtering out excluded IDs
-        request_count = max_results + (len(exclude_ids) if exclude_ids else 0) + 5
+        # Map orientation to Pixabay's parameter
+        pixabay_orientation = self._map_orientation(orientation)
 
         params: dict[str, str | int] = {
-            "query": query,
-            "per_page": min(request_count, 80),
-            "orientation": orientation,
+            "key": self._api_key,
+            "q": query,
+            "per_page": min(max_results + 5, 200),
+            "image_type": image_type,
+            "safesearch": "true",
         }
+
+        if pixabay_orientation != "all":
+            params["orientation"] = pixabay_orientation
 
         try:
             response = await client.get(
-                f"{PEXELS_API_BASE}/v1/search",
+                f"{PIXABAY_API_BASE}/",
                 params=params,
             )
             response.raise_for_status()
             data = response.json()
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                f"Pixabay image API error: {e.response.status_code} - " f"{e.response.text[:500]}"
+            )
+            return []
         except httpx.HTTPError as e:
-            logger.error(f"Pexels image search failed: {e}", exc_info=True)
+            logger.error(f"Pixabay image search failed: {e}", exc_info=True)
             return []
 
         assets: list[VisualAsset] = []
 
-        for photo in data.get("photos", []):
-            photo_id = str(photo.get("id"))
-
-            # Skip if this ID is in the exclude list
-            if exclude_ids and photo_id in exclude_ids:
-                logger.debug(f"Skipping excluded image ID: {photo_id}")
-                continue
-
-            # Use large2x size for quality
-            src = photo.get("src", {})
-            url = src.get("large2x") or src.get("large") or src.get("original")
+        for photo in data.get("hits", []):
+            # Use largeImageURL for quality (1280px)
+            url = photo.get("largeImageURL") or photo.get("webformatURL")
 
             if not url:
                 continue
@@ -306,26 +321,26 @@ class PexelsClient(BaseVisualSource):
                 VisualAsset(
                     type=VisualSourceType.STOCK_IMAGE,
                     url=url,
-                    width=photo.get("width"),
-                    height=photo.get("height"),
-                    source="pexels",
+                    width=photo.get("imageWidth"),
+                    height=photo.get("imageHeight"),
+                    source="pixabay",
                     source_id=str(photo.get("id")),
-                    license="Pexels License",
-                    keywords=query.split(),
+                    license="Pixabay License",
+                    keywords=photo.get("tags", "").split(", "),
                     metadata={
-                        "photographer": photo.get("photographer"),
-                        "pexels_url": photo.get("url"),
-                        "avg_color": photo.get("avg_color"),
+                        "user": photo.get("user"),
+                        "pixabay_url": photo.get("pageURL"),
+                        "views": photo.get("views"),
+                        "downloads": photo.get("downloads"),
                     },
                     metadata_score=_calculate_metadata_score(query, photo),
                 )
             )
 
-            # Stop once we have enough
             if len(assets) >= max_results:
                 break
 
-        logger.info(f"Found {len(assets)} Pexels images for query: {query}")
+        logger.info(f"Found {len(assets)} Pixabay images for query: {query}")
         return assets
 
     async def download(
@@ -354,7 +369,7 @@ class PexelsClient(BaseVisualSource):
         # Determine file extension
         ext = ".mp4" if asset.is_video else ".jpg"
 
-        filename = f"pexels_{asset.source_id}{ext}"
+        filename = f"pixabay_{asset.source_id}{ext}"
         output_path = output_dir / filename
 
         # Skip if already downloaded
@@ -380,47 +395,62 @@ class PexelsClient(BaseVisualSource):
         except httpx.HTTPError as e:
             raise RuntimeError(f"Download failed: {e}") from e
 
-    def _select_best_video_file(
+    def _map_orientation(
         self,
-        video_files: list[dict[str, Any]],
-        orientation: str,
-    ) -> dict[str, Any] | None:
-        """Select best video file based on quality and orientation.
+        orientation: Literal["portrait", "landscape", "square"],
+    ) -> str:
+        """Map orientation to Pixabay's parameter.
+
+        Pixabay uses: horizontal, vertical, all
 
         Args:
-            video_files: List of video file options
-            orientation: Preferred orientation
+            orientation: Our orientation value
 
         Returns:
-            Best video file dict or None
+            Pixabay orientation parameter
         """
-        if not video_files:
-            return None
+        mapping = {
+            "portrait": "vertical",
+            "landscape": "horizontal",
+            "square": "all",  # Pixabay doesn't have square filter
+        }
+        return mapping.get(orientation, "all")
 
-        # Filter by orientation
-        if orientation == "portrait":
-            # Portrait: width < height
-            files = [f for f in video_files if f.get("width", 0) < f.get("height", 0)]
-        elif orientation == "landscape":
-            files = [f for f in video_files if f.get("width", 0) > f.get("height", 0)]
-        else:
-            files = video_files
+    def _select_best_video_url(self, videos: dict[str, Any]) -> str | None:
+        """Select best video URL from Pixabay video sizes.
 
-        if not files:
-            files = video_files  # Fallback to all files
+        Pixabay provides: large (1920), medium (1280), small (960), tiny (640)
 
-        # Sort by quality (prefer HD)
-        def quality_score(f: dict[str, Any]) -> int:
-            quality_val = f.get("quality", "")
-            quality = str(quality_val).lower()
-            if quality == "hd":
-                return 3
-            if quality == "sd":
-                return 2
-            return 1
+        Args:
+            videos: Video sizes dict from Pixabay API
 
-        files.sort(key=quality_score, reverse=True)
-        return files[0]
+        Returns:
+            Best video URL or None
+        """
+        # Prefer large for quality, but medium is usually sufficient
+        for size in ["large", "medium", "small", "tiny"]:
+            if size in videos and videos[size].get("url"):
+                url = videos[size]["url"]
+                if isinstance(url, str):
+                    return url
+        return None
+
+    def _get_video_info(self, videos: dict[str, Any]) -> dict[str, int]:
+        """Get video dimensions from the best available size.
+
+        Args:
+            videos: Video sizes dict from Pixabay API
+
+        Returns:
+            Dict with width and height
+        """
+        for size in ["large", "medium", "small", "tiny"]:
+            if size in videos:
+                return {
+                    "width": videos[size].get("width", 0),
+                    "height": videos[size].get("height", 0),
+                }
+        return {"width": 0, "height": 0}
 
     async def close(self) -> None:
         """Close HTTP client."""
@@ -428,4 +458,4 @@ class PexelsClient(BaseVisualSource):
             await self._client.aclose()
 
 
-__all__ = ["PexelsClient"]
+__all__ = ["PixabayClient"]

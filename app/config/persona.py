@@ -83,14 +83,10 @@ class Perspective(BaseModel):
     """Persona perspective and values.
 
     Attributes:
-        approach: Content approach style
         core_values: Core values
         contrarian_views: Contrarian viewpoints
     """
 
-    approach: Literal["practical", "analytical", "entertaining"] = Field(
-        ..., description="Content approach"
-    )
     core_values: list[str] = Field(default_factory=list)
     contrarian_views: list[str] = Field(default_factory=list)
 

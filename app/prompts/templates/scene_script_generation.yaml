@@ -117,8 +117,7 @@ template: |
         "scene_type": "hook|content|example|commentary|conclusion|cta",
         "text": "자막용 (GPT-4, Claude 3.5 원본 표기)",
         "tts_text": "발음용 (GPT 사, 클로드 삼점오) - 다를 때만",
-        "keyword": "2-4 English words for Pexels search",
-        "visual_hint": "stock_video|stock_image|text_overlay",
+        "visual_keyword": "3-5 English words for visual search",
         "emphasis_words": ["word1"]
       }
     ]
@@ -135,9 +134,13 @@ template: |
   - Claude 3.5 → 클로드 삼점오
   - API → 에이피아이
 
-  ## Keyword Tips (Pexels search)
-  Good: "developer coding laptop", "server room datacenter"
-  Bad: "technology", "innovation" (too abstract)
+  ## visual_keyword Tips
+  - MUST be in English, 3-5 descriptive words
+  - Used for both stock search (Pexels/Pixabay) AND AI image generation (Stable Diffusion)
+  - Each scene MUST have DIFFERENT visual_keyword (variety is critical)
+  - Good: "excited fans concert crowd", "singer microphone stage spotlight", "autograph signing celebrity"
+  - Bad: "music", "performance" (too abstract/generic)
+  - Make each scene's visual_keyword unique and specific to scene content
 
   % if avoid_words:
   Avoid these words: ${", ".join(avoid_words)}

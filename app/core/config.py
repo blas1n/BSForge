@@ -141,6 +141,7 @@ class Config(BaseSettings):
     reddit_client_secret: str = Field(default="", description="Reddit client secret")
     reddit_user_agent: str = Field(default="BSForge/1.0", description="Reddit user agent")
     pexels_api_key: str = Field(default="", description="Pexels API key")
+    pixabay_api_key: str = Field(default="", description="Pixabay API key")
 
     # ============================================
     # File Storage

@@ -8,18 +8,23 @@ These tests verify the complete video generation workflow:
 5. Thumbnail generation
 """
 
+import subprocess
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from app.config.video import CompositionConfig, SubtitleConfig
+from app.models.scene import Scene, SceneScript, SceneType
 from app.services.generator.compositor import FFmpegCompositor
 from app.services.generator.subtitle import SubtitleGenerator
 from app.services.generator.templates import ASSTemplateLoader
 from app.services.generator.thumbnail import ThumbnailGenerator
 from app.services.generator.tts.base import TTSConfig as TTSConfigDataclass
 from app.services.generator.tts.edge import EdgeTTSEngine
+from app.services.generator.tts.utils import concatenate_scene_audio
 from app.services.generator.visual.fallback import FallbackGenerator
+from app.services.generator.visual.manager import SceneVisualResult
 
 
 class TestTTSGeneration:
@@ -173,8 +178,6 @@ class TestThumbnailGeneration:
 
         assert result.exists()
         # Verify dimensions (default is 1080x1920 for YouTube Shorts portrait)
-        from PIL import Image
-
         img = Image.open(result)
         assert img.size == (1080, 1920)
 
@@ -293,8 +296,6 @@ class TestVideoQuality:
         skip_without_ffmpeg: None,
     ) -> None:
         """Test video meets YouTube Shorts specifications."""
-        import subprocess
-
         # Generate a simple video
         tts_engine = EdgeTTSEngine()
         config = TTSConfigDataclass(voice_id="ko-KR-SunHiNeural")
@@ -358,28 +359,22 @@ class TestSceneBasedPipeline:
         skip_without_ffmpeg: None,
     ) -> None:
         """Test complete scene-based video generation."""
-        from app.models.scene import Scene, SceneScript, SceneType, VisualHintType
-        from app.services.generator.tts.utils import concatenate_scene_audio
-
         # Create sample scenes
         scenes = [
             Scene(
                 scene_type=SceneType.HOOK,
                 text="테스트 시작합니다",
-                keyword="test start",
-                visual_hint=VisualHintType.STOCK_IMAGE,
+                visual_keyword="test start beginning",
             ),
             Scene(
                 scene_type=SceneType.CONTENT,
                 text="이것은 내용입니다",
-                keyword="content",
-                visual_hint=VisualHintType.STOCK_IMAGE,
+                visual_keyword="content information data",
             ),
             Scene(
                 scene_type=SceneType.CONCLUSION,
                 text="마무리합니다",
-                keyword="end",
-                visual_hint=VisualHintType.STOCK_IMAGE,
+                visual_keyword="ending conclusion finish",
             ),
         ]
 
@@ -440,8 +435,6 @@ class TestSceneBasedPipeline:
         assert len(visuals) == len(scenes)
 
         # Step 5: Compose video
-        from app.services.generator.visual.manager import SceneVisualResult
-
         current_offset = 0.0
         scene_visuals = []
         for i, (scene, visual, tts_result) in enumerate(

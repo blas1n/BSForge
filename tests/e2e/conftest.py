@@ -1,6 +1,7 @@
 """E2E test fixtures and configuration."""
 
 import hashlib
+import os
 import shutil
 import tempfile
 import uuid
@@ -9,7 +10,10 @@ from pathlib import Path
 
 import pytest
 
+from app.config.video import CompositionConfig, SubtitleConfig
 from app.services.collector.base import NormalizedTopic, RawTopic, ScoredTopic
+from app.services.generator.subtitle import SubtitleGenerator
+from app.services.generator.templates import ASSTemplateLoader
 
 # =============================================================================
 # Directory Fixtures
@@ -23,8 +27,6 @@ def temp_output_dir(request: pytest.FixtureRequest) -> Path:
     Set KEEP_OUTPUT=1 to preserve output files after test completion.
     Set OUTPUT_DIR=/path/to/dir to use a specific output directory.
     """
-    import os
-
     keep_output = os.environ.get("KEEP_OUTPUT", "").lower() in ("1", "true", "yes")
     custom_dir = os.environ.get("OUTPUT_DIR")
 
@@ -178,34 +180,30 @@ def create_scored_topic(
 
 
 @pytest.fixture
-def subtitle_config():
+def subtitle_config() -> SubtitleConfig:
     """Create default SubtitleConfig."""
-    from app.config.video import SubtitleConfig
-
     return SubtitleConfig()
 
 
 @pytest.fixture
-def composition_config():
+def composition_config() -> CompositionConfig:
     """Create default CompositionConfig."""
-    from app.config.video import CompositionConfig
-
     return CompositionConfig()
 
 
 @pytest.fixture
-def ass_template_loader():
+def ass_template_loader() -> ASSTemplateLoader:
     """Create an ASSTemplateLoader."""
-    from app.services.generator.templates import ASSTemplateLoader
-
     return ASSTemplateLoader()
 
 
 @pytest.fixture
-def subtitle_generator(subtitle_config, composition_config, ass_template_loader):
+def subtitle_generator(
+    subtitle_config: SubtitleConfig,
+    composition_config: CompositionConfig,
+    ass_template_loader: ASSTemplateLoader,
+) -> SubtitleGenerator:
     """Create a SubtitleGenerator with DI-injected configs."""
-    from app.services.generator.subtitle import SubtitleGenerator
-
     return SubtitleGenerator(
         config=subtitle_config,
         composition_config=composition_config,
