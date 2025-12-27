@@ -77,9 +77,12 @@ dependencies = [
     "pycountry>=24.6.1",
     "fontconfig-py>=1.0.0",
     "babel>=2.17.0",
+    # NLP / Tokenization (Unicode Annex #29 word segmentation)
+    "uniseg>=0.9.0",
+    "stopwordsiso>=0.6.1",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     # Testing
     "pytest>=7.4.4",

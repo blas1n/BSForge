@@ -18,6 +18,7 @@ RUN apt-get update && \
     less git procps sudo fzf curl zsh man-db unzip gnupg2 gh nodejs npm \
     iptables ipset iproute2 dnsutils aggregate jq vim ca-certificates \
     postgresql-client locales ffmpeg fonts-noto-cjk fonts-noto-cjk-extra \
+    libicu-dev pkg-config \
     && break || { echo "Retry $i..."; sleep 5; apt-get update; }; \
     done && \
     apt-get clean && rm -rf /var/lib/apt/lists/*

@@ -35,7 +35,7 @@ from app.core.container import get_container
 from app.models.channel import Channel, Persona, TTSService
 from app.models.script import Script
 from app.models.topic import Topic
-from app.services.collector.clusterer import TopicCluster, cluster_topics
+from app.services.collector.clusterer import TopicCluster, cluster_topics, select_best_cluster
 from app.services.collector.pipeline import CollectionConfig, TopicCollectionPipeline
 from app.services.generator.pipeline import VideoGenerationResult
 from app.services.pipeline.enriched_generation import EnrichedGenerationPipeline
@@ -463,9 +463,22 @@ async def main() -> None:
 
             print(f"   Clustered into {len(clusters)} clusters")
 
-    # Select best cluster
-    best_cluster = clusters[0]
+    # Select best cluster using multi-source priority strategy
+    best_cluster = select_best_cluster(
+        clusters,
+        prefer_multi_source=True,  # Prioritize events covered by multiple sources
+        min_sources=1,
+    )
+
+    if not best_cluster:
+        print("\nNo suitable cluster found. Demo ended.")
+        return
+
     print(f"\n   Selected cluster: {best_cluster.primary_topic.title_normalized[:50]}...")
+    reason = "Multi-source event" if best_cluster.source_count > 1 else "Top scored"
+    print(f"   Selection reason: {reason}")
+    print(f"   Sources: {best_cluster.sources}")
+    print(f"   Total engagement: {best_cluster.total_engagement}")
 
     # Find the primary topic in DB
     primary_topic_id = best_cluster.primary_topic.metadata.get("topic_id")

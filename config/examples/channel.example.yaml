@@ -129,6 +129,15 @@ filtering:
   exclude:
     - "Any"
 
+# 웹 리서치 설정
+research:
+  enabled: true
+  query_strategy: "keyword"  # keyword | title | llm
+  search_depth: "basic"      # basic | advanced
+  topic_type: "general"      # general | news
+  max_queries: 3
+  max_results_per_query: 5
+
 # 스코어링 가중치
 scoring:
   weights:

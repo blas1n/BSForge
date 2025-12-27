@@ -19,6 +19,7 @@ Usage:
 from __future__ import annotations
 
 import hashlib
+import random
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -273,6 +274,9 @@ class TopicCollectionPipeline:
         ScopedSourceCache for scoped sources (Reddit, DCInside, etc.).
         Falls back to direct collection if Redis is not available.
 
+        Balanced sampling: Takes proportional topics from each source to ensure
+        all sources are represented in the final result.
+
         Args:
             config: Collection configuration
             stats: Stats to update
@@ -280,7 +284,8 @@ class TopicCollectionPipeline:
         Returns:
             List of raw topics
         """
-        all_topics: list[RawTopic] = []
+        # Collect all topics grouped by source
+        topics_by_source: dict[str, list[RawTopic]] = {}
 
         for source_name in config.enabled_sources:
             try:
@@ -295,15 +300,75 @@ class TopicCollectionPipeline:
                         source_name, config.source_overrides.get(source_name, {}), stats
                     )
 
-                all_topics.extend(topics)
+                if topics:
+                    topics_by_source[source_name] = topics
 
             except Exception as e:
                 error_msg = f"{source_name} collection failed: {e}"
                 logger.error(error_msg, exc_info=True)
                 stats.errors.append(error_msg)
 
-        # Limit topics
-        return all_topics[: config.max_topics]
+        # Balanced sampling: proportionally sample from each source
+        return self._balanced_sample(topics_by_source, config.max_topics)
+
+    def _balanced_sample(
+        self,
+        topics_by_source: dict[str, list[RawTopic]],
+        max_topics: int,
+    ) -> list[RawTopic]:
+        """Sample topics proportionally from each source.
+
+        Ensures all sources are represented in the result by taking
+        a proportional number of topics from each source.
+
+        Args:
+            topics_by_source: Topics grouped by source name
+            max_topics: Maximum total topics to return
+
+        Returns:
+            Balanced list of topics from all sources
+        """
+        if not topics_by_source:
+            return []
+
+        total_topics = sum(len(topics) for topics in topics_by_source.values())
+        if total_topics <= max_topics:
+            # Return all if under limit
+            all_topics = []
+            for topics in topics_by_source.values():
+                all_topics.extend(topics)
+            return all_topics
+
+        # Calculate proportional allocation for each source
+        num_sources = len(topics_by_source)
+        base_per_source = max_topics // num_sources
+        remainder = max_topics % num_sources
+
+        result: list[RawTopic] = []
+        sources_sorted = sorted(
+            topics_by_source.keys(),
+            key=lambda s: len(topics_by_source[s]),
+            reverse=True,
+        )
+
+        for i, source_name in enumerate(sources_sorted):
+            topics = topics_by_source[source_name]
+            # Give extra 1 topic to first 'remainder' sources
+            allocation = base_per_source + (1 if i < remainder else 0)
+            # Take up to allocation, but not more than available
+            take = min(allocation, len(topics))
+            # Shuffle and take top N to get variety
+            shuffled = list(topics)
+            random.shuffle(shuffled)
+            result.extend(shuffled[:take])
+
+        logger.info(
+            "Balanced sampling complete",
+            total_sources=num_sources,
+            total_available=total_topics,
+            sampled=len(result),
+        )
+        return result
 
     async def _collect_from_global_source(
         self,

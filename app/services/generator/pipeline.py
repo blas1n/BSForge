@@ -169,8 +169,8 @@ class VideoGenerationPipeline:
         if template:
             self.compositor.template = template
 
-        # Determine output directory
-        output_dir = Path(self.config.output_dir) / str(script.channel_id) / str(script.id)
+        # Determine output directory (simplified to single UUID)
+        output_dir = Path(self.config.output_dir) / str(script.id)
         output_dir.mkdir(parents=True, exist_ok=True)
 
         # Create temp directory
@@ -431,8 +431,8 @@ class VideoGenerationPipeline:
         if template:
             self.compositor.template = template
 
-        # Determine output directory
-        output_dir = Path(self.config.output_dir) / str(script.channel_id) / str(script.id)
+        # Determine output directory (simplified to single UUID)
+        output_dir = Path(self.config.output_dir) / str(script.id)
         output_dir.mkdir(parents=True, exist_ok=True)
 
         # Create temp directory
