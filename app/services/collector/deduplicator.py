@@ -12,16 +12,20 @@ Design Decision (Hash Only):
 - Only exact duplicates (same content hash) are filtered
 """
 
+from __future__ import annotations
+
 from datetime import timedelta
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
-from redis.asyncio import Redis as AsyncRedis
 
 from app.config import DedupConfig
 from app.core.logging import get_logger
 from app.services.collector.base import NormalizedTopic
+
+if TYPE_CHECKING:
+    from redis.asyncio import Redis
 
 logger = get_logger(__name__)
 
@@ -63,7 +67,7 @@ class TopicDeduplicator:
 
     def __init__(
         self,
-        redis: "AsyncRedis[Any]",
+        redis: Redis[Any],
         config: DedupConfig | None = None,
     ):
         """Initialize deduplicator.

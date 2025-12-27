@@ -1,153 +1,34 @@
-"""Redis client configuration and utilities.
+"""Redis client utilities.
 
-This module provides Redis connection management and common operations.
-Supports both sync and async operations with lazy initialization.
+This module provides Redis cache helper functions for use with DI-injected clients.
+All Redis client lifecycle management is handled by the DI container.
 
-The RedisManager and utilities in this module (cache_set, cache_get, etc.)
-remain available for standalone scripts or when direct Redis access is needed.
+For Redis clients, use dependency injection:
+    - FastAPI: Use Depends(get_redis) from app.core.container
+    - Services: Accept Redis[Any] in constructor
+
+The cache helper functions in this module are designed to work with
+DI-injected clients for standalone scripts or utility operations.
 """
 
+from __future__ import annotations
+
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from redis import Redis
-from redis.asyncio import Redis as AsyncRedis
-
-from app.core.config import get_config
 from app.core.logging import get_logger
+
+if TYPE_CHECKING:
+    from redis.asyncio import Redis
 
 logger = get_logger(__name__)
 
 
-class RedisManager:
-    """Manages Redis client connections with lazy initialization.
-
-    Provides singleton access to both sync and async Redis clients.
-    Connections are created on first access, not at module load time.
-
-    Example:
-        >>> redis_manager = RedisManager()
-        >>> async_client = redis_manager.async_client
-        >>> sync_client = redis_manager.sync_client
-    """
-
-    _instance: "RedisManager | None" = None
-    _async_client: "AsyncRedis[Any] | None" = None
-    _sync_client: "Redis[Any] | None" = None
-
-    def __new__(cls) -> "RedisManager":
-        """Singleton pattern."""
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
-
-    @property
-    def async_client(self) -> "AsyncRedis[Any]":
-        """Get async Redis client (lazy initialization).
-
-        Returns:
-            Async Redis client instance
-        """
-        if self._async_client is None:
-            self._async_client = AsyncRedis.from_url(
-                str(get_config().redis_url),
-                encoding="utf-8",
-                decode_responses=True,
-                socket_connect_timeout=5,
-                socket_keepalive=True,
-            )
-            logger.debug("Async Redis client initialized")
-        return self._async_client
-
-    @property
-    def sync_client(self) -> "Redis[Any]":
-        """Get sync Redis client (lazy initialization).
-
-        Returns:
-            Sync Redis client instance
-        """
-        if self._sync_client is None:
-            self._sync_client = Redis.from_url(
-                str(get_config().redis_url),
-                encoding="utf-8",
-                decode_responses=True,
-                socket_connect_timeout=5,
-                socket_keepalive=True,
-            )
-            logger.debug("Sync Redis client initialized")
-        return self._sync_client
-
-    async def close(self) -> None:
-        """Close all Redis connections."""
-        if self._async_client is not None:
-            await self._async_client.close()
-            self._async_client = None
-        if self._sync_client is not None:
-            self._sync_client.close()
-            self._sync_client = None
-        logger.info("Redis connections closed")
-
-    @classmethod
-    def reset(cls) -> None:
-        """Reset the singleton instance (useful for testing).
-
-        This closes existing connections and clears the singleton.
-        """
-        if cls._instance is not None:
-            if cls._async_client is not None:
-                # Note: Can't await here, caller should close async client first
-                cls._async_client = None
-            if cls._sync_client is not None:
-                cls._sync_client.close()
-                cls._sync_client = None
-            cls._instance = None
-
-
-# Global manager instance
-redis_manager = RedisManager()
-
-
-# ============================================
-# FastAPI Dependency Functions
-# ============================================
-
-
-async def get_redis() -> "AsyncRedis[Any]":
-    """Get async Redis client as FastAPI dependency.
-
-    Returns:
-        Async Redis client
-
-    Example:
-        >>> from fastapi import Depends
-        >>> async def get_cached_data(redis: AsyncRedis = Depends(get_redis)):
-        ...     return await redis.get("cache_key")
-    """
-    return redis_manager.async_client
-
-
-def get_redis_sync() -> "Redis[Any]":
-    """Get sync Redis client.
-
-    Returns:
-        Sync Redis client
-
-    Example:
-        >>> redis = get_redis_sync()
-        >>> redis.set("key", "value")
-    """
-    return redis_manager.sync_client
-
-
-# ============================================
-# Cache Helper Functions
-# ============================================
-
-
-async def cache_set(key: str, value: Any, expire: int | None = None) -> bool:
+async def cache_set(client: Redis[Any], key: str, value: Any, expire: int | None = None) -> bool:
     """Set value in cache with optional expiration.
 
     Args:
+        client: Async Redis client (from DI)
         key: Cache key
         value: Value to cache (will be JSON serialized if not string)
         expire: Expiration time in seconds (optional)
@@ -156,11 +37,10 @@ async def cache_set(key: str, value: Any, expire: int | None = None) -> bool:
         True if successful
 
     Example:
-        >>> await cache_set("user:123", {"name": "John"}, expire=300)
-        >>> await cache_set("counter", 42, expire=60)
+        >>> redis = container.redis()
+        >>> await cache_set(redis, "user:123", {"name": "John"}, expire=300)
     """
     try:
-        client = redis_manager.async_client
         # Serialize non-string values as JSON
         if not isinstance(value, str):
             value = json.dumps(value)
@@ -173,10 +53,11 @@ async def cache_set(key: str, value: Any, expire: int | None = None) -> bool:
         return False
 
 
-async def cache_get(key: str, default: Any = None) -> Any:
+async def cache_get(client: Redis[Any], key: str, default: Any = None) -> Any:
     """Get value from cache.
 
     Args:
+        client: Async Redis client (from DI)
         key: Cache key
         default: Default value if key doesn't exist
 
@@ -184,12 +65,10 @@ async def cache_get(key: str, default: Any = None) -> Any:
         Cached value (JSON deserialized if applicable) or default
 
     Example:
-        >>> user = await cache_get("user:123")
-        >>> if user:
-        ...     print(user["name"])
+        >>> redis = container.redis()
+        >>> user = await cache_get(redis, "user:123")
     """
     try:
-        client = redis_manager.async_client
         value = await client.get(key)
         if value is None:
             return default
@@ -204,20 +83,21 @@ async def cache_get(key: str, default: Any = None) -> Any:
         return default
 
 
-async def cache_delete(key: str) -> bool:
+async def cache_delete(client: Redis[Any], key: str) -> bool:
     """Delete key from cache.
 
     Args:
+        client: Async Redis client (from DI)
         key: Cache key
 
     Returns:
         True if key was deleted
 
     Example:
-        >>> await cache_delete("user:123")
+        >>> redis = container.redis()
+        >>> await cache_delete(redis, "user:123")
     """
     try:
-        client = redis_manager.async_client
         result = await client.delete(key)
         logger.debug("Cache delete", key=key)
         return bool(result)
@@ -226,21 +106,22 @@ async def cache_delete(key: str) -> bool:
         return False
 
 
-async def cache_exists(key: str) -> bool:
+async def cache_exists(client: Redis[Any], key: str) -> bool:
     """Check if key exists in cache.
 
     Args:
+        client: Async Redis client (from DI)
         key: Cache key
 
     Returns:
         True if key exists
 
     Example:
-        >>> if await cache_exists("user:123"):
+        >>> redis = container.redis()
+        >>> if await cache_exists(redis, "user:123"):
         ...     print("User is cached")
     """
     try:
-        client = redis_manager.async_client
         result = await client.exists(key)
         return bool(result)
     except Exception as e:
@@ -248,21 +129,21 @@ async def cache_exists(key: str) -> bool:
         return False
 
 
-async def cache_clear_pattern(pattern: str) -> int:
+async def cache_clear_pattern(client: Redis[Any], pattern: str) -> int:
     """Delete all keys matching pattern.
 
     Args:
+        client: Async Redis client (from DI)
         pattern: Redis key pattern (e.g., "user:*")
 
     Returns:
         Number of keys deleted
 
     Example:
-        >>> deleted = await cache_clear_pattern("user:*")
-        >>> print(f"Deleted {deleted} cached users")
+        >>> redis = container.redis()
+        >>> deleted = await cache_clear_pattern(redis, "user:*")
     """
     try:
-        client = redis_manager.async_client
         keys = []
         async for key in client.scan_iter(match=pattern):
             keys.append(key)
@@ -277,32 +158,22 @@ async def cache_clear_pattern(pattern: str) -> int:
         return 0
 
 
-async def check_redis_connection() -> bool:
+async def check_redis_connection(client: Redis[Any]) -> bool:
     """Check if Redis connection is healthy.
+
+    Args:
+        client: Async Redis client (from DI)
 
     Returns:
         True if connection is successful, False otherwise
 
     Example:
-        >>> is_healthy = await check_redis_connection()
-        >>> if not is_healthy:
-        ...     logger.error("Redis connection failed")
+        >>> redis = container.redis()
+        >>> is_healthy = await check_redis_connection(redis)
     """
     try:
-        client = redis_manager.async_client
         await client.ping()
         return True
     except Exception as e:
         logger.error("Redis health check failed", error=str(e), exc_info=True)
         return False
-
-
-async def close_redis() -> None:
-    """Close Redis connections.
-
-    Call this when shutting down the application.
-
-    Example:
-        >>> await close_redis()
-    """
-    await redis_manager.close()

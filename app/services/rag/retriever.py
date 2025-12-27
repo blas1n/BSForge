@@ -107,7 +107,7 @@ class RAGRetriever:
         db_session_factory: AsyncSession factory
         retrieval_config: Retrieval configuration
         query_config: Query expansion configuration
-        llm_client: Anthropic client for query expansion
+        llm_client: LLMClient for query expansion
     """
 
     def __init__(
@@ -117,8 +117,8 @@ class RAGRetriever:
         retrieval_config: RetrievalConfig,
         query_config: QueryExpansionConfig,
         prompt_manager: PromptManager,
-        bm25_search: BM25Search | None = None,
-        llm_client: LLMClient | None = None,
+        bm25_search: BM25Search,
+        llm_client: LLMClient,
     ):
         """Initialize RAGRetriever.
 
@@ -128,8 +128,8 @@ class RAGRetriever:
             retrieval_config: Retrieval configuration
             query_config: Query expansion configuration
             prompt_manager: PromptManager for loading templates
-            bm25_search: Optional BM25Search instance for keyword search
-            llm_client: Optional Anthropic client for query expansion
+            bm25_search: BM25Search instance for keyword search
+            llm_client: LLMClient instance for query expansion
         """
         self.vector_db = vector_db
         self.bm25_search = bm25_search
@@ -201,7 +201,7 @@ class RAGRetriever:
                 all_results[chunk_id] = all_results.get(chunk_id, 0.0) + weighted_score
 
         # BM25 keyword search (weighted by keyword_weight = 0.3)
-        if self.bm25_search and self.retrieval_config.keyword_weight > 0:
+        if self.retrieval_config.keyword_weight > 0:
             for q in queries:
                 bm25_results = await self.bm25_search.search(
                     query=q,
@@ -257,10 +257,6 @@ class RAGRetriever:
         Returns:
             List of queries [original, expanded1, expanded2, ...]
         """
-        if not self.llm_client:
-            logger.warning("LLM client not configured, skipping query expansion")
-            return [query]
-
         try:
             # Render prompt from centralized template
             prompt = self.prompt_manager.render(

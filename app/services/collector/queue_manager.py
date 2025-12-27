@@ -5,15 +5,19 @@ Topics are prioritized by their total score, with higher scores
 having higher priority (retrieved first).
 """
 
+from __future__ import annotations
+
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
-from redis.asyncio import Redis as AsyncRedis
 
 from app.config import QueueConfig
 from app.core.logging import get_logger
 from app.services.collector.base import ScoredTopic
+
+if TYPE_CHECKING:
+    from redis.asyncio import Redis
 
 logger = get_logger(__name__)
 
@@ -46,7 +50,7 @@ class TopicQueueManager:
 
     def __init__(
         self,
-        redis: "AsyncRedis[Any]",
+        redis: Redis[Any],
         config: QueueConfig | None = None,
     ):
         """Initialize queue manager.

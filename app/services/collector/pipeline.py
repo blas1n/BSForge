@@ -16,18 +16,23 @@ Usage:
     result = await pipeline.collect_for_channel(channel, config)
 """
 
+from __future__ import annotations
+
 import hashlib
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
-from redis.asyncio import Redis as AsyncRedis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import FilteringConfig
+
+if TYPE_CHECKING:
+    from redis.asyncio import Redis
+
 from app.core.config_loader import load_defaults
 from app.core.logging import get_logger
 from app.infrastructure.http_client import HTTPClient
@@ -109,7 +114,7 @@ class CollectionConfig:
         return self.global_sources + self.scoped_sources
 
     @classmethod
-    def from_channel_config(cls, channel_config: dict[str, Any]) -> "CollectionConfig":
+    def from_channel_config(cls, channel_config: dict[str, Any]) -> CollectionConfig:
         """Create CollectionConfig from channel YAML config.
 
         Args:
@@ -160,7 +165,7 @@ class TopicCollectionPipeline:
         session: AsyncSession,
         http_client: HTTPClient,
         normalizer: TopicNormalizer,
-        redis: AsyncRedis,
+        redis: Redis[Any],
         deduplicator: TopicDeduplicator,
         scorer: TopicScorer,
         global_pool: GlobalTopicPool,

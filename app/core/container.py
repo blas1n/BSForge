@@ -11,7 +11,7 @@ Usage:
     from app.core.container import container
 
     @app.get("/")
-    async def endpoint(redis: AsyncRedis = Depends(container.redis_client)):
+    async def endpoint(redis: Redis = Depends(container.redis)):
         ...
 
     # In Celery
@@ -20,17 +20,17 @@ Usage:
     @celery_app.task
     def my_task():
         with container.reset_singletons():  # Or use scoped context
-            redis = container.redis_client()
+            redis = container.redis()
             ...
 
     # In tests
-    with container.redis_client.override(mock_redis):
+    with container.redis.override(mock_redis):
         ...
 """
 
 from dependency_injector import containers, providers
-from redis import Redis
-from redis.asyncio import Redis as AsyncRedis
+from redis import Redis as SyncRedis
+from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import Config, get_config
@@ -49,7 +49,7 @@ class InfrastructureContainer(containers.DeclarativeContainer):
     # ============================================
 
     redis_async_client = providers.Singleton(
-        AsyncRedis.from_url,
+        Redis.from_url,
         url=global_config.provided.redis_url,
         encoding="utf-8",
         decode_responses=True,
@@ -58,7 +58,7 @@ class InfrastructureContainer(containers.DeclarativeContainer):
     )
 
     redis_sync_client = providers.Singleton(
-        Redis.from_url,
+        SyncRedis.from_url,
         url=global_config.provided.redis_url,
         encoding="utf-8",
         decode_responses=True,
@@ -744,12 +744,12 @@ def get_container() -> ApplicationContainer:
 # get_config is re-exported from app.core.config for convenience
 
 
-async def get_redis() -> AsyncRedis:
+async def get_redis() -> Redis:
     """FastAPI dependency for async Redis client."""
     return container.redis()
 
 
-def get_redis_sync() -> Redis:
+def get_redis_sync() -> SyncRedis:
     """Get sync Redis client."""
     return container.redis_sync()
 
@@ -806,7 +806,7 @@ class TaskScope:
 # ============================================
 
 
-def override_redis(mock_redis: AsyncRedis):
+def override_redis(mock_redis: Redis):
     """Context manager to override Redis for testing.
 
     Usage:

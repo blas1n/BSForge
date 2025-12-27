@@ -6,15 +6,18 @@ global sources (HackerNews, Google Trends, YouTube Trending).
 All channels share this pool and filter topics based on their config.
 """
 
+from __future__ import annotations
+
 import json
 from datetime import UTC, datetime
-from typing import Any
-
-from redis.asyncio import Redis as AsyncRedis
+from typing import TYPE_CHECKING, Any
 
 from app.core.logging import get_logger
 from app.services.collector.base import RawTopic
 from app.services.collector.sources.factory import is_global_source
+
+if TYPE_CHECKING:
+    from redis.asyncio import Redis
 
 logger = get_logger(__name__)
 
@@ -34,7 +37,7 @@ class GlobalTopicPool:
     META_KEY_SUFFIX = ":meta"
     DEFAULT_TTL_HOURS = 4  # Topics expire after 4 hours
 
-    def __init__(self, redis: "AsyncRedis[Any]"):
+    def __init__(self, redis: Redis[Any]):
         """Initialize the global pool.
 
         Args:
@@ -212,7 +215,7 @@ class ScopedSourceCache:
     CACHE_KEY_PREFIX = "scoped_cache:"
     DEFAULT_TTL_MINUTES = 30  # Short TTL for scoped sources
 
-    def __init__(self, redis: "AsyncRedis[Any]"):
+    def __init__(self, redis: Redis[Any]):
         """Initialize the scoped cache.
 
         Args:
