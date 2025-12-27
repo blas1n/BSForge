@@ -7,7 +7,7 @@ pattern-based classification is insufficient.
 from app.core.config import get_config
 from app.core.logging import get_logger
 from app.infrastructure.llm import LLMClient, LLMConfig
-from app.prompts.manager import PromptType, get_prompt_manager
+from app.prompts.manager import PromptManager, PromptType
 
 logger = get_logger(__name__)
 
@@ -28,17 +28,19 @@ class ContentClassifier:
     def __init__(
         self,
         llm_client: LLMClient,
+        prompt_manager: PromptManager,
         model: str | None = None,
     ):
         """Initialize ContentClassifier.
 
         Args:
             llm_client: LLMClient instance
+            prompt_manager: PromptManager for loading templates
             model: Model name in LiteLLM format (default: from settings)
         """
         self.llm_client = llm_client
+        self.prompt_manager = prompt_manager
         self.model = model or get_config().llm_model_light
-        self.prompt_manager = get_prompt_manager()
 
     async def classify_characteristics(self, text: str) -> dict[str, bool]:
         """Classify content characteristics using LLM.

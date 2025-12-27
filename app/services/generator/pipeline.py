@@ -169,8 +169,8 @@ class VideoGenerationPipeline:
         if template:
             self.compositor.template = template
 
-        # Determine output directory
-        output_dir = Path(self.config.output_dir) / str(script.channel_id) / str(script.id)
+        # Determine output directory (simplified to single UUID)
+        output_dir = Path(self.config.output_dir) / str(script.id)
         output_dir.mkdir(parents=True, exist_ok=True)
 
         # Create temp directory
@@ -431,8 +431,8 @@ class VideoGenerationPipeline:
         if template:
             self.compositor.template = template
 
-        # Determine output directory
-        output_dir = Path(self.config.output_dir) / str(script.channel_id) / str(script.id)
+        # Determine output directory (simplified to single UUID)
+        output_dir = Path(self.config.output_dir) / str(script.id)
         output_dir.mkdir(parents=True, exist_ok=True)
 
         # Create temp directory
@@ -532,8 +532,8 @@ class VideoGenerationPipeline:
             # Fallback: extract from first scene if not provided
             if not headline_keyword and scene_script.scenes:
                 first_scene = scene_script.scenes[0]
-                if first_scene.keyword:
-                    headline_keyword = first_scene.keyword
+                if first_scene.visual_keyword:
+                    headline_keyword = first_scene.visual_keyword
                 if first_scene.text and len(first_scene.text) < 30:
                     headline_hook = first_scene.text
 

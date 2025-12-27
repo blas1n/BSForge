@@ -86,14 +86,18 @@ from app.core.container import get_redis, get_db_session
 
 @router.get("/items")
 async def get_items(
-    redis: AsyncRedis = Depends(get_redis),
+    redis: Redis[Any] = Depends(get_redis),
     db: AsyncSession = Depends(get_db_session),
 ):
     ...
 
 # Services - inject via constructor
+from typing import TYPE_CHECKING, Any
+if TYPE_CHECKING:
+    from redis.asyncio import Redis
+
 class TopicDeduplicator:
-    def __init__(self, redis: AsyncRedis):
+    def __init__(self, redis: Redis[Any]):
         self.redis = redis
 
 # Instantiate via container

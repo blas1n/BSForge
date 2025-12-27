@@ -18,9 +18,9 @@ from app.infrastructure.llm import LLMClient, LLMConfig
 from app.infrastructure.pgvector_db import PgVectorDB
 from app.models.channel import Persona
 from app.models.content_chunk import ContentType
-from app.models.scene import Scene, SceneScript, SceneType, VisualStrategy
+from app.models.scene import Scene, SceneScript, SceneType
 from app.models.script import Script, ScriptStatus
-from app.prompts.manager import PromptType, get_prompt_manager
+from app.prompts.manager import PromptManager, PromptType
 from app.services.rag.chunker import ScriptChunker
 from app.services.rag.context import ContextBuilder
 from app.services.rag.embedder import ContentEmbedder
@@ -73,6 +73,7 @@ class ScriptGenerator:
         embedder: ContentEmbedder,
         vector_db: PgVectorDB,
         llm_client: LLMClient,
+        prompt_manager: PromptManager,
         db_session_factory: SessionFactory | None = None,
         config: GenerationConfig | None = None,
         quality_config: QualityCheckConfig | None = None,
@@ -86,6 +87,7 @@ class ScriptGenerator:
             embedder: ContentEmbedder instance
             vector_db: PgVectorDB instance
             llm_client: LLMClient instance
+            prompt_manager: PromptManager for loading templates
             db_session_factory: SQLAlchemy async session factory
             config: Generation configuration (default: from settings)
             quality_config: Quality check configuration
@@ -96,11 +98,11 @@ class ScriptGenerator:
         self.embedder = embedder
         self.vector_db = vector_db
         self.llm_client = llm_client
+        self.prompt_manager = prompt_manager
         self.db_session_factory = db_session_factory
         self.config = config or GenerationConfig()
         self.quality_config = quality_config or QualityCheckConfig()
         self.quality_checker = ScriptQualityChecker(self.quality_config)
-        self.prompt_manager = get_prompt_manager()
 
     def _get_llm_config_from_template(self, prompt_type: PromptType) -> LLMConfig:
         """Get LLMConfig from prompt template settings.
@@ -664,19 +666,11 @@ class ScriptGenerator:
                     )
                     scene_type = SceneType.CONTENT
 
-                # Parse visual_strategy
-                visual_strategy_str = raw.get("visual_strategy", "stock_only")
-                try:
-                    visual_strategy = VisualStrategy(visual_strategy_str)
-                except ValueError:
-                    visual_strategy = VisualStrategy.STOCK_ONLY
-
                 scenes.append(
                     Scene(
                         scene_type=scene_type,
                         text=raw.get("text", ""),
-                        keyword=raw.get("keyword"),
-                        visual_strategy=visual_strategy,
+                        visual_keyword=raw.get("visual_keyword"),
                         emphasis_words=raw.get("emphasis_words", []),
                     )
                 )

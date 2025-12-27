@@ -8,7 +8,6 @@ from app.prompts.manager import (
     PromptManager,
     PromptTemplate,
     PromptType,
-    get_prompt_manager,
 )
 
 
@@ -129,12 +128,16 @@ class TestPromptManager:
 
         assert "not found" in str(exc_info.value).lower()
 
-    def test_singleton_instance(self):
-        """Should return same instance via get_prompt_manager."""
-        manager1 = get_prompt_manager()
-        manager2 = get_prompt_manager()
+    def test_multiple_instances_are_independent(self):
+        """Should create independent instances."""
+        manager1 = PromptManager()
+        manager2 = PromptManager()
 
-        assert manager1 is manager2
+        # Both should work independently
+        template1 = manager1.load(PromptType.TRANSLATION)
+        template2 = manager2.load(PromptType.TRANSLATION)
+
+        assert template1.name == template2.name
 
     def test_example_variables(self):
         """Should include example variables in template."""

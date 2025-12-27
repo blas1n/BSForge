@@ -13,11 +13,11 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSON, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
+from app.models.scene import Scene, SceneScript
 
 if TYPE_CHECKING:
     from app.models.channel import Channel
     from app.models.content_chunk import ContentChunk
-    from app.models.scene import SceneScript
     from app.models.topic import Topic
     from app.models.video import Video
 
@@ -132,7 +132,7 @@ class Script(Base, UUIDMixin, TimestampMixin):
         """Check if script uses scene-based structure."""
         return self.scenes is not None and len(self.scenes) > 0
 
-    def get_scene_script(self) -> "SceneScript | None":
+    def get_scene_script(self) -> SceneScript | None:
         """Parse scenes into SceneScript model.
 
         Returns:
@@ -140,8 +140,6 @@ class Script(Base, UUIDMixin, TimestampMixin):
         """
         if not self.has_scenes or self.scenes is None:
             return None
-
-        from app.models.scene import Scene, SceneScript
 
         parsed_scenes = [Scene(**scene_data) for scene_data in self.scenes]
         return SceneScript(scenes=parsed_scenes, title_text=self.title_text)

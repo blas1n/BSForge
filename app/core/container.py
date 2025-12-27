@@ -11,7 +11,7 @@ Usage:
     from app.core.container import container
 
     @app.get("/")
-    async def endpoint(redis: AsyncRedis = Depends(container.redis_client)):
+    async def endpoint(redis: Redis = Depends(container.redis)):
         ...
 
     # In Celery
@@ -20,17 +20,17 @@ Usage:
     @celery_app.task
     def my_task():
         with container.reset_singletons():  # Or use scoped context
-            redis = container.redis_client()
+            redis = container.redis()
             ...
 
     # In tests
-    with container.redis_client.override(mock_redis):
+    with container.redis.override(mock_redis):
         ...
 """
 
 from dependency_injector import containers, providers
-from redis import Redis
-from redis.asyncio import Redis as AsyncRedis
+from redis import Redis as SyncRedis
+from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import Config, get_config
@@ -49,7 +49,7 @@ class InfrastructureContainer(containers.DeclarativeContainer):
     # ============================================
 
     redis_async_client = providers.Singleton(
-        AsyncRedis.from_url,
+        Redis.from_url,
         url=global_config.provided.redis_url,
         encoding="utf-8",
         decode_responses=True,
@@ -58,7 +58,7 @@ class InfrastructureContainer(containers.DeclarativeContainer):
     )
 
     redis_sync_client = providers.Singleton(
-        Redis.from_url,
+        SyncRedis.from_url,
         url=global_config.provided.redis_url,
         encoding="utf-8",
         decode_responses=True,
@@ -131,6 +131,14 @@ class InfrastructureContainer(containers.DeclarativeContainer):
         "app.infrastructure.http_client.HTTPClient",
     )
 
+    # ============================================
+    # Prompt Manager
+    # ============================================
+
+    prompt_manager = providers.Singleton(
+        "app.prompts.manager.PromptManager",
+    )
+
 
 class ConfigContainer(containers.DeclarativeContainer):
     """Configuration models container.
@@ -183,6 +191,18 @@ class ConfigContainer(containers.DeclarativeContainer):
 
     web_scraper_config = providers.Singleton(
         "app.config.sources.WebScraperConfig",
+    )
+
+    # ============================================
+    # Research configs
+    # ============================================
+
+    research_config = providers.Singleton(
+        "app.config.research.ResearchConfig",
+    )
+
+    enrichment_config = providers.Singleton(
+        "app.config.enrichment.EnrichmentConfig",
     )
 
     # ============================================
@@ -301,6 +321,7 @@ class ServiceContainer(containers.DeclarativeContainer):
     topic_normalizer = providers.Factory(
         "app.services.collector.normalizer.TopicNormalizer",
         llm_client=infrastructure.llm_client,
+        prompt_manager=infrastructure.prompt_manager,
     )
 
     topic_filter = providers.Factory(
@@ -351,6 +372,7 @@ class ServiceContainer(containers.DeclarativeContainer):
         db_session_factory=infrastructure.db_session_factory,
         retrieval_config=configs.retrieval_config,
         query_config=configs.query_expansion_config,
+        prompt_manager=infrastructure.prompt_manager,
         bm25_search=infrastructure.bm25_search,
         llm_client=infrastructure.llm_client,
     )
@@ -363,6 +385,7 @@ class ServiceContainer(containers.DeclarativeContainer):
     content_classifier = providers.Factory(
         "app.services.rag.classifier.ContentClassifier",
         llm_client=infrastructure.llm_client,
+        prompt_manager=infrastructure.prompt_manager,
         model="anthropic/claude-3-5-haiku-20241022",
     )
 
@@ -380,6 +403,7 @@ class ServiceContainer(containers.DeclarativeContainer):
 
     prompt_builder = providers.Factory(
         "app.services.rag.prompt.PromptBuilder",
+        prompt_manager=infrastructure.prompt_manager,
     )
 
     script_generator = providers.Factory(
@@ -390,9 +414,43 @@ class ServiceContainer(containers.DeclarativeContainer):
         embedder=content_embedder,
         vector_db=infrastructure.vector_db,
         llm_client=infrastructure.llm_client,
+        prompt_manager=infrastructure.prompt_manager,
         db_session_factory=infrastructure.db_session_factory,
         config=configs.generation_config,
         quality_config=configs.quality_check_config,
+    )
+
+    # ============================================
+    # Research & Enrichment Services
+    # ============================================
+
+    cluster_enricher = providers.Factory(
+        "app.services.collector.cluster_enricher.ClusterEnricher",
+        llm_client=infrastructure.llm_client,
+        prompt_manager=infrastructure.prompt_manager,
+    )
+
+    tavily_client = providers.Singleton(
+        "app.services.research.tavily.TavilyClient",
+        api_key=global_config.provided.tavily_api_key,
+        http_client=infrastructure.http_client,
+        config=configs.research_config,
+    )
+
+    research_query_builder = providers.Factory(
+        "app.services.research.query_builder.ResearchQueryBuilder",
+        llm_client=infrastructure.llm_client,
+        prompt_manager=infrastructure.prompt_manager,
+    )
+
+    enriched_pipeline = providers.Factory(
+        "app.services.pipeline.enriched_generation.EnrichedGenerationPipeline",
+        cluster_enricher=cluster_enricher,
+        research_client=tavily_client,
+        query_builder=research_query_builder,
+        context_builder=context_builder,
+        script_generator=script_generator,
+        db_session_factory=infrastructure.db_session_factory,
     )
 
     # ============================================
@@ -433,6 +491,7 @@ class ServiceContainer(containers.DeclarativeContainer):
 
     sd_generator = providers.Singleton(
         "app.services.generator.visual.stable_diffusion.StableDiffusionGenerator",
+        http_client=infrastructure.http_client,
     )
 
     fallback_generator = providers.Factory(
@@ -441,6 +500,7 @@ class ServiceContainer(containers.DeclarativeContainer):
 
     visual_manager = providers.Factory(
         "app.services.generator.visual.manager.VisualSourcingManager",
+        http_client=infrastructure.http_client,
         config=configs.visual_config,
         pexels_client=pexels_client,
         pixabay_client=pixabay_client,
@@ -605,6 +665,22 @@ class ApplicationContainer(containers.DeclarativeContainer):
         svc=services.script_generator,
     )
 
+    # Research & Enrichment Services
+    cluster_enricher = providers.Factory(
+        lambda svc: svc,
+        svc=services.cluster_enricher,
+    )
+
+    research_client = providers.Singleton(
+        lambda svc: svc,
+        svc=services.tavily_client,
+    )
+
+    enriched_pipeline = providers.Factory(
+        lambda svc: svc,
+        svc=services.enriched_pipeline,
+    )
+
     # Video Generation Services
     tts_factory = providers.Factory(
         lambda svc: svc,
@@ -668,12 +744,12 @@ def get_container() -> ApplicationContainer:
 # get_config is re-exported from app.core.config for convenience
 
 
-async def get_redis() -> AsyncRedis:
+async def get_redis() -> Redis:
     """FastAPI dependency for async Redis client."""
     return container.redis()
 
 
-def get_redis_sync() -> Redis:
+def get_redis_sync() -> SyncRedis:
     """Get sync Redis client."""
     return container.redis_sync()
 
@@ -730,7 +806,7 @@ class TaskScope:
 # ============================================
 
 
-def override_redis(mock_redis: AsyncRedis):
+def override_redis(mock_redis: Redis):
     """Context manager to override Redis for testing.
 
     Usage:

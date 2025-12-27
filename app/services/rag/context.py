@@ -4,8 +4,11 @@ This module provides context building for script generation by gathering
 persona, retrieved content, and topic information.
 """
 
+from __future__ import annotations
+
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +19,9 @@ from app.core.types import SessionFactory
 from app.models.channel import Persona
 from app.models.topic import Topic
 from app.services.rag.retriever import RetrievalResult, SpecializedRetriever
+
+if TYPE_CHECKING:
+    from app.services.research.base import ResearchResult
 
 logger = get_logger(__name__)
 
@@ -38,20 +44,37 @@ class RetrievedContent:
 
 
 @dataclass
+class EnrichedContent:
+    """Enriched content from cluster and web research.
+
+    Attributes:
+        cluster_summary: LLM-generated unified summary from multiple sources
+        cluster_sources: List of source URLs from the cluster
+        research_results: Web research results from Tavily
+    """
+
+    cluster_summary: str | None = None
+    cluster_sources: list[str] = field(default_factory=list)
+    research_results: list[ResearchResult] = field(default_factory=list)
+
+
+@dataclass
 class GenerationContext:
     """Complete context for script generation.
 
     Attributes:
-        topic: Topic information
+        topic: Topic information (primary topic from cluster)
         persona: Channel persona
-        retrieved: Retrieved content
+        retrieved: Retrieved content from RAG
         config: Generation configuration
+        enriched: Optional enriched content from cluster/research
     """
 
     topic: Topic
     persona: Persona
     retrieved: RetrievedContent
     config: GenerationConfig
+    enriched: EnrichedContent | None = None
 
 
 class ContextBuilder:
@@ -246,6 +269,7 @@ class ContextBuilder:
 
 __all__ = [
     "RetrievedContent",
+    "EnrichedContent",
     "GenerationContext",
     "ContextBuilder",
 ]

@@ -4,6 +4,7 @@ Generic collector for RSS and Atom feeds.
 Uses feedparser for parsing various feed formats.
 """
 
+import re
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import Any
@@ -234,8 +235,6 @@ class RSSSource(BaseSource[RSSConfig]):
         Returns:
             Text with HTML tags removed
         """
-        import re
-
         # Remove HTML tags
         clean = re.sub(r"<[^>]+>", "", text)
         # Decode common entities

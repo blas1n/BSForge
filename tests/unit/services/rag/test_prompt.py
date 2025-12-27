@@ -1,11 +1,11 @@
 """Unit tests for PromptBuilder."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from app.config.rag import GenerationConfig
-from app.prompts.manager import PromptType
+from app.prompts.manager import PromptManager, PromptType
 from app.services.rag.context import GenerationContext, RetrievedContent
 from app.services.rag.prompt import PromptBuilder
 
@@ -16,9 +16,21 @@ class TestPromptBuilder:
     """Test PromptBuilder functionality."""
 
     @pytest.fixture
-    def prompt_builder(self) -> PromptBuilder:
-        """Create PromptBuilder instance."""
-        return PromptBuilder()
+    def mock_prompt_manager(self) -> MagicMock:
+        """Create mock PromptManager for verifying calls."""
+        manager = MagicMock(spec=PromptManager)
+        manager.render.return_value = "Rendered prompt content"
+        return manager
+
+    @pytest.fixture
+    def real_prompt_manager(self) -> PromptManager:
+        """Create real PromptManager for content tests."""
+        return PromptManager()
+
+    @pytest.fixture
+    def prompt_builder(self, real_prompt_manager: PromptManager) -> PromptBuilder:
+        """Create PromptBuilder with real PromptManager."""
+        return PromptBuilder(prompt_manager=real_prompt_manager)
 
     @pytest.fixture
     def mock_persona(self) -> MagicMock:
@@ -123,20 +135,16 @@ class TestPromptBuilder:
     @pytest.mark.asyncio
     async def test_build_prompt_uses_prompt_manager(
         self,
+        mock_prompt_manager: MagicMock,
         generation_context: GenerationContext,
     ) -> None:
         """Should use PromptManager for template rendering."""
-        with patch("app.services.rag.prompt.get_prompt_manager") as mock_get_pm:
-            mock_pm = MagicMock()
-            mock_pm.render.return_value = "Rendered prompt content"
-            mock_get_pm.return_value = mock_pm
+        builder = PromptBuilder(prompt_manager=mock_prompt_manager)
+        await builder.build_prompt(generation_context)
 
-            builder = PromptBuilder()
-            await builder.build_prompt(generation_context)
-
-            mock_pm.render.assert_called_once()
-            call_args = mock_pm.render.call_args
-            assert call_args[0][0] == PromptType.SCRIPT_GENERATION
+        mock_prompt_manager.render.assert_called_once()
+        call_args = mock_prompt_manager.render.call_args
+        assert call_args[0][0] == PromptType.SCRIPT_GENERATION
 
     @pytest.mark.asyncio
     async def test_build_prompt_includes_persona_name(

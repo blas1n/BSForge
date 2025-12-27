@@ -10,9 +10,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_config
+from app.core.container import container
 from app.core.database import check_db_connection, close_db, init_db
 from app.core.logging import get_logger, setup_logging
-from app.core.redis import close_redis
 
 # Setup logging
 setup_logging()
@@ -53,7 +53,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Shutdown
     logger.info("Shutting down BSForge application")
     await close_db()
-    await close_redis()
+    # Close Redis connections from DI container
+    redis_client = container.redis()
+    await redis_client.close()
     logger.info("Cleanup complete")
 
 

@@ -124,7 +124,7 @@ Global config loading with caching:
 
 ```python
 class MyService:
-    def __init__(self, redis: AsyncRedis, config: MyConfig):
+    def __init__(self, redis: Redis[Any], config: MyConfig):
         self.redis = redis
         self.config = config
 

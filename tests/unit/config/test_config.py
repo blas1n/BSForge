@@ -318,13 +318,14 @@ def test_trend_config_valid():
 def test_topic_collection_config_valid():
     """Test valid topic collection configuration."""
     topic_config = TopicCollectionConfig(
-        region_weights=RegionWeights(domestic=0.3, foreign=0.7),
-        enabled_sources=["reddit", "hackernews"],
+        global_sources=["hackernews"],
+        scoped_sources=["reddit"],
         source_overrides={},
         trend_config=TrendConfig(),
     )
-    assert len(topic_config.enabled_sources) == 2
-    assert topic_config.region_weights.domestic == 0.3
+    assert len(topic_config.global_sources) == 1
+    assert len(topic_config.scoped_sources) == 1
+    assert topic_config.target_language == "ko"
 
 
 @pytest.mark.unit
@@ -442,8 +443,9 @@ def test_full_channel_config(tmp_path):
             },
         },
         "topic_collection": {
-            "region_weights": {"domestic": 0.3, "foreign": 0.7},
-            "enabled_sources": ["reddit", "hackernews"],
+            "global_sources": ["hackernews"],
+            "scoped_sources": ["reddit"],
+            "target_language": "ko",
             "source_overrides": {},
             "trend_config": {"enabled": True, "sources": [], "regions": [], "min_growth_rate": 50},
         },
@@ -480,7 +482,8 @@ def test_full_channel_config(tmp_path):
 
     assert config.channel.id == "test-channel"
     assert config.persona.name == "TestBot"
-    assert config.topic_collection.region_weights.domestic == 0.3
+    assert config.topic_collection.global_sources == ["hackernews"]
+    assert config.topic_collection.scoped_sources == ["reddit"]
     assert config.scoring.freshness_half_life_hours == 24
     assert config.scoring.min_score_threshold == 30
     assert config.content.target_duration == 55

@@ -10,6 +10,7 @@ Benefits:
 - Consistent response format
 """
 
+import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -118,8 +119,6 @@ class LLMClient:
             anthropic_api_key: Anthropic API key (optional, uses env if not provided)
             openai_api_key: OpenAI API key (optional, uses env if not provided)
         """
-        import os
-
         # Set API keys in environment if provided
         if anthropic_api_key and not os.environ.get("ANTHROPIC_API_KEY"):
             os.environ["ANTHROPIC_API_KEY"] = anthropic_api_key

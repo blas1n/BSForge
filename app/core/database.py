@@ -4,6 +4,7 @@ This module provides SQLAlchemy 2.0 async engine and session management.
 It includes the Base class for all ORM models and utility functions.
 """
 
+import re
 from collections.abc import AsyncGenerator
 from typing import ClassVar
 
@@ -69,8 +70,6 @@ class Base(DeclarativeBase):
             Snake case table name
         """
         # Convert CamelCase to snake_case
-        import re
-
         name = re.sub(r"(?<!^)(?=[A-Z])", "_", cls.__name__).lower()
         return name
 

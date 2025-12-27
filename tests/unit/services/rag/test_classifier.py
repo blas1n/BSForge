@@ -1,10 +1,11 @@
 """Unit tests for ContentClassifier."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from app.infrastructure.llm import LLMResponse
+from app.prompts.manager import PromptManager
 from app.services.rag.classifier import ContentClassifier
 
 
@@ -18,10 +19,22 @@ class TestContentClassifier:
         return client
 
     @pytest.fixture
-    def classifier(self, mock_llm_client: AsyncMock) -> ContentClassifier:
+    def mock_prompt_manager(self) -> MagicMock:
+        """Create mock PromptManager."""
+        manager = MagicMock(spec=PromptManager)
+        manager.render.return_value = "Classify this content"
+        return manager
+
+    @pytest.fixture
+    def classifier(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_prompt_manager: MagicMock,
+    ) -> ContentClassifier:
         """Create ContentClassifier with mock client."""
         return ContentClassifier(
             llm_client=mock_llm_client,
+            prompt_manager=mock_prompt_manager,
             model="anthropic/claude-3-5-haiku-20241022",
         )
 
@@ -168,23 +181,25 @@ class TestContentClassifier:
         assert results[2]["is_analogy"] is True
 
     @pytest.mark.asyncio
-    async def test_uses_prompt_manager(self, mock_llm_client: AsyncMock) -> None:
+    async def test_uses_prompt_manager(
+        self,
+        mock_llm_client: AsyncMock,
+        mock_prompt_manager: MagicMock,
+    ) -> None:
         """Should use PromptManager for template rendering."""
-        with patch("app.services.rag.classifier.get_prompt_manager") as mock_get_pm:
-            mock_pm = MagicMock()
-            mock_pm.render.return_value = "Rendered prompt"
-            mock_get_pm.return_value = mock_pm
+        mock_llm_client.complete.return_value = LLMResponse(
+            content="opinion: no\nexample: no\nanalogy: no",
+            model="anthropic/claude-3-5-haiku-20241022",
+            usage={},
+        )
 
-            mock_llm_client.complete.return_value = LLMResponse(
-                content="opinion: no\nexample: no\nanalogy: no",
-                model="anthropic/claude-3-5-haiku-20241022",
-                usage={},
-            )
+        classifier = ContentClassifier(
+            llm_client=mock_llm_client,
+            prompt_manager=mock_prompt_manager,
+        )
+        await classifier.classify_characteristics("Test text")
 
-            classifier = ContentClassifier(llm_client=mock_llm_client)
-            await classifier.classify_characteristics("Test text")
-
-            mock_pm.render.assert_called_once()
+        mock_prompt_manager.render.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_case_insensitive_parsing(

@@ -85,6 +85,20 @@ template: |
   Terms: ${", ".join(topic_terms)}
   % endif
 
+  % if enriched_cluster_summary:
+  ## Multi-Source Summary
+  The following is synthesized information from ${len(enriched_cluster_sources)} different sources:
+  ${enriched_cluster_summary}
+  % endif
+
+  % if enriched_research_results:
+  ## Web Research Results
+  Latest information from web search:
+  % for result in enriched_research_results[:3]:
+  - **${result['title']}** (${result['source']}): ${result['content'][:200]}...
+  % endfor
+  % endif
+
   ---
 
   # Task

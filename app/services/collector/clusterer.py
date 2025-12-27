@@ -4,10 +4,10 @@ Groups similar topics from multiple sources based on title/term similarity.
 Provides aggregated information for richer script generation.
 """
 
-import re
 from dataclasses import dataclass, field
 
 from app.core.logging import get_logger
+from app.infrastructure.tokenizer import tokenize_without_stopwords
 from app.services.collector.base import ScoredTopic
 
 logger = get_logger(__name__)
@@ -280,18 +280,19 @@ class TopicClusterer:
         return intersection / union if union > 0 else 0.0
 
     def _tokenize(self, text: str) -> list[str]:
-        """Tokenize text into words.
+        """Tokenize text into words using ICU-based universal tokenizer.
+
+        Uses ICU tokenizer for language-agnostic tokenization that handles
+        all Unicode scripts including CJK languages without spaces.
+        Stopwords from all supported languages are automatically filtered.
 
         Args:
             text: Text to tokenize
 
         Returns:
-            List of word tokens
+            List of word tokens with stopwords removed
         """
-        # Remove special characters but keep Korean/English/numbers
-        text = re.sub(r"[^\w\s가-힣]", " ", text)
-        # Split and filter empty
-        return [w.strip() for w in text.lower().split() if w.strip()]
+        return tokenize_without_stopwords(text, min_length=2)
 
     def _get_ngrams(self, words: list[str], n: int) -> list[tuple[str, ...]]:
         """Generate n-grams from word list.
@@ -374,9 +375,53 @@ def get_top_clusters(
     return filtered[:limit]
 
 
+def select_best_cluster(
+    clusters: list[TopicCluster],
+    prefer_multi_source: bool = True,
+    min_sources: int = 1,
+) -> TopicCluster | None:
+    """Select the best cluster based on criteria.
+
+    Args:
+        clusters: List of topic clusters to select from
+        prefer_multi_source: Prefer clusters with multiple sources
+        min_sources: Minimum number of sources required
+
+    Returns:
+        Best cluster or None if no clusters available
+    """
+    if not clusters:
+        return None
+
+    # Filter by minimum sources
+    filtered = [c for c in clusters if c.source_count >= min_sources]
+
+    # If no clusters meet criteria, fallback to original list
+    if not filtered:
+        filtered = clusters
+
+    if prefer_multi_source:
+        # Sort by: multi-source first, then by score, then by engagement
+        filtered.sort(
+            key=lambda c: (
+                c.source_count > 1,
+                c.source_count,
+                c.primary_topic.score_total,
+                c.total_engagement,
+            ),
+            reverse=True,
+        )
+    else:
+        # Sort by engagement only
+        filtered.sort(key=lambda c: c.total_engagement, reverse=True)
+
+    return filtered[0]
+
+
 __all__ = [
     "TopicCluster",
     "TopicClusterer",
     "cluster_topics",
     "get_top_clusters",
+    "select_best_cluster",
 ]

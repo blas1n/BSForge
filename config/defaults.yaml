@@ -3,7 +3,8 @@
 
 collector:
   # Maximum topics to process per collection run
-  max_topics: 20
+  # Higher value allows multi-source clustering to work better
+  max_topics: 100
 
   # Number of top topics to save to database
   top_topics_to_save: 5
@@ -97,6 +98,23 @@ visual:
   # Use lowercase scene type names: hook, content, commentary, cta, etc.
   reuse_previous_visual_types:
     - cta
+
+# Web Research
+research:
+  provider: "tavily"
+  max_results: 5
+  search_depth: "basic"  # basic | advanced
+  include_answer: true
+  timeout: 30
+
+# Enrichment pipeline
+enrichment:
+  cluster_enrichment:
+    enabled: true
+    min_cluster_size: 1  # Minimum topics in cluster to enrich
+  web_research:
+    enabled: true
+    max_queries: 3
 
 # Stable Diffusion (AI image generation)
 stable_diffusion:
