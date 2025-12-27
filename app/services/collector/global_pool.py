@@ -7,6 +7,7 @@ All channels share this pool and filter topics based on their config.
 """
 
 import json
+from datetime import UTC, datetime
 from typing import Any
 
 from redis.asyncio import Redis as AsyncRedis
@@ -80,8 +81,6 @@ class GlobalTopicPool:
             pipe.expire(key, ttl)
 
         # Update metadata
-        from datetime import UTC, datetime
-
         meta = {
             "collected_at": datetime.now(UTC).isoformat(),
             "count": len(topics),

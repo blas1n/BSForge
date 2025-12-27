@@ -1,0 +1,36 @@
+# Cluster Summary Prompt Template
+# Version: 1.0.0
+# Last Updated: 2025-12-26
+
+name: "Cluster Summary Prompt"
+version: "1.0.0"
+description: "Synthesizes information from multiple source topics into a unified summary"
+
+# LLM Settings
+model: "anthropic/claude-3-5-haiku-20241022"
+max_tokens: 500
+temperature: 0.3
+
+template: |
+  Synthesize the following information from multiple sources into a summary.
+
+  ${topics_text}
+
+  Requirements:
+  - Create a comprehensive summary that captures key information from ALL sources
+  - Remove redundant information
+  - Highlight different perspectives or additional details each source provides
+  - Keep the summary concise (2-4 sentences)
+  - Write in Korean if the sources are primarily in Korean, otherwise in English
+
+  Unified Summary:
+
+example_variables:
+  topics_text: |
+    Source 1 (tech_news):
+    Title: OpenAI announces GPT-5
+    Summary: OpenAI has released GPT-5 with improved capabilities.
+
+    Source 2 (ai_news):
+    Title: GPT-5 benchmarks show impressive results
+    Summary: GPT-5 outperforms previous models in various benchmarks.

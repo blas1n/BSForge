@@ -532,8 +532,8 @@ class VideoGenerationPipeline:
             # Fallback: extract from first scene if not provided
             if not headline_keyword and scene_script.scenes:
                 first_scene = scene_script.scenes[0]
-                if first_scene.keyword:
-                    headline_keyword = first_scene.keyword
+                if first_scene.visual_keyword:
+                    headline_keyword = first_scene.visual_keyword
                 if first_scene.text and len(first_scene.text) < 30:
                     headline_hook = first_scene.text
 

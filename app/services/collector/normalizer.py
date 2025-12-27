@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from app.core.config import get_config
 from app.core.logging import get_logger
 from app.infrastructure.llm import LLMClient, LLMConfig
-from app.prompts.manager import PromptType, get_prompt_manager
+from app.prompts.manager import PromptManager, PromptType
 from app.services.collector.base import NormalizedTopic, RawTopic
 
 logger = get_logger(__name__)
@@ -41,15 +41,20 @@ class TopicNormalizer:
     Implements caching to reduce API costs.
     """
 
-    def __init__(self, llm_client: LLMClient):
+    def __init__(
+        self,
+        llm_client: LLMClient,
+        prompt_manager: PromptManager,
+    ):
         """Initialize normalizer with API clients.
 
         Args:
             llm_client: LLMClient instance
+            prompt_manager: PromptManager for loading templates
         """
         self.llm_client = llm_client
+        self.prompt_manager = prompt_manager
         self.supported_languages = {"en", "ko"}
-        self.prompt_manager = get_prompt_manager()
 
     async def normalize(
         self, raw: RawTopic, source_id: uuid.UUID, target_language: str = "ko"

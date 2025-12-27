@@ -16,7 +16,7 @@ from app.infrastructure.bm25_search import BM25Search
 from app.infrastructure.llm import LLMClient, LLMConfig
 from app.infrastructure.pgvector_db import PgVectorDB
 from app.models.content_chunk import ChunkPosition, ContentChunk
-from app.prompts.manager import PromptManager, PromptType, get_prompt_manager
+from app.prompts.manager import PromptManager, PromptType
 
 logger = get_logger(__name__)
 
@@ -116,9 +116,9 @@ class RAGRetriever:
         db_session_factory: SessionFactory,
         retrieval_config: RetrievalConfig,
         query_config: QueryExpansionConfig,
+        prompt_manager: PromptManager,
         bm25_search: BM25Search | None = None,
         llm_client: LLMClient | None = None,
-        prompt_manager: PromptManager | None = None,
     ):
         """Initialize RAGRetriever.
 
@@ -127,17 +127,17 @@ class RAGRetriever:
             db_session_factory: SQLAlchemy async session factory
             retrieval_config: Retrieval configuration
             query_config: Query expansion configuration
+            prompt_manager: PromptManager for loading templates
             bm25_search: Optional BM25Search instance for keyword search
             llm_client: Optional Anthropic client for query expansion
-            prompt_manager: Optional PromptManager for centralized prompt management
         """
         self.vector_db = vector_db
         self.bm25_search = bm25_search
         self.db_session_factory = db_session_factory
         self.retrieval_config = retrieval_config
         self.query_config = query_config
+        self.prompt_manager = prompt_manager
         self.llm_client = llm_client
-        self.prompt_manager = prompt_manager or get_prompt_manager()
 
     async def retrieve(
         self,

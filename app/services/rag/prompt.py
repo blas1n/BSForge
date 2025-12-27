@@ -7,7 +7,7 @@ centralized template management.
 from typing import Any
 
 from app.core.logging import get_logger
-from app.prompts.manager import PromptType, get_prompt_manager
+from app.prompts.manager import PromptManager, PromptType
 from app.services.rag.context import GenerationContext
 
 logger = get_logger(__name__)
@@ -20,9 +20,13 @@ class PromptBuilder:
     Templates are written in Mako format with variable substitution.
     """
 
-    def __init__(self) -> None:
-        """Initialize PromptBuilder with PromptManager."""
-        self.prompt_manager = get_prompt_manager()
+    def __init__(self, prompt_manager: PromptManager) -> None:
+        """Initialize PromptBuilder with PromptManager.
+
+        Args:
+            prompt_manager: PromptManager for loading templates
+        """
+        self.prompt_manager = prompt_manager
 
     async def build_prompt(self, context: GenerationContext) -> str:
         """Build scene-based generation prompt.
@@ -141,6 +145,24 @@ class PromptBuilder:
         )
         variables["target_duration"] = config.target_duration
         variables["content_style"] = config.style
+
+        # Enriched content (cluster + research)
+        enriched = context.enriched
+        if enriched:
+            variables["enriched_cluster_summary"] = enriched.cluster_summary
+            variables["enriched_cluster_sources"] = enriched.cluster_sources
+            variables["enriched_research_results"] = [
+                {
+                    "title": r.title,
+                    "content": r.content[:300],  # Truncate for token efficiency
+                    "source": r.source,
+                }
+                for r in enriched.research_results[:5]  # Limit to 5 results
+            ]
+        else:
+            variables["enriched_cluster_summary"] = None
+            variables["enriched_cluster_sources"] = []
+            variables["enriched_research_results"] = []
 
         return variables
 

@@ -25,6 +25,8 @@ class PromptType(str, Enum):
     CONTENT_CLASSIFICATION = "content_classification"
     SCRIPT_GENERATION = "scene_script_generation"  # Scene-based script (primary)
     QUERY_EXPANSION = "query_expansion"
+    CLUSTER_SUMMARY = "cluster_summary"
+    RESEARCH_QUERY = "research_query"
 
 
 class LLMSettings(BaseModel):
@@ -206,26 +208,9 @@ class PromptManager:
         logger.debug("Cleared prompt cache")
 
 
-# Singleton instance
-_prompt_manager: PromptManager | None = None
-
-
-def get_prompt_manager() -> PromptManager:
-    """Get singleton PromptManager instance.
-
-    Returns:
-        PromptManager instance
-    """
-    global _prompt_manager
-    if _prompt_manager is None:
-        _prompt_manager = PromptManager()
-    return _prompt_manager
-
-
 __all__ = [
     "LLMSettings",
     "PromptManager",
     "PromptTemplate",
     "PromptType",
-    "get_prompt_manager",
 ]

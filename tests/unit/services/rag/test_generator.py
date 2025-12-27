@@ -8,6 +8,7 @@ import pytest
 from app.config.rag import GenerationConfig, QualityCheckConfig
 from app.infrastructure.llm import LLMResponse
 from app.models.script import Script
+from app.prompts.manager import PromptManager
 from app.services.rag.context import GenerationContext, RetrievedContent
 from app.services.rag.generator import QualityCheckFailedError, ScriptGenerator
 
@@ -107,6 +108,18 @@ That's why Python remains one of the most loved languages!"""
         )
 
     @pytest.fixture
+    def mock_prompt_manager(self) -> MagicMock:
+        """Create mock PromptManager."""
+        manager = MagicMock(spec=PromptManager)
+        manager.render.return_value = "Rendered prompt"
+        manager.get_llm_settings.return_value = MagicMock(
+            model="anthropic/claude-sonnet-4-20250514",
+            max_tokens=2000,
+            temperature=0.7,
+        )
+        return manager
+
+    @pytest.fixture
     def generator(
         self,
         mock_context_builder: AsyncMock,
@@ -115,6 +128,7 @@ That's why Python remains one of the most loved languages!"""
         mock_embedder: AsyncMock,
         mock_vector_db: AsyncMock,
         mock_llm_client: AsyncMock,
+        mock_prompt_manager: MagicMock,
         mock_db_session_factory: MagicMock,
         generation_config: GenerationConfig,
         quality_config: QualityCheckConfig,
@@ -127,6 +141,7 @@ That's why Python remains one of the most loved languages!"""
             embedder=mock_embedder,
             vector_db=mock_vector_db,
             llm_client=mock_llm_client,
+            prompt_manager=mock_prompt_manager,
             db_session_factory=mock_db_session_factory,
             config=generation_config,
             quality_config=quality_config,

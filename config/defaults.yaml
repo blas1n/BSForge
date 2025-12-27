@@ -98,6 +98,23 @@ visual:
   reuse_previous_visual_types:
     - cta
 
+# Web Research
+research:
+  provider: "tavily"
+  max_results: 5
+  search_depth: "basic"  # basic | advanced
+  include_answer: true
+  timeout: 30
+
+# Enrichment pipeline
+enrichment:
+  cluster_enrichment:
+    enabled: true
+    min_cluster_size: 1  # Minimum topics in cluster to enrich
+  web_research:
+    enabled: true
+    max_queries: 3
+
 # Stable Diffusion (AI image generation)
 stable_diffusion:
   service_url: "http://sd:7860"

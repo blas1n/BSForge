@@ -121,8 +121,7 @@ class Scene(BaseModel):
         scene_type: Classification of the scene (hook, content, commentary, etc.)
         text: Display text for subtitles (original notation: GPT-4, Claude 3.5)
         tts_text: TTS pronunciation text (optional, only when differs from text)
-        keyword: Primary keyword for visual search
-        visual_strategy: Visual sourcing strategy
+        visual_keyword: English keyword for visual search
         visual_style: Override visual style (auto-inferred from scene_type if None)
         transition_in: Transition effect entering this scene
         transition_out: Transition effect leaving this scene

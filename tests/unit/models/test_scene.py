@@ -1,7 +1,7 @@
 """Unit tests for Scene and SceneScript Pydantic models.
 
 Tests cover:
-- SceneType, VisualStyle, TransitionType, VisualStrategy enums
+- SceneType, VisualStyle, TransitionType enums
 - Scene model creation and validation
 - Scene properties (inferred_visual_style, is_persona_scene, etc.)
 - Scene duration estimation

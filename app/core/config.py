@@ -144,6 +144,11 @@ class Config(BaseSettings):
     pixabay_api_key: str = Field(default="", description="Pixabay API key")
 
     # ============================================
+    # Web Research
+    # ============================================
+    tavily_api_key: str = Field(default="", description="Tavily API key for web research")
+
+    # ============================================
     # File Storage
     # ============================================
     storage_type: Literal["local", "s3"] = Field(default="local", description="Storage type")

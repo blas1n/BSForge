@@ -1,0 +1,39 @@
+# Research Query Generation Prompt Template
+# Version: 1.0.0
+# Last Updated: 2025-12-26
+
+name: "Research Query Generation Prompt"
+version: "1.0.0"
+description: "Generates optimal web search queries for topic research"
+
+# LLM Settings
+model: "anthropic/claude-3-5-haiku-20241022"
+max_tokens: 200
+temperature: 0.3
+
+template: |
+  Generate ${max_queries} optimal web search queries for researching this topic.
+
+  Topic Title: ${topic_title}
+
+  Related Titles:
+  ${related_titles}
+
+  Keywords: ${keywords}
+
+  Requirements:
+  - Generate ${max_queries} different search queries
+  - Queries should find factual, recent information
+  - Each query should cover a different aspect
+  - Use natural search language (not keyword lists)
+  - Output one query per line, no numbering or bullets
+
+  Queries:
+
+example_variables:
+  max_queries: 3
+  topic_title: "OpenAI GPT-5 Released"
+  related_titles: |
+    - GPT-5 benchmark results
+    - AI industry impact
+  keywords: "openai, gpt-5, release, benchmarks, ai"
