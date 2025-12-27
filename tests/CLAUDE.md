@@ -78,13 +78,26 @@ def test_with_mock_redis():
         ...
 ```
 
+## Redis Type Hints
+
+Use `TYPE_CHECKING` pattern for Redis type hints:
+
+```python
+from typing import TYPE_CHECKING, Any
+if TYPE_CHECKING:
+    from redis.asyncio import Redis
+
+# In fixtures/tests
+mock_redis: Redis[Any] = AsyncMock()
+```
+
 ## E2E Test Categories
 
-| File | Description |
-|------|-------------|
-| `test_video_generation.py` | TTS, subtitles, visuals, thumbnails, FFmpeg |
-| `test_content_collection.py` | Normalization, dedup, filter, score |
-| `test_full_pipeline.py` | Persona-based, batch generation, RAG |
+| File                         | Description                                 |
+| ---------------------------- | ------------------------------------------- |
+| `test_video_generation.py`   | TTS, subtitles, visuals, thumbnails, FFmpeg |
+| `test_content_collection.py` | Normalization, dedup, filter, score         |
+| `test_full_pipeline.py`      | Persona-based, batch generation, RAG        |
 
 ## Prerequisites
 

@@ -24,11 +24,19 @@ from app.services.collector.scorer import TopicScorer
 from .conftest import create_normalized_topic, create_raw_topic
 
 
+@pytest.fixture
+def mock_prompt_manager() -> MagicMock:
+    """Create mock prompt manager for tests."""
+    manager = MagicMock()
+    manager.render.return_value = "Mocked prompt"
+    return manager
+
+
 class TestTopicNormalization:
     """E2E tests for topic normalization."""
 
     @pytest.mark.asyncio
-    async def test_normalize_korean_topic(self) -> None:
+    async def test_normalize_korean_topic(self, mock_prompt_manager: MagicMock) -> None:
         """Test normalization of Korean topic."""
         llm_client = AsyncMock()
         mock_content = (
@@ -36,7 +44,7 @@ class TestTopicNormalization:
         )
         llm_client.complete = AsyncMock(return_value=MagicMock(content=mock_content))
 
-        normalizer = TopicNormalizer(llm_client=llm_client)
+        normalizer = TopicNormalizer(llm_client=llm_client, prompt_manager=mock_prompt_manager)
 
         raw_topic = create_raw_topic(
             title="AI 기술의 미래: 2024년 전망",
@@ -53,7 +61,7 @@ class TestTopicNormalization:
         assert result.source_id == source_id
 
     @pytest.mark.asyncio
-    async def test_normalize_english_topic(self) -> None:
+    async def test_normalize_english_topic(self, mock_prompt_manager: MagicMock) -> None:
         """Test normalization of English topic."""
         llm_client = AsyncMock()
         mock_content = (
@@ -61,7 +69,7 @@ class TestTopicNormalization:
         )
         llm_client.complete = AsyncMock(return_value=MagicMock(content=mock_content))
 
-        normalizer = TopicNormalizer(llm_client=llm_client)
+        normalizer = TopicNormalizer(llm_client=llm_client, prompt_manager=mock_prompt_manager)
 
         raw_topic = create_raw_topic(
             title="The Future of AI Technology in 2024",
@@ -209,7 +217,7 @@ class TestCollectionPipeline:
     """E2E tests for complete collection pipeline."""
 
     @pytest.mark.asyncio
-    async def test_full_collection_flow(self) -> None:
+    async def test_full_collection_flow(self, mock_prompt_manager: MagicMock) -> None:
         """Test complete topic collection pipeline."""
         # Setup mocks - different responses for different topics
         llm_client = AsyncMock()
@@ -230,7 +238,7 @@ class TestCollectionPipeline:
         ]
 
         # Pipeline execution
-        normalizer = TopicNormalizer(llm_client=llm_client)
+        normalizer = TopicNormalizer(llm_client=llm_client, prompt_manager=mock_prompt_manager)
         deduplicator = TopicDeduplicator(redis=redis, config=DedupConfig())
         topic_filter = TopicFilter(config=FilteringConfig(include=["ai"], exclude=["spam"]))
         scorer = TopicScorer(config=ScoringConfig())

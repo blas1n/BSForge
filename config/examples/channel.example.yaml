@@ -71,6 +71,17 @@ persona:
       - "새 프레임워크 맹신 반대"
       - "복잡한 것보다 단순한 해결책 선호"
 
+  # 시각적 스타일 (페르소나 씬 렌더링용)
+  visual_style:
+    accent_color: "#FF6B6B"
+    secondary_color: "#4ECDC4"
+    subtitle_font: "Pretendard Bold"
+    fact_to_opinion_transition: "flash"
+    use_persona_border: true
+    border_width: 4
+    overlay_opacity_neutral: 0.3
+    overlay_opacity_persona: 0.4
+
 # 주제 수집 설정
 topic_collection:
   # 번역 대상 언어
@@ -122,21 +133,21 @@ filtering:
 scoring:
   weights:
     source_credibility: 0.15
-    source_score: 0.10
+    source_score: 0.15
     freshness: 0.20
-    trend: 0.15
-    channel_relevance: 0.25
+    trend_momentum: 0.10
+    term_relevance: 0.20
+    entity_relevance: 0.10
     novelty: 0.10
-    bonus_multi_source: 0.05
-
-  # 채널 유형 프리셋 (기본값 오버라이드)
-  preset: "tech"  # news | educational | trending | niche | tech
 
 # 콘텐츠 설정
 content:
   # 형식
   format: "shorts"  # shorts | long
   target_duration: 55  # 초
+
+  # 비디오 템플릿 (config/templates/*.yaml 참조)
+  video_template: "korean_shorts_standard"  # korean_shorts_standard | minimal
 
   # 비주얼
   visual:
@@ -152,7 +163,6 @@ content:
     font_size: 48
     position: "bottom"
     highlight_current_word: true
-    accent_color: "#00d4ff"
 
 # 업로드 설정
 upload:

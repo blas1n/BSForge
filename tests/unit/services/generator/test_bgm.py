@@ -20,7 +20,7 @@ class TestBGMConfig:
         config = BGMConfig()
         assert config.enabled is False
         assert config.volume == 0.1
-        assert config.cache_dir == "/data/bgm"
+        assert config.cache_dir == "data/bgm"
         assert config.selection_mode == "random"
         assert config.download_timeout == 300
         assert config.tracks == []

@@ -229,11 +229,11 @@ class Source(Base, UUIDMixin, TimestampMixin):
 ### 2.5 주제 (Topic)
 ```python
 class TopicStatus(str, Enum):
-    PENDING = "pending"
-    APPROVED = "approved"
-    REJECTED = "rejected"
-    USED = "used"
-    EXPIRED = "expired"
+    PENDING = "pending"      # Collected, awaiting review
+    APPROVED = "approved"    # Approved for script generation
+    REJECTED = "rejected"    # Rejected, won't be used
+    USED = "used"            # Script/video generated
+    EXPIRED = "expired"      # Past expiration time
 
 
 class Topic(Base, UUIDMixin, TimestampMixin):
@@ -242,76 +242,72 @@ class Topic(Base, UUIDMixin, TimestampMixin):
 
     # 채널 연결
     channel_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("channels.id")
+        ForeignKey("channels.id", ondelete="CASCADE"), nullable=False, index=True
     )
 
     # 소스 연결
     source_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("sources.id")
+        ForeignKey("sources.id", ondelete="SET NULL"), nullable=True
     )
+    # NOTE: series_id FK will be added in Phase 6 when Series model is implemented
 
     # 제목
     title_original: Mapped[str] = mapped_column(Text, nullable=False)
-    title_translated: Mapped[str] = mapped_column(Text, nullable=True)
+    title_translated: Mapped[str | None] = mapped_column(Text)
     title_normalized: Mapped[str] = mapped_column(Text, nullable=False)
 
     # 내용
-    summary: Mapped[str] = mapped_column(Text, nullable=True)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
     source_url: Mapped[str] = mapped_column(String(500), nullable=False)
 
     # 분류
-    categories: Mapped[list] = mapped_column(ARRAY(String), default=list)
-    keywords: Mapped[list] = mapped_column(ARRAY(String), default=list)
-    entities: Mapped[dict] = mapped_column(JSONB, default=list)  # [{name, type, sentiment}]
-    language: Mapped[str] = mapped_column(String(10), default="ko")
+    terms: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    entities: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    language: Mapped[str] = mapped_column(String(10), nullable=False, default="en")
 
-    # 점수
-    score_source: Mapped[float] = mapped_column(Float, default=0)
-    score_freshness: Mapped[float] = mapped_column(Float, default=0)
-    score_trend: Mapped[float] = mapped_column(Float, default=0)
-    score_relevance: Mapped[float] = mapped_column(Float, default=0)
-    score_total: Mapped[int] = mapped_column(Integer, default=0)
+    # 점수 (0-1 for components, 0-100 for total)
+    score_source: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    score_freshness: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    score_trend: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    score_relevance: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    score_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0, index=True)
 
     # 상태
     status: Mapped[TopicStatus] = mapped_column(
-        SQLEnum(TopicStatus), default=TopicStatus.PENDING
+        Enum(TopicStatus), nullable=False, default=TopicStatus.PENDING, index=True
     )
 
     # 시간
-    published_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
-    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
-
-    # 중복 체크용 해시
-    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
-
-    # 시리즈 연결
-    series_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("series.id"), nullable=True
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
     )
 
+    # 중복 체크용 해시
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+
     # 관계
-    channel: Mapped["Channel"] = relationship(back_populates="topics")
-    source: Mapped["Source"] = relationship()
-    scripts: Mapped[list["Script"]] = relationship(back_populates="topic")
-    series: Mapped["Series"] = relationship(back_populates="topics")
+    channel: Mapped["Channel"] = relationship("Channel", back_populates="topics")
+    source: Mapped["Source"] = relationship("Source", back_populates="topics")
+    scripts: Mapped[list["Script"]] = relationship(
+        "Script", back_populates="topic", cascade="all, delete-orphan"
+    )
 
     # 인덱스
     __table_args__ = (
         Index("idx_topic_channel_status", "channel_id", "status"),
-        Index("idx_topic_score", "score_total"),
-        Index("idx_topic_hash", "content_hash"),
-        Index("idx_topic_expires", "expires_at"),
+        Index("idx_topic_score", "channel_id", "score_total"),
     )
 ```
 
 ### 2.6 스크립트 (Script)
 ```python
 class ScriptStatus(str, Enum):
-    GENERATED = "generated"
-    IN_REVIEW = "in_review"
-    APPROVED = "approved"
-    REJECTED = "rejected"
-    USED = "used"
+    GENERATED = "generated"   # Generated, awaiting review
+    REVIEWED = "reviewed"     # Reviewed by human
+    APPROVED = "approved"     # Approved for production
+    REJECTED = "rejected"     # Rejected, won't use
+    PRODUCED = "produced"     # Video generated from this
 
 
 class Script(Base, UUIDMixin, TimestampMixin):
@@ -320,42 +316,48 @@ class Script(Base, UUIDMixin, TimestampMixin):
 
     # 연결
     channel_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("channels.id")
+        ForeignKey("channels.id", ondelete="CASCADE"), nullable=False, index=True
     )
     topic_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("topics.id")
+        ForeignKey("topics.id", ondelete="CASCADE"), nullable=False, index=True
     )
 
     # 스크립트 내용
     script_text: Mapped[str] = mapped_column(Text, nullable=False)  # 전체 텍스트
-    title_text: Mapped[str] = mapped_column(String(200), nullable=True)  # 영상 오버레이 제목
-    scenes: Mapped[dict] = mapped_column(JSONB, nullable=True)  # Scene 기반 구조
-
-    # 생성 메타
-    generation_model: Mapped[str] = mapped_column(String(100), nullable=True)
-    generation_metadata: Mapped[dict] = mapped_column(JSONB, default=dict)
-    context_chunks_used: Mapped[int] = mapped_column(Integer, default=0)
-
-    # 품질 체크
-    style_score: Mapped[float] = mapped_column(Float, default=0.0)
-    hook_score: Mapped[float] = mapped_column(Float, default=0.0)
-    forbidden_words: Mapped[list] = mapped_column(ARRAY(String), default=list)
-    quality_passed: Mapped[bool] = mapped_column(Boolean, default=False)
+    title_text: Mapped[str | None] = mapped_column(String(200))  # 영상 오버레이 제목
+    scenes: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        JSONB, nullable=True, comment="Scene-based script structure"
+    )
 
     # 예상 길이
     estimated_duration: Mapped[int] = mapped_column(Integer, nullable=False)  # 초
     word_count: Mapped[int] = mapped_column(Integer, nullable=False)
 
+    # 품질 체크
+    style_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    hook_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    forbidden_words: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    quality_passed: Mapped[bool] = mapped_column(nullable=False, default=False, index=True)
+
+    # 생성 메타
+    generation_model: Mapped[str] = mapped_column(String(100), nullable=False)
+    context_chunks_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    generation_metadata: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+
     # 상태
     status: Mapped[ScriptStatus] = mapped_column(
-        SQLEnum(ScriptStatus), default=ScriptStatus.GENERATED
+        String(20), nullable=False, default=ScriptStatus.GENERATED, index=True
     )
 
     # 관계
-    channel: Mapped["Channel"] = relationship(back_populates="scripts")
-    topic: Mapped["Topic"] = relationship(back_populates="scripts")
-    videos: Mapped[list["Video"]] = relationship(back_populates="script")
-    content_chunks: Mapped[list["ContentChunk"]] = relationship(back_populates="script")
+    channel: Mapped["Channel"] = relationship("Channel", back_populates="scripts")
+    topic: Mapped["Topic"] = relationship("Topic", back_populates="scripts")
+    content_chunks: Mapped[list["ContentChunk"]] = relationship(
+        "ContentChunk", back_populates="script", cascade="all, delete-orphan"
+    )
+    videos: Mapped[list["Video"]] = relationship(
+        "Video", back_populates="script", cascade="all, delete-orphan"
+    )
 
     # 인덱스
     __table_args__ = (
@@ -397,15 +399,14 @@ class Script(Base, UUIDMixin, TimestampMixin):
 ### 2.7 영상 (Video)
 ```python
 class VideoStatus(str, Enum):
-    GENERATING = "generating"
-    GENERATED = "generated"
-    IN_REVIEW = "in_review"
-    APPROVED = "approved"
-    REJECTED = "rejected"
-    UPLOADING = "uploading"
-    UPLOADED = "uploaded"
-    PUBLISHED = "published"
-    FAILED = "failed"
+    GENERATING = "generating"   # Currently being generated
+    GENERATED = "generated"     # Generation complete, awaiting review
+    REVIEWED = "reviewed"       # Reviewed by human
+    APPROVED = "approved"       # Approved for upload
+    REJECTED = "rejected"       # Rejected, won't use
+    UPLOADED = "uploaded"       # Uploaded to YouTube
+    FAILED = "failed"           # Generation failed
+    ARCHIVED = "archived"       # Archived
 
 
 class Video(Base, UUIDMixin, TimestampMixin):
@@ -414,49 +415,61 @@ class Video(Base, UUIDMixin, TimestampMixin):
 
     # 연결
     channel_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("channels.id")
+        ForeignKey("channels.id", ondelete="CASCADE"), nullable=False, index=True
     )
     script_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("scripts.id")
+        ForeignKey("scripts.id", ondelete="CASCADE"), nullable=False, index=True
     )
 
     # 파일 경로
-    video_path: Mapped[str] = mapped_column(String(500), nullable=True)
-    thumbnail_path: Mapped[str] = mapped_column(String(500), nullable=True)
-    audio_path: Mapped[str] = mapped_column(String(500), nullable=True)
-    subtitle_path: Mapped[str] = mapped_column(String(500), nullable=True)
+    video_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    thumbnail_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    audio_path: Mapped[str | None] = mapped_column(String(500))
+    subtitle_path: Mapped[str | None] = mapped_column(String(500))
 
     # 영상 메타
-    duration_seconds: Mapped[float] = mapped_column(Float, nullable=True)
-    resolution: Mapped[str] = mapped_column(String(20), default="1080x1920")
-    file_size_bytes: Mapped[int] = mapped_column(Integer, nullable=True)
+    duration_seconds: Mapped[float] = mapped_column(Float, nullable=False)
+    file_size_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    resolution: Mapped[str] = mapped_column(String(20), nullable=False, default="1080x1920")
+    fps: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
 
     # 생성 정보
-    tts_service: Mapped[str] = mapped_column(String(50), nullable=True)
-    visual_sources: Mapped[list] = mapped_column(ARRAY(String), default=list)
+    tts_service: Mapped[str] = mapped_column(String(50), nullable=False)
+    tts_voice_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    visual_sources: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    generation_time_seconds: Mapped[int | None] = mapped_column(Integer)
+    generation_metadata: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+
+    # 에러 처리
+    error_message: Mapped[str | None] = mapped_column(Text)
 
     # 상태
     status: Mapped[VideoStatus] = mapped_column(
-        SQLEnum(VideoStatus), default=VideoStatus.GENERATING
+        String(20), nullable=False, default=VideoStatus.GENERATING, index=True
     )
-    error_message: Mapped[str] = mapped_column(Text, nullable=True)
-
-    # 검수
-    reviewed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
-    reviewed_by: Mapped[str] = mapped_column(String(100), nullable=True)
 
     # 관계
-    channel: Mapped["Channel"] = relationship(back_populates="videos")
-    script: Mapped["Script"] = relationship(back_populates="videos")
-    upload: Mapped["Upload"] = relationship(back_populates="video", uselist=False)
+    channel: Mapped["Channel"] = relationship("Channel", back_populates="videos")
+    script: Mapped["Script"] = relationship("Script", back_populates="videos")
+    # NOTE: upload relationship will be added in Phase 6
 
     # 인덱스
     __table_args__ = (
         Index("idx_video_channel_status", "channel_id", "status"),
+        Index("idx_video_script", "script_id"),
     )
 ```
 
-### 2.8 업로드 (Upload)
+---
+
+> **⚠️ Phase 6+ 모델 (미구현)**
+>
+> 아래 모델들 (2.8~2.13)은 Phase 6 이후에 구현 예정입니다.
+> 현재 구현된 모델: Channel, Persona, Source, Topic, Script, ContentChunk, Video
+
+---
+
+### 2.8 업로드 (Upload) - Phase 6 예정
 ```python
 class PrivacyStatus(str, Enum):
     PUBLIC = "public"
@@ -509,7 +522,7 @@ class Upload(Base, UUIDMixin, TimestampMixin):
     )
 ```
 
-### 2.9 성과 (Performance)
+### 2.9 성과 (Performance) - Phase 6 예정
 ```python
 class Performance(Base, UUIDMixin, TimestampMixin):
     """영상 성과 추적"""
@@ -566,7 +579,7 @@ class Performance(Base, UUIDMixin, TimestampMixin):
     )
 ```
 
-### 2.10 시리즈 (Series)
+### 2.10 시리즈 (Series) - Phase 6 예정
 ```python
 class SeriesStatus(str, Enum):
     ACTIVE = "active"
@@ -612,7 +625,7 @@ class Series(Base, UUIDMixin, TimestampMixin):
     topics: Mapped[list["Topic"]] = relationship(back_populates="series")
 ```
 
-### 2.11 검수 큐 (ReviewQueue)
+### 2.11 검수 큐 (ReviewQueue) - Phase 8 예정
 ```python
 class ReviewType(str, Enum):
     TOPIC = "topic"
@@ -674,42 +687,81 @@ class ReviewQueue(Base, UUIDMixin, TimestampMixin):
     )
 ```
 
-### 2.12 콘텐츠 청크 (벡터 DB 참조용)
+### 2.12 콘텐츠 청크 (pgvector 임베딩 포함)
 ```python
+class ChunkPosition(str, Enum):
+    HOOK = "hook"
+    BODY = "body"
+    CONCLUSION = "conclusion"
+
+
+class ContentType(str, Enum):
+    SCRIPT = "script"
+    DRAFT = "draft"
+    OUTLINE = "outline"
+    NOTE = "note"
+
+
 class ContentChunk(Base, UUIDMixin, TimestampMixin):
-    """콘텐츠 청크 (벡터 DB 참조)"""
+    """콘텐츠 청크 (pgvector 임베딩 포함)"""
     __tablename__ = "content_chunks"
 
-    # 원본 연결
-    script_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("scripts.id")
-    )
+    # 연결
     channel_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("channels.id")
+        ForeignKey("channels.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    script_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("scripts.id", ondelete="CASCADE"), index=True
+    )
+
+    # 콘텐츠 타입
+    content_type: Mapped[ContentType] = mapped_column(
+        String(20), nullable=False, default=ContentType.SCRIPT, index=True
     )
 
     # 청크 정보
+    text: Mapped[str] = mapped_column(Text, nullable=False)
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
-    chunk_text: Mapped[str] = mapped_column(Text, nullable=False)
-    chunk_position: Mapped[str] = mapped_column(String(20), default="body")  # hook, body, conclusion
+    position: Mapped[ChunkPosition] = mapped_column(String(20), nullable=False, index=True)
 
-    # 특성
-    is_opinion: Mapped[bool] = mapped_column(Boolean, default=False)
-    is_example: Mapped[bool] = mapped_column(Boolean, default=False)
-    is_analogy: Mapped[bool] = mapped_column(Boolean, default=False)
-    keywords: Mapped[list] = mapped_column(ARRAY(String), default=list)
+    # 컨텍스트
+    context_before: Mapped[str | None] = mapped_column(Text)
+    context_after: Mapped[str | None] = mapped_column(Text)
 
-    # 벡터 DB ID
-    vector_id: Mapped[str] = mapped_column(String(100), nullable=True)
+    # 특성 (필터링용)
+    is_opinion: Mapped[bool] = mapped_column(nullable=False, default=False, index=True)
+    is_example: Mapped[bool] = mapped_column(nullable=False, default=False, index=True)
+    is_analogy: Mapped[bool] = mapped_column(nullable=False, default=False)
+    terms: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+
+    # 벡터 임베딩 (pgvector)
+    embedding: Mapped[Any] = mapped_column(Vector(1024), nullable=True)  # BGE-M3
+    embedding_model: Mapped[str] = mapped_column(String(100), nullable=False)
+
+    # 성과 점수 (published 콘텐츠용)
+    performance_score: Mapped[float | None] = mapped_column(Float, index=True)
+
+    # 관계
+    channel: Mapped["Channel"] = relationship("Channel", back_populates="content_chunks")
+    script: Mapped["Script | None"] = relationship("Script", back_populates="content_chunks")
 
     # 인덱스
     __table_args__ = (
-        Index("idx_chunk_channel", "channel_id"),
-        Index("idx_chunk_script", "script_id"),
+        Index("idx_chunk_channel_type", "channel_id", "content_type"),
+        Index("idx_chunk_characteristics", "is_opinion", "is_example"),
+        Index("idx_chunk_performance", "channel_id", "performance_score"),
+        # HNSW 벡터 인덱스
+        Index(
+            "idx_chunk_embedding_hnsw",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_with={"m": 16, "ef_construction": 64},
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
     )
 ```
 
-### 2.13 작업 로그 (JobLog)
+### 2.13 작업 로그 (JobLog) - Phase 10 예정
 ```python
 class JobType(str, Enum):
     COLLECT = "collect"

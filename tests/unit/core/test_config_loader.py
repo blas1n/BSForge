@@ -55,8 +55,9 @@ def valid_config_data():
             },
         },
         "topic_collection": {
-            "region_weights": {"domestic": 0.3, "foreign": 0.7},
-            "enabled_sources": ["reddit"],
+            "global_sources": ["hackernews"],
+            "scoped_sources": ["reddit"],
+            "target_language": "ko",
         },
         "scoring": {
             "weights": {
