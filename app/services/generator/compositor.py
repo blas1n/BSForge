@@ -88,7 +88,6 @@ class FFmpegCompositor:
         subtitle_file: Path | None,
         output_path: Path,
         background_music_path: Path | None = None,
-        title_text: str | None = None,
     ) -> CompositionResult:
         """Compose final video from components.
 
@@ -98,7 +97,6 @@ class FFmpegCompositor:
             subtitle_file: Path to subtitle file (ASS format)
             output_path: Output video path
             background_music_path: Optional background music
-            title_text: Optional title text for overlay (상단 고정 제목)
 
         Returns:
             CompositionResult with final video info
@@ -179,9 +177,7 @@ class FFmpegCompositor:
         output_path: Path,
         persona_style: "PersonaStyleConfig | None" = None,
         background_music_path: Path | None = None,
-        title_text: str | None = None,
-        headline_keyword: str | None = None,
-        headline_hook: str | None = None,
+        headline: str | None = None,
     ) -> CompositionResult:
         """Compose video from scene-based components.
 
@@ -194,14 +190,14 @@ class FFmpegCompositor:
         (e.g., FLASH for fact→opinion).
 
         Korean Shorts Standard Layout:
-        ┌──────────────────┐
-        │  headline_keyword │  ← Line 1 (accent color)
-        │  headline_hook    │  ← Line 2 (white)
-        ├──────────────────┤
-        │   visual content  │
-        ├──────────────────┤
-        │     subtitles     │
-        └──────────────────┘
+        ┌──────────────────────┐
+        │   headline L1        │  ← Line 1 (accent color)
+        │   headline L2        │  ← Line 2 (white)
+        ├──────────────────────┤
+        │   visual content     │
+        ├──────────────────────┤
+        │     subtitles        │
+        └──────────────────────┘
 
         Args:
             scenes: List of Scene objects with metadata
@@ -212,8 +208,7 @@ class FFmpegCompositor:
             output_path: Output video path
             persona_style: PersonaStyleConfig for visual styling
             background_music_path: Optional background music
-            headline_keyword: Line 1 of headline (keyword, colored)
-            headline_hook: Line 2 of headline (hook/description, white)
+            headline: Headline text to split into 2 lines (max 20 chars)
 
         Returns:
             CompositionResult with final video info
@@ -277,16 +272,17 @@ class FFmpegCompositor:
                 with_audio = with_music
 
             # Step 5: Add headline overlay (Korean shorts style - 2 lines)
-            if headline_keyword and headline_hook and self._should_add_headline():
+            if headline and self._should_add_headline():
                 with_headline = temp_path / "with_headline.mp4"
+                line1, line2 = self._split_headline(headline)
                 await self._add_headline_overlay(
                     video_path=with_audio,
-                    line1_text=headline_keyword,
-                    line2_text=headline_hook,
+                    line1_text=line1,
+                    line2_text=line2,
                     output_path=with_headline,
                 )
                 with_audio = with_headline
-                logger.info(f"Added headline: '{headline_keyword}' / '{headline_hook}'")
+                logger.info(f"Added headline: '{line1}' / '{line2}'")
 
             # Step 6: Burn subtitles
             if subtitle_file and subtitle_file.exists():
@@ -1049,6 +1045,39 @@ class FFmpegCompositor:
             FFmpegError: If probing fails
         """
         return await self.ffmpeg.get_duration(video_path)
+
+    def _split_headline(self, headline: str) -> tuple[str, str]:
+        """Split headline into 2 lines for display.
+
+        Splits on comma, space after keyword, or at midpoint if no delimiter.
+
+        Args:
+            headline: Single headline string (e.g., "테슬라, 완전 망했다")
+
+        Returns:
+            Tuple of (line1, line2)
+        """
+        # Try splitting by comma first
+        if ", " in headline:
+            parts = headline.split(", ", 1)
+            return parts[0], parts[1]
+
+        if "," in headline:
+            parts = headline.split(",", 1)
+            return parts[0].strip(), parts[1].strip()
+
+        # Try splitting by space (first word vs rest)
+        words = headline.split()
+        if len(words) >= 2:
+            # If first word is short (likely keyword), split after it
+            if len(words[0]) <= 5:
+                return words[0], " ".join(words[1:])
+            # Otherwise split roughly in half
+            mid = len(words) // 2
+            return " ".join(words[:mid]), " ".join(words[mid:])
+
+        # Single word - duplicate or return as-is
+        return headline, ""
 
     def _should_add_headline(self) -> bool:
         """Check if 2-line headline should be added based on template.

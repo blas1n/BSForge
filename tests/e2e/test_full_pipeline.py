@@ -349,7 +349,7 @@ class TestSceneBasedVideoGeneration:
                     visual_keyword="future technology digital era",
                 ),
             ],
-            title_text="AI 혁명의 시작",
+            headline="AI 혁명, 시작됐다",
         )
 
     def test_scene_script_structure_validation(self, sample_scene_script: SceneScript) -> None:
@@ -509,11 +509,9 @@ class TestFullPipelineIntegration:
         subtitle_generator: SubtitleGenerator,
     ) -> None:
         """Test complete pipeline: Topic -> SceneScript -> Video."""
-        # Step 1: Simulated topic (in real system, collected from sources)
-        topic_title = "GPT-5 출시 임박 소식"
         # Keywords would be used by RAG in production: ["GPT-5", "OpenAI", "AI"]
 
-        # Step 2: Simulated RAG script generation (would use ScriptGenerator)
+        # Step 1: Simulated RAG script generation (would use ScriptGenerator)
         # In production, RAG retrieves relevant chunks and LLM generates script
         scene_script = SceneScript(
             scenes=[
@@ -533,10 +531,10 @@ class TestFullPipelineIntegration:
                     visual_keyword="AI excitement future technology",
                 ),
             ],
-            title_text=topic_title,
+            headline="GPT-5, 곧 출시",
         )
 
-        # Step 3: Video generation
+        # Step 2: Video generation
         tts_config = TTSConfigDataclass(voice_id="ko-KR-InJoonNeural")
         fallback_gen = FallbackGenerator()
 

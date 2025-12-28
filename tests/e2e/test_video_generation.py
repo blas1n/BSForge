@@ -5,21 +5,19 @@ These tests verify the complete video generation workflow:
 2. Subtitle creation
 3. Visual sourcing
 4. FFmpeg composition
-5. Thumbnail generation
 """
 
 import subprocess
 from pathlib import Path
 
 import pytest
-from PIL import Image
 
 from app.config.video import CompositionConfig, SubtitleConfig
 from app.models.scene import Scene, SceneScript, SceneType
 from app.services.generator.compositor import FFmpegCompositor
+from app.services.generator.ffmpeg import FFmpegWrapper
 from app.services.generator.subtitle import SubtitleGenerator
 from app.services.generator.templates import ASSTemplateLoader
-from app.services.generator.thumbnail import ThumbnailGenerator
 from app.services.generator.tts.base import TTSConfig as TTSConfigDataclass
 from app.services.generator.tts.edge import EdgeTTSEngine
 from app.services.generator.tts.utils import concatenate_scene_audio
@@ -31,12 +29,15 @@ class TestTTSGeneration:
     """E2E tests for TTS generation."""
 
     @pytest.mark.asyncio
-    async def test_edge_tts_korean(self, temp_output_dir: Path) -> None:
+    async def test_edge_tts_korean(
+        self,
+        temp_output_dir: Path,
+        edge_tts_engine: EdgeTTSEngine,
+    ) -> None:
         """Test Edge TTS generates Korean audio."""
-        engine = EdgeTTSEngine()
         config = TTSConfigDataclass(voice_id="ko-KR-SunHiNeural")
 
-        result = await engine.synthesize(
+        result = await edge_tts_engine.synthesize(
             text="안녕하세요. 테스트 음성입니다.",
             config=config,
             output_path=temp_output_dir / "test_audio",
@@ -47,12 +48,15 @@ class TestTTSGeneration:
         assert result.audio_path.suffix == ".mp3"
 
     @pytest.mark.asyncio
-    async def test_edge_tts_english(self, temp_output_dir: Path) -> None:
+    async def test_edge_tts_english(
+        self,
+        temp_output_dir: Path,
+        edge_tts_engine: EdgeTTSEngine,
+    ) -> None:
         """Test Edge TTS generates English audio."""
-        engine = EdgeTTSEngine()
         config = TTSConfigDataclass(voice_id="en-US-JennyNeural")
 
-        result = await engine.synthesize(
+        result = await edge_tts_engine.synthesize(
             text="Hello, this is a test audio.",
             config=config,
             output_path=temp_output_dir / "test_audio_en",
@@ -62,18 +66,21 @@ class TestTTSGeneration:
         assert result.duration_seconds > 0
 
     @pytest.mark.asyncio
-    async def test_edge_tts_word_timestamps(self, temp_output_dir: Path) -> None:
+    async def test_edge_tts_word_timestamps(
+        self,
+        temp_output_dir: Path,
+        edge_tts_engine: EdgeTTSEngine,
+    ) -> None:
         """Test Edge TTS can provide word-level timestamps.
 
         Note: Word timestamps availability depends on the Edge TTS service
         and the text content. We test with a longer sentence to increase
         the likelihood of getting timestamps.
         """
-        engine = EdgeTTSEngine()
         config = TTSConfigDataclass(voice_id="ko-KR-SunHiNeural")
 
         # Use a longer sentence for better timestamp extraction
-        result = await engine.synthesize(
+        result = await edge_tts_engine.synthesize(
             text="안녕하세요. 오늘 날씨가 정말 좋습니다. 모두 좋은 하루 되세요.",
             config=config,
             output_path=temp_output_dir / "test_timestamps",
@@ -119,13 +126,15 @@ class TestSubtitleGeneration:
         assert ass_path.exists()
 
     @pytest.mark.asyncio
-    async def test_subtitle_from_tts_timestamps(self, temp_output_dir: Path) -> None:
+    async def test_subtitle_from_tts_timestamps(
+        self,
+        temp_output_dir: Path,
+        edge_tts_engine: EdgeTTSEngine,
+    ) -> None:
         """Test subtitle generation from TTS word timestamps."""
-        # Generate TTS first
-        engine = EdgeTTSEngine()
         config = TTSConfigDataclass(voice_id="ko-KR-SunHiNeural")
 
-        tts_result = await engine.synthesize(
+        tts_result = await edge_tts_engine.synthesize(
             text="안녕하세요. 반갑습니다.",
             config=config,
             output_path=temp_output_dir / "tts_for_subs",
@@ -163,25 +172,6 @@ class TestVisualSourcing:
         assert downloaded.height == 1920
 
 
-class TestThumbnailGeneration:
-    """E2E tests for thumbnail generation."""
-
-    @pytest.mark.asyncio
-    async def test_generate_thumbnail(self, temp_output_dir: Path) -> None:
-        """Test thumbnail generation."""
-        generator = ThumbnailGenerator()
-
-        result = await generator.generate(
-            title="테스트 썸네일 제목",
-            output_path=temp_output_dir / "thumbnail.jpg",
-        )
-
-        assert result.exists()
-        # Verify dimensions (default is 1080x1920 for YouTube Shorts portrait)
-        img = Image.open(result)
-        assert img.size == (1080, 1920)
-
-
 class TestFullVideoPipeline:
     """E2E tests for complete video generation pipeline."""
 
@@ -190,15 +180,16 @@ class TestFullVideoPipeline:
         self,
         temp_output_dir: Path,
         skip_without_ffmpeg: None,
+        edge_tts_engine: EdgeTTSEngine,
+        ffmpeg_compositor: FFmpegCompositor,
     ) -> None:
         """Test complete video generation from script to final video."""
         script_text = "안녕하세요. 이것은 E2E 테스트입니다."
 
         # Step 1: Generate TTS
-        tts_engine = EdgeTTSEngine()
         tts_config = TTSConfigDataclass(voice_id="ko-KR-SunHiNeural")
 
-        tts_result = await tts_engine.synthesize(
+        tts_result = await edge_tts_engine.synthesize(
             text=script_text,
             config=tts_config,
             output_path=temp_output_dir / "audio",
@@ -233,10 +224,9 @@ class TestFullVideoPipeline:
         assert downloaded_visual.path is not None
 
         # Step 4: Compose video
-        compositor = FFmpegCompositor(CompositionConfig())
         final_path = temp_output_dir / "final_video.mp4"
 
-        result = await compositor.compose(
+        result = await ffmpeg_compositor.compose(
             audio=tts_result,
             visuals=[downloaded_visual],
             subtitle_file=subtitle_path,
@@ -247,27 +237,17 @@ class TestFullVideoPipeline:
         assert result.duration_seconds > 0
         assert result.file_size_bytes > 0
 
-        # Step 5: Generate thumbnail
-        thumb_gen = ThumbnailGenerator()
-        thumb_path = await thumb_gen.generate(
-            title="E2E 테스트 영상",
-            output_path=temp_output_dir / "thumbnail.jpg",
-        )
-
-        assert thumb_path.exists()
-
     @pytest.mark.asyncio
     async def test_video_with_different_voices(
         self,
         temp_output_dir: Path,
         skip_without_ffmpeg: None,
+        edge_tts_engine: EdgeTTSEngine,
     ) -> None:
         """Test video generation with different TTS voices."""
-        tts_engine = EdgeTTSEngine()
-
         # Test male voice
         male_config = TTSConfigDataclass(voice_id="ko-KR-InJoonNeural")
-        male_result = await tts_engine.synthesize(
+        male_result = await edge_tts_engine.synthesize(
             text="남성 음성 테스트입니다.",
             config=male_config,
             output_path=temp_output_dir / "male_audio",
@@ -277,7 +257,7 @@ class TestFullVideoPipeline:
 
         # Test female voice
         female_config = TTSConfigDataclass(voice_id="ko-KR-SunHiNeural")
-        female_result = await tts_engine.synthesize(
+        female_result = await edge_tts_engine.synthesize(
             text="여성 음성 테스트입니다.",
             config=female_config,
             output_path=temp_output_dir / "female_audio",
@@ -294,13 +274,13 @@ class TestVideoQuality:
         self,
         temp_output_dir: Path,
         skip_without_ffmpeg: None,
+        edge_tts_engine: EdgeTTSEngine,
+        ffmpeg_compositor: FFmpegCompositor,
     ) -> None:
         """Test video meets YouTube Shorts specifications."""
-        # Generate a simple video
-        tts_engine = EdgeTTSEngine()
         config = TTSConfigDataclass(voice_id="ko-KR-SunHiNeural")
 
-        tts_result = await tts_engine.synthesize(
+        tts_result = await edge_tts_engine.synthesize(
             text="품질 테스트",
             config=config,
             output_path=temp_output_dir / "quality_audio",
@@ -310,10 +290,9 @@ class TestVideoQuality:
         visuals = await fallback_gen.search("test", max_results=1)
         visual = await fallback_gen.download(visuals[0], temp_output_dir)
 
-        compositor = FFmpegCompositor(CompositionConfig())
         final_path = temp_output_dir / "quality_test.mp4"
 
-        await compositor.compose(
+        await ffmpeg_compositor.compose(
             audio=tts_result,
             visuals=[visual],
             subtitle_file=None,
@@ -357,6 +336,9 @@ class TestSceneBasedPipeline:
         self,
         temp_output_dir: Path,
         skip_without_ffmpeg: None,
+        edge_tts_engine: EdgeTTSEngine,
+        ffmpeg_wrapper: FFmpegWrapper,
+        ffmpeg_compositor: FFmpegCompositor,
     ) -> None:
         """Test complete scene-based video generation."""
         # Create sample scenes
@@ -380,15 +362,13 @@ class TestSceneBasedPipeline:
 
         scene_script = SceneScript(
             scenes=scenes,
-            headline_keyword="테스트",
-            headline_hook="E2E 검증",
+            headline="테스트, E2E 검증",
         )
 
         # Step 1: Generate TTS for each scene
-        tts_engine = EdgeTTSEngine()
         tts_config = TTSConfigDataclass(voice_id="ko-KR-InJoonNeural", speed=1.1)
 
-        scene_tts_results = await tts_engine.synthesize_scenes(
+        scene_tts_results = await edge_tts_engine.synthesize_scenes(
             scenes=scenes,
             config=tts_config,
             output_dir=temp_output_dir / "audio_scenes",
@@ -402,6 +382,7 @@ class TestSceneBasedPipeline:
         combined_tts = await concatenate_scene_audio(
             scene_results=scene_tts_results,
             output_path=temp_output_dir / "combined_audio",
+            ffmpeg_wrapper=ffmpeg_wrapper,
         )
 
         assert combined_tts.audio_path.exists()
@@ -451,18 +432,16 @@ class TestSceneBasedPipeline:
             )
             current_offset += tts_result.duration_seconds
 
-        compositor = FFmpegCompositor(CompositionConfig())
         final_path = temp_output_dir / "scene_video.mp4"
 
-        result = await compositor.compose_scenes(
+        result = await ffmpeg_compositor.compose_scenes(
             scenes=scenes,
             scene_tts_results=scene_tts_results,
             scene_visuals=scene_visuals,
             combined_audio_path=combined_tts.audio_path,
             subtitle_file=subtitle_path,
             output_path=final_path,
-            headline_keyword=scene_script.headline_keyword,
-            headline_hook=scene_script.headline_hook,
+            headline=scene_script.headline,
         )
 
         assert final_path.exists()

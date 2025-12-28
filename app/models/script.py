@@ -43,7 +43,7 @@ class Script(Base, UUIDMixin, TimestampMixin):
         channel_id: Foreign key to channels table
         topic_id: Foreign key to topics table
         script_text: Generated script content (full text)
-        title_text: Title for video overlay
+        headline: Video headline
         scenes: Scene-based script structure (JSONB)
         estimated_duration: Estimated duration in seconds
         word_count: Word count
@@ -73,8 +73,8 @@ class Script(Base, UUIDMixin, TimestampMixin):
     # Script Content
     script_text: Mapped[str] = mapped_column(Text, nullable=False)
 
-    # Title for video overlay (상단 고정 제목)
-    title_text: Mapped[str | None] = mapped_column(String(200))
+    # Headline for video
+    headline: Mapped[str] = mapped_column(String(30), nullable=False, default="")
 
     # Scene-based structure (new)
     # Stores JSON array: [{scene_type, text, keyword, visual_hint, ...}, ...]
@@ -142,7 +142,7 @@ class Script(Base, UUIDMixin, TimestampMixin):
             return None
 
         parsed_scenes = [Scene(**scene_data) for scene_data in self.scenes]
-        return SceneScript(scenes=parsed_scenes, title_text=self.title_text)
+        return SceneScript(scenes=parsed_scenes, headline=self.headline)
 
 
 __all__ = [
