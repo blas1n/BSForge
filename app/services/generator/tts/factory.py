@@ -7,6 +7,7 @@ import logging
 from typing import Literal
 
 from app.config.video import TTSProviderConfig
+from app.services.generator.ffmpeg import FFmpegWrapper
 from app.services.generator.tts.base import BaseTTSEngine
 from app.services.generator.tts.edge import EdgeTTSEngine
 from app.services.generator.tts.elevenlabs import ElevenLabsEngine
@@ -29,16 +30,19 @@ class TTSEngineFactory:
 
     def __init__(
         self,
-        config: TTSProviderConfig | None = None,
-        elevenlabs_api_key: str | None = None,
+        ffmpeg_wrapper: FFmpegWrapper,
+        config: TTSProviderConfig,
+        elevenlabs_api_key: str,
     ) -> None:
         """Initialize TTSEngineFactory.
 
         Args:
-            config: Optional TTS provider configuration
+            ffmpeg_wrapper: FFmpeg wrapper for audio operations
+            config: TTS provider configuration
             elevenlabs_api_key: Optional ElevenLabs API key
         """
-        self._config = config or TTSProviderConfig()
+        self._ffmpeg_wrapper = ffmpeg_wrapper
+        self._config = config
         self._elevenlabs_api_key = elevenlabs_api_key
         self._engines: dict[str, BaseTTSEngine] = {}
 
@@ -65,7 +69,7 @@ class TTSEngineFactory:
 
         engine: BaseTTSEngine
         if provider == "edge-tts":
-            engine = EdgeTTSEngine()
+            engine = EdgeTTSEngine(ffmpeg_wrapper=self._ffmpeg_wrapper)
         elif provider == "elevenlabs":
             engine = ElevenLabsEngine(api_key=self._elevenlabs_api_key)
         else:

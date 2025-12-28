@@ -121,11 +121,17 @@ template: |
   | conclusion | 2-3s | Key takeaway or prediction |
   | cta | 2s | Call to action |
 
+  ## Headline Rules (중요!)
+  - headline_keyword: 핵심 단어 1~2개만 (예: "테슬라", "GPT-5")
+  - headline_hook: 읽는 데 1초도 안 걸리는 짧은 문장 (예: "완전 망했다", "진짜 나온다")
+  - 좋은 예: "테슬라" + "완전 망했다", "GPT-5" + "진짜 나온다"
+  - 나쁜 예: "일론 머스크가 발표한 테슬라의 새로운 전략" (너무 길어서 화면에서 잘림)
+
   ## JSON Format
   ```json
   {
-    "headline_keyword": "1-2 words",
-    "headline_hook": "5-10 chars",
+    "headline_keyword": "핵심 키워드만",
+    "headline_hook": "짧은 한 문장",
     "scenes": [
       {
         "scene_type": "hook|content|example|commentary|conclusion|cta",

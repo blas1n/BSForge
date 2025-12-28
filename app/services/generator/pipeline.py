@@ -18,14 +18,14 @@ from sqlalchemy import inspect as sa_inspect
 
 from app.config.video import VideoGenerationConfig
 from app.config.video_template import VideoTemplateConfig
-from app.core.template_loader import VideoTemplateLoader, get_template_loader
+from app.core.template_loader import VideoTemplateLoader
 from app.core.types import SessionFactory
 from app.models.script import Script
 from app.models.video import Video, VideoStatus
 from app.services.generator.bgm import BGMManager
 from app.services.generator.compositor import FFmpegCompositor
+from app.services.generator.ffmpeg import FFmpegWrapper
 from app.services.generator.subtitle import SubtitleGenerator
-from app.services.generator.thumbnail import ThumbnailGenerator
 from app.services.generator.tts.base import TTSConfig
 from app.services.generator.tts.factory import TTSEngineFactory
 from app.services.generator.tts.utils import concatenate_scene_audio
@@ -78,7 +78,7 @@ class VideoGenerationPipeline:
     3. Generate subtitles from word timestamps
     4. Source visual assets
     5. Compose video with FFmpeg
-    6. Generate thumbnail
+    6. Extract thumbnail from first frame
     7. Save video record to database
 
     Example:
@@ -87,7 +87,6 @@ class VideoGenerationPipeline:
         ...     visual_manager=visual_manager,
         ...     subtitle_generator=subtitle_gen,
         ...     compositor=compositor,
-        ...     thumbnail_generator=thumbnail_gen,
         ...     db_session_factory=session_factory,
         ... )
         >>> result = await pipeline.generate(script_id, channel_id)
@@ -99,11 +98,11 @@ class VideoGenerationPipeline:
         visual_manager: VisualSourcingManager,
         subtitle_generator: SubtitleGenerator,
         compositor: FFmpegCompositor,
-        thumbnail_generator: ThumbnailGenerator,
+        ffmpeg_wrapper: FFmpegWrapper,
         db_session_factory: SessionFactory,
-        config: VideoGenerationConfig | None = None,
-        template_loader: VideoTemplateLoader | None = None,
-        bgm_manager: BGMManager | None = None,
+        config: VideoGenerationConfig,
+        template_loader: VideoTemplateLoader,
+        bgm_manager: BGMManager,
     ) -> None:
         """Initialize VideoGenerationPipeline.
 
@@ -112,20 +111,20 @@ class VideoGenerationPipeline:
             visual_manager: Visual sourcing manager
             subtitle_generator: Subtitle generator
             compositor: FFmpeg compositor
-            thumbnail_generator: Thumbnail generator
+            ffmpeg_wrapper: FFmpeg wrapper for type-safe operations
             db_session_factory: Database session factory
             config: Video generation configuration
-            template_loader: Video template loader (optional, uses singleton if not provided)
-            bgm_manager: BGM manager for background music (optional)
+            template_loader: Video template loader
+            bgm_manager: BGM manager for background music
         """
         self.tts_factory = tts_factory
         self.visual_manager = visual_manager
         self.subtitle_generator = subtitle_generator
         self.compositor = compositor
-        self.thumbnail_generator = thumbnail_generator
+        self.ffmpeg = ffmpeg_wrapper
         self.db_session_factory = db_session_factory
-        self.config = config or VideoGenerationConfig()
-        self.template_loader = template_loader or get_template_loader()
+        self.config = config
+        self.template_loader = template_loader
         self.bgm_manager = bgm_manager
 
     async def generate(
@@ -273,24 +272,15 @@ class VideoGenerationPipeline:
 
             logger.info(f"Video composed: {composition_result.duration_seconds:.1f}s")
 
-            # Step 6: Generate thumbnail
-            logger.info("Generating thumbnail")
+            # Step 6: Extract thumbnail from first frame
+            logger.info("Extracting thumbnail from video")
 
-            # Use first visual or fallback
-            thumbnail_background = visuals[0] if visuals else None
-            title = self._get_thumbnail_title(script)
-
-            # Use template thumbnail config if available
-            thumbnail_config = template.thumbnail if template else None
-
-            thumbnail_path = await self.thumbnail_generator.generate(
-                title=title,
+            thumbnail_path = await self._extract_thumbnail(
+                video_path=composition_result.video_path,
                 output_path=output_dir / "thumbnail",
-                background=thumbnail_background,
-                config_override=thumbnail_config,
             )
 
-            logger.info(f"Thumbnail generated: {thumbnail_path}")
+            logger.info(f"Thumbnail extracted: {thumbnail_path}")
 
             # Calculate generation time
             generation_time = int(time.time() - start_time)
@@ -475,6 +465,7 @@ class VideoGenerationPipeline:
             combined_tts = await concatenate_scene_audio(
                 scene_results=scene_tts_results,
                 output_path=output_dir / "audio",
+                ffmpeg_wrapper=self.ffmpeg,
             )
 
             logger.info(f"Combined audio: {combined_tts.duration_seconds:.1f}s")
@@ -560,23 +551,15 @@ class VideoGenerationPipeline:
 
             logger.info(f"Video composed: {composition_result.duration_seconds:.1f}s")
 
-            # Step 7: Generate thumbnail
-            logger.info("Generating thumbnail")
+            # Step 7: Extract thumbnail from first frame
+            logger.info("Extracting thumbnail from video")
 
-            thumbnail_background = scene_visuals[0].asset if scene_visuals else None
-            title = self._get_thumbnail_title(script)
-
-            # Use template thumbnail config if available
-            thumbnail_config = template.thumbnail if template else None
-
-            thumbnail_path = await self.thumbnail_generator.generate(
-                title=title,
+            thumbnail_path = await self._extract_thumbnail(
+                video_path=composition_result.video_path,
                 output_path=output_dir / "thumbnail",
-                background=thumbnail_background,
-                config_override=thumbnail_config,
             )
 
-            logger.info(f"Thumbnail generated: {thumbnail_path}")
+            logger.info(f"Thumbnail extracted: {thumbnail_path}")
 
             # Calculate generation time
             generation_time = int(time.time() - start_time)
@@ -712,25 +695,27 @@ class VideoGenerationPipeline:
 
         return keywords or ["abstract", "background"]
 
-    def _get_thumbnail_title(self, script: Script) -> str:
-        """Get title for thumbnail.
+    async def _extract_thumbnail(self, video_path: Path, output_path: Path) -> Path:
+        """Extract first frame from video as thumbnail.
 
         Args:
-            script: Script model
+            video_path: Path to video file
+            output_path: Output path for thumbnail (without extension)
 
         Returns:
-            Title string
+            Path to generated thumbnail image
         """
-        # Try topic title first (check if loaded to avoid DetachedInstanceError)
-        state = sa_inspect(script, raiseerr=False)
-        if state is not None and "topic" not in state.unloaded:
-            topic = script.topic
-            if topic and hasattr(topic, "title") and topic.title:
-                return str(topic.title)
+        thumbnail_path = output_path.with_suffix(".jpg")
 
-        # Fallback: first line of script
-        first_line = script.script_text.split("\n")[0][:50]
-        return first_line if first_line else "Video"
+        stream = self.ffmpeg.extract_frame(
+            video_path=video_path,
+            output_path=thumbnail_path,
+            seek_seconds=0.0,
+            quality=2,
+        )
+        await self.ffmpeg.run(stream)
+
+        return thumbnail_path
 
     def _get_title_text(self, script: Script) -> str | None:
         """Get title text for video overlay.

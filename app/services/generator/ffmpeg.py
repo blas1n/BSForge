@@ -3,11 +3,6 @@
 This module provides a typed interface for FFmpeg operations,
 using the ffmpeg-python library for better type safety and maintainability.
 All operations use the SDK approach - no subprocess calls.
-
-Usage:
-    >>> wrapper = FFmpegWrapper()
-    >>> stream = wrapper.image_to_video(image_path, output_path, duration=5.0, size=(1080, 1920))
-    >>> await wrapper.run(stream)
 """
 
 from dataclasses import dataclass
@@ -912,21 +907,8 @@ class FFmpegWrapper:
         return stream
 
 
-# Singleton instance
-_wrapper: FFmpegWrapper | None = None
-
-
-def get_ffmpeg_wrapper() -> FFmpegWrapper:
-    """Get the singleton FFmpeg wrapper instance."""
-    global _wrapper
-    if _wrapper is None:
-        _wrapper = FFmpegWrapper()
-    return _wrapper
-
-
 __all__ = [
     "FFmpegError",
     "FFmpegWrapper",
     "ProbeResult",
-    "get_ffmpeg_wrapper",
 ]

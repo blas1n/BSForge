@@ -1,7 +1,7 @@
 """Tests for VideoGenerationPipeline."""
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -23,8 +23,10 @@ class TestVideoGenerationPipeline:
         mock_visual_manager: AsyncMock,
         mock_subtitle_generator: MagicMock,
         mock_compositor: AsyncMock,
-        mock_thumbnail_generator: AsyncMock,
+        mock_ffmpeg_wrapper: AsyncMock,
         mock_db_session_factory: MagicMock,
+        mock_template_loader: MagicMock,
+        mock_bgm_manager: MagicMock,
         video_generation_config: VideoGenerationConfig,
         tmp_path: Path,
     ) -> VideoGenerationPipeline:
@@ -38,9 +40,11 @@ class TestVideoGenerationPipeline:
             visual_manager=mock_visual_manager,
             subtitle_generator=mock_subtitle_generator,
             compositor=mock_compositor,
-            thumbnail_generator=mock_thumbnail_generator,
+            ffmpeg_wrapper=mock_ffmpeg_wrapper,
             db_session_factory=mock_db_session_factory,
             config=video_generation_config,
+            template_loader=mock_template_loader,
+            bgm_manager=mock_bgm_manager,
         )
 
     @pytest.fixture
@@ -50,7 +54,7 @@ class TestVideoGenerationPipeline:
         mock_visual_manager: AsyncMock,
         mock_subtitle_generator: MagicMock,
         mock_compositor: AsyncMock,
-        mock_thumbnail_generator: AsyncMock,
+        mock_ffmpeg_wrapper: AsyncMock,
         tmp_path: Path,
     ) -> dict:
         """Configure mocks with return values."""
@@ -96,10 +100,11 @@ class TestVideoGenerationPipeline:
         )
         mock_compositor.compose = AsyncMock(return_value=composition_result)
 
-        # Thumbnail
+        # Thumbnail (extracted via ffmpeg)
         thumbnail_path = tmp_path / "thumbnail.jpg"
         thumbnail_path.write_bytes(b"fake thumbnail")
-        mock_thumbnail_generator.generate = AsyncMock(return_value=thumbnail_path)
+        mock_ffmpeg_wrapper.extract_frame.return_value = MagicMock()
+        mock_ffmpeg_wrapper.run = AsyncMock()
 
         return {
             "tts_result": tts_result,
@@ -117,7 +122,7 @@ class TestVideoGenerationPipeline:
         mock_tts_factory: MagicMock,
         mock_visual_manager: AsyncMock,
         mock_compositor: AsyncMock,
-        mock_thumbnail_generator: AsyncMock,
+        mock_ffmpeg_wrapper: AsyncMock,
     ) -> None:
         """Test that generate calls all required services."""
         result = await pipeline.generate(script=mock_script)
@@ -126,7 +131,8 @@ class TestVideoGenerationPipeline:
         mock_tts_factory.get_engine.assert_called()
         mock_visual_manager.source_visuals.assert_called()
         mock_compositor.compose.assert_called()
-        mock_thumbnail_generator.generate.assert_called()
+        mock_ffmpeg_wrapper.extract_frame.assert_called()
+        mock_ffmpeg_wrapper.run.assert_called()
 
     @pytest.mark.asyncio
     async def test_generate_returns_result(
@@ -196,8 +202,11 @@ class TestPipelineHelpers:
         mock_visual_manager: AsyncMock,
         mock_subtitle_generator: MagicMock,
         mock_compositor: AsyncMock,
-        mock_thumbnail_generator: AsyncMock,
+        mock_ffmpeg_wrapper: AsyncMock,
         mock_db_session_factory: MagicMock,
+        mock_template_loader: MagicMock,
+        mock_bgm_manager: MagicMock,
+        video_generation_config: VideoGenerationConfig,
     ) -> VideoGenerationPipeline:
         """Create a pipeline for testing helper methods."""
         return VideoGenerationPipeline(
@@ -205,8 +214,11 @@ class TestPipelineHelpers:
             visual_manager=mock_visual_manager,
             subtitle_generator=mock_subtitle_generator,
             compositor=mock_compositor,
-            thumbnail_generator=mock_thumbnail_generator,
+            ffmpeg_wrapper=mock_ffmpeg_wrapper,
             db_session_factory=mock_db_session_factory,
+            config=video_generation_config,
+            template_loader=mock_template_loader,
+            bgm_manager=mock_bgm_manager,
         )
 
     def test_get_voice_for_script_korean(
@@ -244,35 +256,3 @@ class TestPipelineHelpers:
 
         assert len(keywords) > 0
         assert all(len(k) > 3 for k in keywords)
-
-    def test_get_thumbnail_title_from_topic(
-        self, pipeline: VideoGenerationPipeline, mock_script: MagicMock
-    ) -> None:
-        """Test thumbnail title extraction from topic.
-
-        Note: The actual method uses sa_inspect to check SQLAlchemy state,
-        which doesn't work with MagicMock. We patch sa_inspect to simulate
-        a properly loaded SQLAlchemy model.
-        """
-        mock_topic = MagicMock()
-        mock_topic.title = "Amazing Video Title"
-        mock_script.topic = mock_topic
-
-        mock_state = MagicMock()
-        mock_state.unloaded = set()  # topic is loaded
-
-        with patch("app.services.generator.pipeline.sa_inspect", return_value=mock_state):
-            title = pipeline._get_thumbnail_title(mock_script)
-
-        assert title == "Amazing Video Title"
-
-    def test_get_thumbnail_title_fallback(
-        self, pipeline: VideoGenerationPipeline, mock_script: MagicMock
-    ) -> None:
-        """Test thumbnail title fallback to first line."""
-        mock_script.topic = None
-        mock_script.script_text = "First line of script\nSecond line"
-
-        title = pipeline._get_thumbnail_title(mock_script)
-
-        assert title == "First line of script"

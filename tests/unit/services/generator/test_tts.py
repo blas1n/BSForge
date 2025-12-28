@@ -1,62 +1,100 @@
 """Tests for TTS engines and factory."""
 
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.config.video import TTSConfig
+from app.config.video import TTSProviderConfig
+from app.services.generator.ffmpeg import FFmpegWrapper
 from app.services.generator.tts.base import TTSConfig as TTSConfigDataclass
 from app.services.generator.tts.edge import EdgeTTSEngine
 from app.services.generator.tts.factory import TTSEngineFactory
 
 
+@pytest.fixture
+def mock_ffmpeg_wrapper() -> MagicMock:
+    """Create a mock FFmpegWrapper for TTS tests."""
+    wrapper = MagicMock(spec=FFmpegWrapper)
+    wrapper.get_duration = AsyncMock(return_value=10.5)
+    return wrapper
+
+
 class TestTTSFactory:
     """Test suite for TTSEngineFactory."""
 
-    def test_get_edge_engine(self) -> None:
+    def test_get_edge_engine(self, mock_ffmpeg_wrapper: MagicMock) -> None:
         """Test getting Edge TTS engine."""
-        factory = TTSEngineFactory()
+        config = TTSProviderConfig()
+        factory = TTSEngineFactory(
+            ffmpeg_wrapper=mock_ffmpeg_wrapper,
+            config=config,
+            elevenlabs_api_key="test-api-key",
+        )
         engine = factory.get_engine("edge-tts")
 
         assert isinstance(engine, EdgeTTSEngine)
 
-    def test_get_engine_caching(self) -> None:
+    def test_get_engine_caching(self, mock_ffmpeg_wrapper: MagicMock) -> None:
         """Test that engines are cached."""
-        factory = TTSEngineFactory()
+        config = TTSProviderConfig()
+        factory = TTSEngineFactory(
+            ffmpeg_wrapper=mock_ffmpeg_wrapper,
+            config=config,
+            elevenlabs_api_key="test-api-key",
+        )
 
         engine1 = factory.get_engine("edge-tts")
         engine2 = factory.get_engine("edge-tts")
 
         assert engine1 is engine2
 
-    def test_get_default_engine(self) -> None:
+    def test_get_default_engine(self, mock_ffmpeg_wrapper: MagicMock) -> None:
         """Test getting default engine from config."""
-        config = TTSConfig(provider="edge-tts")
-        factory = TTSEngineFactory(config=config)
+        config = TTSProviderConfig(provider="edge-tts")
+        factory = TTSEngineFactory(
+            ffmpeg_wrapper=mock_ffmpeg_wrapper,
+            config=config,
+            elevenlabs_api_key="test-api-key",
+        )
 
         engine = factory.get_engine()
 
         assert isinstance(engine, EdgeTTSEngine)
 
-    def test_get_unknown_engine_raises(self) -> None:
+    def test_get_unknown_engine_raises(self, mock_ffmpeg_wrapper: MagicMock) -> None:
         """Test that unknown engine type raises ValueError."""
-        factory = TTSEngineFactory()
+        config = TTSProviderConfig()
+        factory = TTSEngineFactory(
+            ffmpeg_wrapper=mock_ffmpeg_wrapper,
+            config=config,
+            elevenlabs_api_key="test-api-key",
+        )
 
         with pytest.raises(ValueError, match="Unsupported TTS provider"):
             factory.get_engine("unknown-engine")
 
-    def test_get_default_voice_id_korean_male(self) -> None:
+    def test_get_default_voice_id_korean_male(self, mock_ffmpeg_wrapper: MagicMock) -> None:
         """Test getting default Korean male voice."""
-        factory = TTSEngineFactory()
+        config = TTSProviderConfig()
+        factory = TTSEngineFactory(
+            ffmpeg_wrapper=mock_ffmpeg_wrapper,
+            config=config,
+            elevenlabs_api_key="test-api-key",
+        )
         voice_id = factory.get_default_voice_id(language="ko", gender="male")
 
         assert voice_id is not None
         assert "Korean" in voice_id or "ko-KR" in voice_id
 
-    def test_get_default_voice_id_english(self) -> None:
+    def test_get_default_voice_id_english(self, mock_ffmpeg_wrapper: MagicMock) -> None:
         """Test getting default English voice."""
-        factory = TTSEngineFactory()
+        config = TTSProviderConfig()
+        factory = TTSEngineFactory(
+            ffmpeg_wrapper=mock_ffmpeg_wrapper,
+            config=config,
+            elevenlabs_api_key="test-api-key",
+        )
         voice_id = factory.get_default_voice_id(language="en")
 
         assert voice_id is not None
@@ -66,9 +104,9 @@ class TestEdgeTTSEngine:
     """Test suite for EdgeTTSEngine."""
 
     @pytest.fixture
-    def engine(self) -> EdgeTTSEngine:
+    def engine(self, mock_ffmpeg_wrapper: MagicMock) -> EdgeTTSEngine:
         """Create an EdgeTTSEngine instance."""
-        return EdgeTTSEngine()
+        return EdgeTTSEngine(ffmpeg_wrapper=mock_ffmpeg_wrapper)
 
     def test_engine_initialization(self, engine: EdgeTTSEngine) -> None:
         """Test engine initializes correctly."""
@@ -91,22 +129,20 @@ class TestEdgeTTSEngine:
         assert len(voices) > 0
 
     @pytest.mark.asyncio
-    async def test_get_audio_duration(self, engine: EdgeTTSEngine, tmp_path: Path) -> None:
+    async def test_get_audio_duration(
+        self,
+        mock_ffmpeg_wrapper: MagicMock,
+        tmp_path: Path,
+    ) -> None:
         """Test audio duration calculation with mock FFmpegWrapper."""
         audio_path = tmp_path / "test.mp3"
         audio_path.write_bytes(b"fake audio")
 
-        mock_wrapper = AsyncMock()
-        mock_wrapper.get_duration.return_value = 10.5
+        engine = EdgeTTSEngine(ffmpeg_wrapper=mock_ffmpeg_wrapper)
+        duration = await engine.get_audio_duration(audio_path)
 
-        with patch(
-            "app.services.generator.tts.edge.get_ffmpeg_wrapper",
-            return_value=mock_wrapper,
-        ):
-            duration = await engine.get_audio_duration(audio_path)
-
-            assert duration == 10.5
-            mock_wrapper.get_duration.assert_called_once_with(audio_path)
+        assert duration == 10.5
+        mock_ffmpeg_wrapper.get_duration.assert_called_once_with(audio_path)
 
 
 class TestTTSConfig:
@@ -114,7 +150,7 @@ class TestTTSConfig:
 
     def test_default_config(self) -> None:
         """Test default TTS configuration."""
-        config = TTSConfig()
+        config = TTSProviderConfig()
 
         assert config.provider == "edge-tts"
         assert config.speed >= 0.5

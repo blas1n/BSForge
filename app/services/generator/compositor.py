@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 from app.config.video import CompositionConfig
 from app.core.logging import get_logger
 from app.infrastructure.fonts import find_font_by_name
-from app.services.generator.ffmpeg import FFmpegWrapper, get_ffmpeg_wrapper
+from app.services.generator.ffmpeg import FFmpegWrapper
 from app.services.generator.tts.base import TTSResult
 from app.services.generator.visual.base import VisualAsset
 
@@ -67,20 +67,19 @@ class FFmpegCompositor:
 
     def __init__(
         self,
-        config: CompositionConfig | None = None,
-        template: "VideoTemplateConfig | None" = None,
-        ffmpeg_wrapper: FFmpegWrapper | None = None,
+        ffmpeg_wrapper: FFmpegWrapper,
+        config: CompositionConfig,
     ) -> None:
         """Initialize FFmpegCompositor.
 
         Args:
-            config: Composition configuration
-            template: Video template for visual effects and overlays
             ffmpeg_wrapper: FFmpeg wrapper for type-safe operations
+            config: Composition configuration
         """
-        self.config = config or CompositionConfig()
-        self.template = template
-        self.ffmpeg = ffmpeg_wrapper or get_ffmpeg_wrapper()
+        self.ffmpeg = ffmpeg_wrapper
+        self.config = config
+        # Template is set at runtime via pipeline based on channel/persona settings
+        self.template: VideoTemplateConfig | None = None
 
     async def compose(
         self,
@@ -1135,6 +1134,13 @@ class FFmpegCompositor:
             # Draw black rectangle at top
             filter_parts.append(
                 f"drawbox=x=0:y=0:w={self.config.width}:h={bg_height}:"
+                f"color=0x{bg_color}@{bg_opacity}:t=fill"
+            )
+
+            # Draw black rectangle at bottom
+            footer_y = self.config.height - bg_height
+            filter_parts.append(
+                f"drawbox=x=0:y={footer_y}:w={self.config.width}:h={bg_height}:"
                 f"color=0x{bg_color}@{bg_opacity}:t=fill"
             )
 
