@@ -376,6 +376,7 @@ class EnrichedGenerationPipeline:
             channel_id=channel_id,
             topic_id=topic_id,
             script_text=full_text,
+            headline=scene_script.headline,
             scenes=scenes_data,
             estimated_duration=quality_result["duration"],
             word_count=word_count,
