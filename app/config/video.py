@@ -45,10 +45,6 @@ class TTSProviderConfig(BaseModel):
     volume: int = Field(default=0, ge=-50, le=50, description="Volume adjustment")
 
 
-# Backward compatibility alias
-TTSConfig = TTSProviderConfig
-
-
 class SubtitleStyleConfig(BaseModel):
     """Subtitle styling configuration.
 
@@ -400,7 +396,6 @@ class VideoGenerationConfig(BaseModel):
 __all__ = [
     "VideoGenerationConfig",
     "TTSProviderConfig",
-    "TTSConfig",  # Backward compatibility alias
     "SubtitleConfig",
     "SubtitleStyleConfig",
     "VisualConfig",

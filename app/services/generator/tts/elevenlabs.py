@@ -12,10 +12,12 @@ import logging
 from pathlib import Path
 from typing import Any
 
+import whisper
+
 from app.services.generator.tts.base import (
     BaseTTSEngine,
-    TTSConfig,
     TTSResult,
+    TTSSynthesisConfig,
     VoiceInfo,
     WordTimestamp,
 )
@@ -38,7 +40,7 @@ class ElevenLabsEngine(BaseTTSEngine):
 
     Example:
         >>> engine = ElevenLabsEngine(api_key="your-key")
-        >>> config = TTSConfig(voice_id="21m00Tcm4TlvDq8ikWAM")
+        >>> config = TTSSynthesisConfig(voice_id="21m00Tcm4TlvDq8ikWAM")
         >>> result = await engine.synthesize("Hello world", config, Path("/tmp/audio"))
     """
 
@@ -65,7 +67,7 @@ class ElevenLabsEngine(BaseTTSEngine):
     async def synthesize(
         self,
         text: str,
-        config: TTSConfig,
+        config: TTSSynthesisConfig,
         output_path: Path,
     ) -> TTSResult:
         """Synthesize speech using ElevenLabs.
@@ -100,7 +102,7 @@ class ElevenLabsEngine(BaseTTSEngine):
         voice_settings = self._get_voice_settings(config)
 
         # Generate audio
-        audio_generator = await client.text_to_speech.convert(
+        audio_generator = client.text_to_speech.convert(
             voice_id=config.voice_id,
             text=text,
             model_id=self._model_id,
@@ -237,8 +239,6 @@ class ElevenLabsEngine(BaseTTSEngine):
             List of word timestamps or None if failed
         """
         try:
-            import whisper
-
             # Load model (cached after first load)
             model = whisper.load_model("base")
 
@@ -273,7 +273,7 @@ class ElevenLabsEngine(BaseTTSEngine):
             logger.warning(f"Whisper timestamp generation failed: {e}")
             return None
 
-    def _get_voice_settings(self, config: TTSConfig) -> dict[str, Any]:
+    def _get_voice_settings(self, config: TTSSynthesisConfig) -> dict[str, Any]:
         """Get ElevenLabs voice settings from config.
 
         Args:

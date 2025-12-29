@@ -281,6 +281,19 @@ class VisualSourcingManager:
             logger.warning(f"Unknown source type: {source_type}")
             return []
 
+    def _ensure_sd_generator(self) -> StableDiffusionGenerator:
+        """Ensure SD generator is initialized.
+
+        Returns:
+            StableDiffusionGenerator instance
+        """
+        if self._sd_generator is None:
+            self._sd_generator = StableDiffusionGenerator(
+                http_client=self._http_client,
+                config=self.config.stable_diffusion,
+            )
+        return self._sd_generator
+
     async def _generate_with_sd(
         self,
         prompt: str,
@@ -299,18 +312,13 @@ class VisualSourcingManager:
         Returns:
             List of generated assets, empty if SD unavailable
         """
-        # Lazy initialize SD generator
-        if self._sd_generator is None:
-            self._sd_generator = StableDiffusionGenerator(
-                http_client=self._http_client,
-                config=self.config.stable_diffusion,
-            )
+        sd_generator = self._ensure_sd_generator()
 
         # Check if SD service is available
-        if not await self._sd_generator.is_available():
+        if not await sd_generator.is_available():
             return []
 
-        return await self._sd_generator.generate(
+        return await sd_generator.generate(
             prompt=prompt,
             count=count,
             orientation=orientation,
@@ -337,12 +345,8 @@ class VisualSourcingManager:
         elif asset.source == "dalle":
             return await self._dalle_generator.download(asset, output_dir)
         elif asset.source == "stable_diffusion":
-            if self._sd_generator is None:
-                self._sd_generator = StableDiffusionGenerator(
-                    http_client=self._http_client,
-                    config=self.config.stable_diffusion,
-                )
-            return await self._sd_generator.download(asset, output_dir)
+            sd_generator = self._ensure_sd_generator()
+            return await sd_generator.download(asset, output_dir)
         elif asset.source == "fallback":
             return await self._fallback.download(asset, output_dir)
         else:
@@ -679,91 +683,6 @@ class VisualSourcingManager:
             orientation=orientation,
         )
 
-    async def _source_stock_with_transform(
-        self,
-        keyword: str,
-        duration: float,
-        output_dir: Path,
-        orientation: Literal["portrait", "landscape", "square"],
-        exclude_source_ids: set[str] | None = None,
-    ) -> VisualAsset:
-        """Source from stock and always apply img2img transformation.
-
-        This strategy is for style consistency - even if stock image matches,
-        we transform it through SD to unify visual style.
-
-        Args:
-            keyword: Search keyword
-            duration: Duration needed
-            output_dir: Output directory
-            orientation: Visual orientation
-            exclude_source_ids: Set of source IDs to exclude (already used)
-
-        Returns:
-            Visual asset (transformed if possible)
-        """
-        metadata_threshold = self.config.metadata_score_threshold
-        exclude_ids = exclude_source_ids or set()
-
-        # Try stock sources (images only, videos can't be transformed)
-        stock_sources = ["pexels_image", "pixabay_image"]
-
-        best_asset: VisualAsset | None = None
-        best_score: float = 0.0
-
-        for source_type in stock_sources:
-            try:
-                assets = await self._source_from_type(
-                    source_type=source_type,
-                    keywords=[keyword],
-                    duration_needed=duration,
-                    output_dir=output_dir,
-                    orientation=orientation,
-                    image_duration=duration,
-                )
-
-                for asset in assets:
-                    # Skip already used sources
-                    if asset.source_id and asset.source_id in exclude_ids:
-                        continue
-
-                    score = asset.metadata_score or 0.0
-                    if score >= metadata_threshold and score > best_score:
-                        best_asset = asset
-                        best_score = score
-
-            except Exception as e:
-                logger.warning(f"Source {source_type} failed: {e}")
-                continue
-
-        if best_asset and not best_asset.is_downloaded:
-            # Download if needed
-            try:
-                best_asset = await self._download_asset(best_asset, output_dir)
-            except Exception as e:
-                logger.warning(f"Failed to download best asset: {e}")
-                best_asset = None
-
-        if best_asset:
-            # Always try to transform
-            transformed = await self._transform_with_sd(
-                asset=best_asset,
-                keyword=keyword,
-                output_dir=output_dir,
-            )
-            if transformed:
-                return transformed
-            # Transform failed, use original
-            return best_asset
-
-        # No stock found, fall back to AI
-        return await self._source_ai_only(
-            keywords=[keyword],
-            duration=duration,
-            output_dir=output_dir,
-            orientation=orientation,
-        )
-
     async def _source_ai_only(
         self,
         keywords: list[str],
@@ -838,14 +757,8 @@ class VisualSourcingManager:
         if not asset.path or not asset.path.exists():
             return None
 
-        # Lazy initialize SD generator
-        if self._sd_generator is None:
-            self._sd_generator = StableDiffusionGenerator(
-                http_client=self._http_client,
-                config=self.config.stable_diffusion,
-            )
-
-        return await self._sd_generator.evaluate(asset.path, keyword)
+        sd_generator = self._ensure_sd_generator()
+        return await sd_generator.evaluate(asset.path, keyword)
 
     async def _transform_with_sd(
         self,
@@ -871,15 +784,9 @@ class VisualSourcingManager:
             logger.debug(f"Skipping img2img for video file: {asset.path}")
             return None
 
-        # Lazy initialize SD generator
-        if self._sd_generator is None:
-            self._sd_generator = StableDiffusionGenerator(
-                http_client=self._http_client,
-                config=self.config.stable_diffusion,
-            )
-
+        sd_generator = self._ensure_sd_generator()
         prompt = self._build_ai_prompt([keyword])
-        return await self._sd_generator.transform(
+        return await sd_generator.transform(
             source_image=asset.path,
             prompt=prompt,
             output_dir=output_dir,

@@ -4,6 +4,8 @@ This module provides a managed httpx.AsyncClient for reusing
 HTTP connections across the application.
 """
 
+from typing import Any
+
 import httpx
 
 from app.core.logging import get_logger
@@ -58,11 +60,11 @@ class HTTPClient:
             },
         )
 
-    async def get(self, url: str, **kwargs) -> httpx.Response:
+    async def get(self, url: str, **kwargs: Any) -> httpx.Response:
         """Send GET request."""
         return await self._client.get(url, **kwargs)
 
-    async def post(self, url: str, **kwargs) -> httpx.Response:
+    async def post(self, url: str, **kwargs: Any) -> httpx.Response:
         """Send POST request."""
         return await self._client.post(url, **kwargs)
 

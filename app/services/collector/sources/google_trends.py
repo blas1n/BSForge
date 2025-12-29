@@ -4,8 +4,9 @@ Collects trending search topics from Google Trends using pytrends.
 Supports multiple regions and real-time/daily trends.
 """
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 import pycountry
@@ -31,14 +32,20 @@ def get_host_language_for_region(region: str) -> str:
         Language code for pytrends (e.g., 'ko', 'en-US')
     """
     region = region.upper()
-    territory_languages = get_global("territory_languages")
+    territory_languages = cast(
+        Mapping[str, dict[str, Any]],
+        get_global("territory_languages"),
+    )
 
     languages = territory_languages.get(region, {})
     if not languages:
         return region.lower()
 
     # Find language with highest population_percent
-    primary_lang = max(languages.items(), key=lambda x: x[1].get("population_percent", 0))[0]
+    primary_lang: str = max(
+        languages.items(),
+        key=lambda x: x[1].get("population_percent", 0),
+    )[0]
 
     # Normalize script variants (zh_Hant -> zh)
     if "_" in primary_lang:

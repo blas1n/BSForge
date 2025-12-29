@@ -9,7 +9,7 @@ from typing import Any, Final
 
 from app.core.logging import get_logger
 from app.infrastructure.http_client import HTTPClient
-from app.services.collector.base import BaseSource
+from app.services.collector.base import BaseSource, RawTopic
 from app.services.collector.sources.clien import ClienSource
 from app.services.collector.sources.dcinside import DCInsideSource
 from app.services.collector.sources.fmkorea import FmkoreaSource
@@ -143,7 +143,7 @@ async def collect_from_sources(
     enabled_sources: list[str],
     http_client: HTTPClient,
     source_overrides: dict[str, Any] | None = None,
-) -> list[Any]:
+) -> list[RawTopic]:
     """Collect topics from multiple sources.
 
     Args:
@@ -155,7 +155,7 @@ async def collect_from_sources(
         List of RawTopic objects from all sources
     """
     source_overrides = source_overrides or {}
-    all_topics: list[Any] = []
+    all_topics: list[RawTopic] = []
 
     for source_name in enabled_sources:
         overrides = source_overrides.get(source_name, {})

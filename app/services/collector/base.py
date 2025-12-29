@@ -151,6 +151,19 @@ class BaseSource(ABC, Generic[ConfigT]):
         self._config = config
         self._http_client = http_client
 
+    @classmethod
+    @abstractmethod
+    def build_config(cls, overrides: dict[str, Any]) -> ConfigT | None:
+        """Build configuration from overrides.
+
+        Args:
+            overrides: Configuration overrides from channel config
+
+        Returns:
+            Configuration object or None if required params are missing
+        """
+        ...
+
     @abstractmethod
     async def collect(self, params: dict[str, Any] | None = None) -> list[RawTopic]:
         """Collect raw topics from the source.
@@ -164,7 +177,7 @@ class BaseSource(ABC, Generic[ConfigT]):
         Raises:
             SourceError: If collection fails
         """
-        pass
+        ...
 
     @abstractmethod
     async def health_check(self) -> bool:
@@ -173,7 +186,7 @@ class BaseSource(ABC, Generic[ConfigT]):
         Returns:
             True if source is healthy, False otherwise
         """
-        pass
+        ...
 
     async def validate_config(self) -> bool:
         """Validate source configuration.

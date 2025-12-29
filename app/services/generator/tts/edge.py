@@ -14,8 +14,8 @@ from app.services.generator.tts.base import (
     EDGE_TTS_VOICES_EN,
     EDGE_TTS_VOICES_KO,
     BaseTTSEngine,
-    TTSConfig,
     TTSResult,
+    TTSSynthesisConfig,
     VoiceInfo,
     WordTimestamp,
 )
@@ -34,7 +34,7 @@ class EdgeTTSEngine(BaseTTSEngine):
 
     Example:
         >>> engine = EdgeTTSEngine(ffmpeg_wrapper)
-        >>> config = TTSConfig(voice_id="ko-KR-InJoonNeural", speed=1.1)
+        >>> config = TTSSynthesisConfig(voice_id="ko-KR-InJoonNeural", speed=1.1)
         >>> result = await engine.synthesize("안녕하세요", config, Path("/tmp/audio"))
         >>> print(result.duration_seconds)
         1.5
@@ -55,7 +55,7 @@ class EdgeTTSEngine(BaseTTSEngine):
     async def synthesize(
         self,
         text: str,
-        config: TTSConfig,
+        config: TTSSynthesisConfig,
         output_path: Path,
     ) -> TTSResult:
         """Synthesize speech using Edge TTS.

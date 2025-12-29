@@ -217,25 +217,6 @@ class RAGReranker:
             )
             return results
 
-    def _cosine_similarity(self, vec1: np.ndarray, vec2: np.ndarray) -> float:
-        """Compute cosine similarity between two vectors.
-
-        Args:
-            vec1: First vector
-            vec2: Second vector
-
-        Returns:
-            Cosine similarity (-1 to 1)
-        """
-        dot_product = np.dot(vec1, vec2)
-        norm1 = np.linalg.norm(vec1)
-        norm2 = np.linalg.norm(vec2)
-
-        if norm1 == 0 or norm2 == 0:
-            return 0.0
-
-        return float(dot_product / (norm1 * norm2))
-
     def _cosine_similarity_batch(self, vec: np.ndarray, matrix: np.ndarray) -> np.ndarray:
         """Compute cosine similarity between a vector and a matrix of vectors.
 

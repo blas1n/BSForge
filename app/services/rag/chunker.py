@@ -370,57 +370,6 @@ class ScriptChunker:
         sentences = re.split(r"[.!?]+\s+", text.strip())
         return [s.strip() for s in sentences if s.strip()]
 
-    async def _extract_characteristics_async(self, text: str) -> dict[str, bool | list[str]]:
-        """Extract chunk characteristics using pattern matching or LLM.
-
-        Uses pattern matching by default (fast). If use_llm_classification
-        is enabled and LLM classifier is available, uses LLM for more
-        accurate classification.
-
-        Args:
-            text: Chunk text
-
-        Returns:
-            Dict with is_opinion, is_example, is_analogy, keywords
-        """
-        text_lower = text.lower()
-
-        # Pattern-based classification (fast, always runs)
-        is_opinion = any(
-            re.search(pattern, text_lower, re.IGNORECASE)
-            for pattern in self.config.opinion_patterns
-        )
-        is_example = any(
-            re.search(pattern, text_lower, re.IGNORECASE)
-            for pattern in self.config.example_patterns
-        )
-        is_analogy = any(
-            re.search(pattern, text_lower, re.IGNORECASE)
-            for pattern in self.config.analogy_patterns
-        )
-
-        # LLM-based classification (accurate, optional)
-        if self.config.use_llm_classification and self.llm_classifier:
-            try:
-                llm_result = await self.llm_classifier.classify_characteristics(text)
-                # Override with LLM results
-                is_opinion = llm_result["is_opinion"]
-                is_example = llm_result["is_example"]
-                is_analogy = llm_result["is_analogy"]
-                logger.debug("Using LLM classification results")
-            except Exception as e:
-                logger.warning(f"LLM classification failed, using pattern-based results: {e}")
-
-        # Extract keywords
-        keywords = self._extract_keywords(text)
-
-        return {
-            "is_opinion": is_opinion,
-            "is_example": is_example,
-            "is_analogy": is_analogy,
-            "keywords": keywords,
-        }
-
     def _extract_characteristics(self, text: str) -> dict[str, bool | list[str]]:
         """Synchronous wrapper for characteristic extraction.
 

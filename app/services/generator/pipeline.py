@@ -22,7 +22,7 @@ from app.services.generator.bgm import BGMManager
 from app.services.generator.compositor import FFmpegCompositor
 from app.services.generator.ffmpeg import FFmpegWrapper
 from app.services.generator.subtitle import SubtitleGenerator
-from app.services.generator.tts.base import TTSConfig
+from app.services.generator.tts.base import TTSSynthesisConfig
 from app.services.generator.tts.factory import TTSEngineFactory
 from app.services.generator.tts.utils import concatenate_scene_audio
 from app.services.generator.visual.manager import VisualSourcingManager
@@ -190,7 +190,7 @@ class VideoGenerationPipeline:
             engine = self.tts_factory.get_engine(provider)
             final_voice_id = voice_id or self._get_voice_for_script(script)
 
-            tts_config = TTSConfig(
+            tts_config = TTSSynthesisConfig(
                 voice_id=final_voice_id,
                 speed=self.config.tts.speed,
                 pitch=self.config.tts.pitch,

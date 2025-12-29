@@ -249,7 +249,6 @@ class FFmpegCompositor:
             # Step 2: Apply transitions between scenes
             video_sequence = await self._concat_scenes_with_transitions(
                 segments=scene_segments,
-                scenes=scenes,
                 temp_dir=temp_path,
             )
 
@@ -459,41 +458,19 @@ class FFmpegCompositor:
     async def _concat_scenes_with_transitions(
         self,
         segments: list[Path],
-        scenes: list["Scene"],
         temp_dir: Path,
     ) -> Path:
-        """Concatenate scene segments with appropriate transitions.
+        """Concatenate scene segments.
 
         Args:
             segments: List of segment paths
-            scenes: List of Scene objects (for transition info)
             temp_dir: Temp directory
 
         Returns:
             Path to concatenated video
         """
-        from app.models.scene import TransitionType
-
         if len(segments) == 1:
             return segments[0]
-
-        # NOTE: FFmpeg xfade requires exact segment durations.
-        # Current implementation uses simple concat with fade-in at start.
-        # For proper crossfade transitions:
-        # 1. Pass segment durations alongside segment paths
-        # 2. Build ffmpeg filter chain: xfade=transition=fade:duration=0.5:offset=<duration-0.5>
-        # 3. Chain multiple xfade filters for multiple segments
-        # This is deferred as it requires structural changes to pass duration info.
-
-        # Get recommended transitions from scenes
-        transitions: list[TransitionType] = []
-        for i in range(len(scenes) - 1):
-            current = scenes[i]
-            # Use scene's transition_out setting
-            transitions.append(current.transition_out)
-
-        # Check if any transitions need special handling (FLASH)
-        has_flash = any(t == TransitionType.FLASH for t in transitions)
 
         # Create concat file
         concat_file = temp_dir / "concat.txt"
@@ -503,36 +480,12 @@ class FFmpegCompositor:
 
         output_path = temp_dir / "sequence.mp4"
 
-        if not has_flash:
-            # Simple concat without special effects
-            stream = self.ffmpeg.concat_with_file(
-                concat_file_path=concat_file,
-                output_path=output_path,
-                copy_codec=True,
-            )
-            await self.ffmpeg.run(stream)
-            return output_path
-
-        # With transitions: re-encode with fade effects
-        # Use concat then apply fade filter
-        temp_concat = temp_dir / "temp_concat.mp4"
-        concat_stream = self.ffmpeg.concat_with_file(
+        stream = self.ffmpeg.concat_with_file(
             concat_file_path=concat_file,
-            output_path=temp_concat,
+            output_path=output_path,
             copy_codec=True,
         )
-        await self.ffmpeg.run(concat_stream)
-
-        # Apply fade in at start for visual polish
-        fade_stream = self.ffmpeg.video_with_filters(
-            input_path=temp_concat,
-            output_path=output_path,
-            vf="fade=t=in:st=0:d=0.1",
-            fps=self.config.fps,
-            crf=self.config.crf,
-            preset=self.config.preset,
-        )
-        await self.ffmpeg.run(fade_stream)
+        await self.ffmpeg.run(stream)
         return output_path
 
     async def _add_audio_file(
@@ -812,40 +765,6 @@ class FFmpegCompositor:
 
         return full_filter
 
-    async def _image_to_video_with_filter_complex(
-        self,
-        asset: VisualAsset,
-        duration: float,
-        output_path: Path,
-    ) -> Path:
-        """Convert image to video using filter_complex for frame layout.
-
-        Args:
-            asset: Image asset
-            duration: Segment duration
-            output_path: Output path for the segment
-
-        Returns:
-            Path to video segment
-        """
-        if not asset.path:
-            raise ValueError("Asset has no local path")
-
-        vf = self._build_frame_layout_filter(duration)
-
-        stream = self.ffmpeg.image_to_video_with_filters(
-            image_path=asset.path,
-            output_path=output_path,
-            duration=duration,
-            vf=vf,
-            fps=self.config.fps,
-            crf=self.config.crf,
-            preset=self.config.preset,
-        )
-
-        await self.ffmpeg.run(stream)
-        return output_path
-
     async def _create_black_video(
         self,
         duration: float,
@@ -879,14 +798,12 @@ class FFmpegCompositor:
         self,
         segments: list[Path],
         temp_dir: Path,
-        add_flash: bool = True,
     ) -> Path:
-        """Concatenate video segments with optional flash transitions.
+        """Concatenate video segments.
 
         Args:
             segments: List of segment paths
             temp_dir: Temp directory
-            add_flash: Add white flash between segments
 
         Returns:
             Path to concatenated video
@@ -902,36 +819,12 @@ class FFmpegCompositor:
 
         output_path = temp_dir / "sequence.mp4"
 
-        if not add_flash:
-            # Simple concat without transitions
-            stream = self.ffmpeg.concat_with_file(
-                concat_file_path=concat_file,
-                output_path=output_path,
-                copy_codec=True,
-            )
-            await self.ffmpeg.run(stream)
-            return output_path
-
-        # Concat with flash transitions
-        # Use concat demuxer then apply fade filter
-        temp_concat = temp_dir / "temp_concat.mp4"
-        concat_stream = self.ffmpeg.concat_with_file(
+        stream = self.ffmpeg.concat_with_file(
             concat_file_path=concat_file,
-            output_path=temp_concat,
+            output_path=output_path,
             copy_codec=True,
         )
-        await self.ffmpeg.run(concat_stream)
-
-        # Add fade in at start for visual polish
-        fade_stream = self.ffmpeg.video_with_filters(
-            input_path=temp_concat,
-            output_path=output_path,
-            vf="fade=t=in:st=0:d=0.1",
-            fps=self.config.fps,
-            crf=self.config.crf,
-            preset=self.config.preset,
-        )
-        await self.ffmpeg.run(fade_stream)
+        await self.ffmpeg.run(stream)
         return output_path
 
     async def _add_audio(
