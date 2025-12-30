@@ -156,10 +156,14 @@ template: |
 
   ## visual_keyword Tips
   - MUST be in English, 3-5 descriptive words
-  - Used for both stock search (Pexels/Pixabay) AND AI image generation (Stable Diffusion)
+  - Used for web search (Brave), stock search (Pexels/Pixabay), AND AI image generation
   - Each scene MUST have DIFFERENT visual_keyword (variety is critical)
-  - Good: "excited fans concert crowd", "singer microphone stage spotlight", "autograph signing celebrity"
-  - Bad: "music", "performance" (too abstract/generic)
+  - **If scene references a specific entity, INCLUDE ITS NAME** (person, brand, character, place, etc.)
+    - Good: "NewJeans Hanni interview", "Tesla Cybertruck", "Genshin Raiden Shogun", "Eiffel Tower night"
+    - Bad: "idol performance", "electric car", "game character", "famous landmark" (no name = wrong image)
+  - For generic/abstract scenes: Use descriptive keywords
+    - Good: "excited fans concert crowd", "office meeting discussion", "futuristic city night"
+    - Bad: "music", "technology", "future" (too vague)
   - Make each scene's visual_keyword unique and specific to scene content
 
   % if avoid_words:

@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Literal
 from app.config.video import VisualConfig
 from app.infrastructure.http_client import HTTPClient
 from app.services.generator.visual.base import VisualAsset
+from app.services.generator.visual.brave import BraveImageClient
 from app.services.generator.visual.dall_e import DALLEGenerator
 from app.services.generator.visual.fallback import FallbackGenerator
 from app.services.generator.visual.pexels import PexelsClient
@@ -75,34 +76,34 @@ class VisualSourcingManager:
     def __init__(
         self,
         http_client: HTTPClient,
-        config: VisualConfig | None = None,
-        pexels_client: PexelsClient | None = None,
-        pixabay_client: PixabayClient | None = None,
-        dalle_generator: DALLEGenerator | None = None,
-        sd_generator: StableDiffusionGenerator | None = None,
-        fallback_generator: FallbackGenerator | None = None,
+        config: VisualConfig,
+        pexels_client: PexelsClient,
+        pixabay_client: PixabayClient,
+        brave_client: BraveImageClient,
+        dalle_generator: DALLEGenerator,
+        sd_generator: StableDiffusionGenerator,
+        fallback_generator: FallbackGenerator,
     ) -> None:
         """Initialize VisualSourcingManager.
 
         Args:
             http_client: Shared HTTP client for API requests
             config: Visual configuration
-            pexels_client: Optional Pexels client instance
-            pixabay_client: Optional Pixabay client instance
-            dalle_generator: Optional DALL-E generator instance
-            sd_generator: Optional Stable Diffusion generator instance
-            fallback_generator: Optional fallback generator instance
+            pexels_client: Pexels client instance
+            pixabay_client: Pixabay client instance
+            brave_client: Brave Search client instance
+            dalle_generator: DALL-E generator instance
+            sd_generator: Stable Diffusion generator instance
+            fallback_generator: Fallback generator instance
         """
-        self.config = config or VisualConfig()
+        self.config = config
         self._http_client = http_client
-        self._pexels = pexels_client or PexelsClient()
-        self._pixabay = pixabay_client or PixabayClient()
-        self._dalle_generator = dalle_generator or DALLEGenerator()
-        self._sd_generator = sd_generator  # Lazy initialized if needed
-        self._fallback = fallback_generator or FallbackGenerator(
-            default_color=self.config.fallback_color,
-            default_gradient=self.config.fallback_gradient,
-        )
+        self._pexels = pexels_client
+        self._pixabay = pixabay_client
+        self._brave = brave_client
+        self._dalle_generator = dalle_generator
+        self._sd_generator = sd_generator
+        self._fallback = fallback_generator
 
     async def source_visuals(
         self,
@@ -226,7 +227,16 @@ class VisualSourcingManager:
         query = " ".join(keywords[:3])  # Use first 3 keywords
         max_results = max(1, int(duration_needed / image_duration) + 2)
 
-        if source_type == "pexels_video":
+        if source_type == "brave_image":
+            if not self.config.brave_enabled:
+                return []
+            return await self._brave.search_images(
+                query=query,
+                max_results=max_results,
+                orientation=orientation,
+            )
+
+        elif source_type == "pexels_video":
             return await self._pexels.search_videos(
                 query=query,
                 max_results=max_results,
@@ -281,19 +291,6 @@ class VisualSourcingManager:
             logger.warning(f"Unknown source type: {source_type}")
             return []
 
-    def _ensure_sd_generator(self) -> StableDiffusionGenerator:
-        """Ensure SD generator is initialized.
-
-        Returns:
-            StableDiffusionGenerator instance
-        """
-        if self._sd_generator is None:
-            self._sd_generator = StableDiffusionGenerator(
-                http_client=self._http_client,
-                config=self.config.stable_diffusion,
-            )
-        return self._sd_generator
-
     async def _generate_with_sd(
         self,
         prompt: str,
@@ -312,7 +309,7 @@ class VisualSourcingManager:
         Returns:
             List of generated assets, empty if SD unavailable
         """
-        sd_generator = self._ensure_sd_generator()
+        sd_generator = self._sd_generator
 
         # Check if SD service is available
         if not await sd_generator.is_available():
@@ -342,10 +339,12 @@ class VisualSourcingManager:
             return await self._pexels.download(asset, output_dir)
         elif asset.source == "pixabay":
             return await self._pixabay.download(asset, output_dir)
+        elif asset.source == "brave":
+            return await self._brave.download(asset, output_dir)
         elif asset.source == "dalle":
             return await self._dalle_generator.download(asset, output_dir)
         elif asset.source == "stable_diffusion":
-            sd_generator = self._ensure_sd_generator()
+            sd_generator = self._sd_generator
             return await sd_generator.download(asset, output_dir)
         elif asset.source == "fallback":
             return await self._fallback.download(asset, output_dir)
@@ -576,7 +575,13 @@ class VisualSourcingManager:
         exclude_ids = exclude_source_ids or set()
 
         # Try stock sources
-        stock_sources = ["pexels_image", "pixabay_image", "pexels_video", "pixabay_video"]
+        stock_sources = [
+            "brave_image",
+            "pexels_image",
+            "pixabay_image",
+            "pexels_video",
+            "pixabay_video",
+        ]
 
         for source_type in stock_sources:
             try:
@@ -757,7 +762,7 @@ class VisualSourcingManager:
         if not asset.path or not asset.path.exists():
             return None
 
-        sd_generator = self._ensure_sd_generator()
+        sd_generator = self._sd_generator
         return await sd_generator.evaluate(asset.path, keyword)
 
     async def _transform_with_sd(
@@ -784,7 +789,7 @@ class VisualSourcingManager:
             logger.debug(f"Skipping img2img for video file: {asset.path}")
             return None
 
-        sd_generator = self._ensure_sd_generator()
+        sd_generator = self._sd_generator
         prompt = self._build_ai_prompt([keyword])
         return await sd_generator.transform(
             source_image=asset.path,
@@ -828,6 +833,7 @@ class VisualSourcingManager:
         """Close all clients."""
         await self._pexels.close()
         await self._pixabay.close()
+        await self._brave.close()
         await self._dalle_generator.close()
 
 
