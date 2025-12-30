@@ -1173,17 +1173,17 @@ class FineTuningDataCollector {
 
 ## 7. 기술 스택 정리
 
-| 컴포넌트 | 선택 | 비고 |
-|----------|------|------|
-| **임베딩** | BGE-M3 | 다국어, 한국어 성능 우수, 1024차원 |
-| **벡터 DB** | pgvector (PostgreSQL extension) | 단일 DB, HNSW 인덱스 (m=16, ef_construction=64), 운영 간편 |
-| **키워드 검색** | PostgreSQL Full-Text Search | 벡터 검색과 통합 쿼리 가능 |
-| **리랭커** | BGE-Reranker | 오픈소스, 성능 좋음 |
-| **콘텐츠 분류** | 패턴 기반 + LLM (선택) | 빠른 패턴 매칭, 필요시 Claude Haiku로 정확도 향상 |
-| **LLM (생성)** | Claude 3.5 Sonnet | 긴 컨텍스트, 한국어 품질 |
-| **LLM (분류)** | Claude 3.5 Haiku | 빠르고 저렴, 간단한 분류 태스크 |
-| **LLM (파인튜닝)** | Llama 3 + LoRA | 비용 효율 |
-| **TTS** | Edge TTS (기본) → ElevenLabs (업그레이드) | 비용 단계적 |
+| 컴포넌트           | 선택                                      | 비고                                                       |
+| ------------------ | ----------------------------------------- | ---------------------------------------------------------- |
+| **임베딩**         | BGE-M3                                    | 다국어, 한국어 성능 우수, 1024차원                         |
+| **벡터 DB**        | pgvector (PostgreSQL extension)           | 단일 DB, HNSW 인덱스 (m=16, ef_construction=64), 운영 간편 |
+| **키워드 검색**    | PostgreSQL Full-Text Search               | 벡터 검색과 통합 쿼리 가능                                 |
+| **리랭커**         | BGE-Reranker                              | 오픈소스, 성능 좋음                                        |
+| **콘텐츠 분류**    | 패턴 기반 + LLM (선택)                    | 빠른 패턴 매칭, 필요시 Claude Haiku로 정확도 향상          |
+| **LLM (생성)**     | Claude 3.5 Sonnet                         | 긴 컨텍스트, 한국어 품질                                   |
+| **LLM (분류)**     | Claude 3.5 Haiku                          | 빠르고 저렴, 간단한 분류 태스크                            |
+| **LLM (파인튜닝)** | Llama 3 + LoRA                            | 비용 효율                                                  |
+| **TTS**            | Edge TTS (기본) → ElevenLabs (업그레이드) | 비용 단계적                                                |
 
 ---
 
@@ -1284,9 +1284,7 @@ Scene 간 트랜지션 자동 추천 (Fact→Opinion: FLASH)
 ```python
 class SceneScript(BaseModel):
     scenes: list[Scene]           # 장면 목록
-    title_text: str | None        # 썸네일/오버레이용 제목
-    headline_keyword: str | None  # 2줄 헤드라인 (키워드)
-    headline_hook: str | None     # 2줄 헤드라인 (훅)
+    headline: str                 # 헤드라인
 
     def validate_structure(self) -> list[str]:
         """스크립트 구조 검증 (HOOK 시작, 길이 체크, COMMENTARY 권장)"""

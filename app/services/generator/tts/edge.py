@@ -9,13 +9,13 @@ Microsoft Edge TTS provides free, high-quality neural TTS with:
 import logging
 from pathlib import Path
 
-from app.services.generator.ffmpeg import get_ffmpeg_wrapper
+from app.services.generator.ffmpeg import FFmpegWrapper
 from app.services.generator.tts.base import (
     EDGE_TTS_VOICES_EN,
     EDGE_TTS_VOICES_KO,
     BaseTTSEngine,
-    TTSConfig,
     TTSResult,
+    TTSSynthesisConfig,
     VoiceInfo,
     WordTimestamp,
 )
@@ -33,15 +33,20 @@ class EdgeTTSEngine(BaseTTSEngine):
     - Multiple language support
 
     Example:
-        >>> engine = EdgeTTSEngine()
-        >>> config = TTSConfig(voice_id="ko-KR-InJoonNeural", speed=1.1)
+        >>> engine = EdgeTTSEngine(ffmpeg_wrapper)
+        >>> config = TTSSynthesisConfig(voice_id="ko-KR-InJoonNeural", speed=1.1)
         >>> result = await engine.synthesize("안녕하세요", config, Path("/tmp/audio"))
         >>> print(result.duration_seconds)
         1.5
     """
 
-    def __init__(self) -> None:
-        """Initialize EdgeTTSEngine."""
+    def __init__(self, ffmpeg_wrapper: FFmpegWrapper) -> None:
+        """Initialize EdgeTTSEngine.
+
+        Args:
+            ffmpeg_wrapper: FFmpeg wrapper for audio duration probing
+        """
+        self._ffmpeg = ffmpeg_wrapper
         self._voices: dict[str, VoiceInfo] = {
             **EDGE_TTS_VOICES_KO,
             **EDGE_TTS_VOICES_EN,
@@ -50,7 +55,7 @@ class EdgeTTSEngine(BaseTTSEngine):
     async def synthesize(
         self,
         text: str,
-        config: TTSConfig,
+        config: TTSSynthesisConfig,
         output_path: Path,
     ) -> TTSResult:
         """Synthesize speech using Edge TTS.
@@ -190,8 +195,7 @@ class EdgeTTSEngine(BaseTTSEngine):
             RuntimeError: If getting duration fails
         """
         try:
-            wrapper = get_ffmpeg_wrapper()
-            return await wrapper.get_duration(audio_path)
+            return await self._ffmpeg.get_duration(audio_path)
         except Exception as e:
             raise RuntimeError(f"Failed to get audio duration: {e}") from e
 

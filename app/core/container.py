@@ -139,6 +139,14 @@ class InfrastructureContainer(containers.DeclarativeContainer):
         "app.prompts.manager.PromptManager",
     )
 
+    # ============================================
+    # FFmpeg Wrapper
+    # ============================================
+
+    ffmpeg_wrapper = providers.Singleton(
+        "app.services.generator.ffmpeg.FFmpegWrapper",
+    )
+
 
 class ConfigContainer(containers.DeclarativeContainer):
     """Configuration models container.
@@ -246,7 +254,7 @@ class ConfigContainer(containers.DeclarativeContainer):
     )
 
     tts_config = providers.Singleton(
-        "app.config.video.TTSConfig",
+        "app.config.video.TTSProviderConfig",
     )
 
     subtitle_config = providers.Singleton(
@@ -259,10 +267,6 @@ class ConfigContainer(containers.DeclarativeContainer):
 
     composition_config = providers.Singleton(
         "app.config.video.CompositionConfig",
-    )
-
-    thumbnail_config = providers.Singleton(
-        "app.config.video.ThumbnailConfig",
     )
 
     bgm_config = providers.Singleton(
@@ -458,17 +462,9 @@ class ServiceContainer(containers.DeclarativeContainer):
     # ============================================
 
     # TTS Services
-    edge_tts_engine = providers.Singleton(
-        "app.services.generator.tts.edge.EdgeTTSEngine",
-    )
-
-    elevenlabs_engine = providers.Singleton(
-        "app.services.generator.tts.elevenlabs.ElevenLabsEngine",
-        api_key=global_config.provided.elevenlabs_api_key,
-    )
-
     tts_factory = providers.Factory(
         "app.services.generator.tts.factory.TTSEngineFactory",
+        ffmpeg_wrapper=infrastructure.ffmpeg_wrapper,
         config=configs.tts_config,
         elevenlabs_api_key=global_config.provided.elevenlabs_api_key,
     )
@@ -520,13 +516,8 @@ class ServiceContainer(containers.DeclarativeContainer):
     # FFmpeg Compositor
     ffmpeg_compositor = providers.Factory(
         "app.services.generator.compositor.FFmpegCompositor",
+        ffmpeg_wrapper=infrastructure.ffmpeg_wrapper,
         config=configs.composition_config,
-    )
-
-    # Thumbnail Generator
-    thumbnail_generator = providers.Factory(
-        "app.services.generator.thumbnail.ThumbnailGenerator",
-        config=configs.thumbnail_config,
     )
 
     # BGM Services
@@ -548,7 +539,7 @@ class ServiceContainer(containers.DeclarativeContainer):
         visual_manager=visual_manager,
         subtitle_generator=subtitle_generator,
         compositor=ffmpeg_compositor,
-        thumbnail_generator=thumbnail_generator,
+        ffmpeg_wrapper=infrastructure.ffmpeg_wrapper,
         db_session_factory=infrastructure.db_session_factory,
         config=configs.video_generation_config,
         template_loader=video_template_loader,
@@ -606,6 +597,11 @@ class ApplicationContainer(containers.DeclarativeContainer):
     db_session = providers.Factory(
         lambda session: session,
         session=infrastructure.db_session,
+    )
+
+    ffmpeg_wrapper = providers.Singleton(
+        lambda wrapper: wrapper,
+        wrapper=infrastructure.ffmpeg_wrapper,
     )
 
     # Services
@@ -700,11 +696,6 @@ class ApplicationContainer(containers.DeclarativeContainer):
     compositor = providers.Factory(
         lambda svc: svc,
         svc=services.ffmpeg_compositor,
-    )
-
-    thumbnail_generator = providers.Factory(
-        lambda svc: svc,
-        svc=services.thumbnail_generator,
     )
 
     video_pipeline = providers.Factory(

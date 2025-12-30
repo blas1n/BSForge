@@ -81,23 +81,8 @@ def normalize_string_list(value: Any) -> list[str]:
     return []
 
 
-def normalize_string(value: Any) -> Any:
-    """Normalize single string to lowercase.
-
-    Args:
-        value: Input value
-
-    Returns:
-        Lowercased string if input is string, otherwise original value
-    """
-    if isinstance(value, str):
-        return value.lower()
-    return value
-
-
 __all__ = [
     "validate_weights_sum",
     "validate_range_list",
     "normalize_string_list",
-    "normalize_string",
 ]

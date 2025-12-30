@@ -108,7 +108,6 @@ Shared validation utilities for Pydantic models:
 - `validate_weights_sum()` - Ensure weights sum to 1.0
 - `validate_range_list()` - Validate list values are in range, dedupe, sort
 - `normalize_string_list()` - Lowercase string lists
-- `normalize_string()` - Lowercase single strings
 
 ### Config Loading (`app/core/config_loader.py`)
 

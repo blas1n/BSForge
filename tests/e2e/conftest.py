@@ -12,8 +12,11 @@ import pytest
 
 from app.config.video import CompositionConfig, SubtitleConfig
 from app.services.collector.base import NormalizedTopic, RawTopic, ScoredTopic
+from app.services.generator.compositor import FFmpegCompositor
+from app.services.generator.ffmpeg import FFmpegWrapper
 from app.services.generator.subtitle import SubtitleGenerator
 from app.services.generator.templates import ASSTemplateLoader
+from app.services.generator.tts.edge import EdgeTTSEngine
 
 # =============================================================================
 # Directory Fixtures
@@ -208,6 +211,35 @@ def subtitle_generator(
         config=subtitle_config,
         composition_config=composition_config,
         template_loader=ass_template_loader,
+    )
+
+
+# =============================================================================
+# FFmpeg & TTS Fixtures (DI-based)
+# =============================================================================
+
+
+@pytest.fixture
+def ffmpeg_wrapper() -> FFmpegWrapper:
+    """Create FFmpegWrapper instance."""
+    return FFmpegWrapper()
+
+
+@pytest.fixture
+def edge_tts_engine(ffmpeg_wrapper: FFmpegWrapper) -> EdgeTTSEngine:
+    """Create EdgeTTSEngine with DI-injected FFmpegWrapper."""
+    return EdgeTTSEngine(ffmpeg_wrapper=ffmpeg_wrapper)
+
+
+@pytest.fixture
+def ffmpeg_compositor(
+    ffmpeg_wrapper: FFmpegWrapper,
+    composition_config: CompositionConfig,
+) -> FFmpegCompositor:
+    """Create FFmpegCompositor with DI-injected dependencies."""
+    return FFmpegCompositor(
+        ffmpeg_wrapper=ffmpeg_wrapper,
+        config=composition_config,
     )
 
 

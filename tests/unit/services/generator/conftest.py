@@ -9,7 +9,6 @@ import pytest
 from app.config.video import (
     CompositionConfig,
     SubtitleConfig,
-    ThumbnailConfig,
     TTSConfig,
     VideoGenerationConfig,
     VisualConfig,
@@ -113,12 +112,6 @@ def composition_config() -> CompositionConfig:
 
 
 @pytest.fixture
-def thumbnail_config() -> ThumbnailConfig:
-    """Create a thumbnail config for testing."""
-    return ThumbnailConfig()
-
-
-@pytest.fixture
 def video_generation_config() -> VideoGenerationConfig:
     """Create a video generation config for testing."""
     return VideoGenerationConfig()
@@ -162,11 +155,12 @@ def mock_compositor() -> AsyncMock:
 
 
 @pytest.fixture
-def mock_thumbnail_generator() -> AsyncMock:
-    """Create a mock thumbnail generator."""
-    generator = AsyncMock()
-    generator.generate = AsyncMock()
-    return generator
+def mock_ffmpeg_wrapper() -> AsyncMock:
+    """Create a mock FFmpeg wrapper."""
+    wrapper = AsyncMock()
+    wrapper.extract_frame = MagicMock(return_value=MagicMock())
+    wrapper.run = AsyncMock()
+    return wrapper
 
 
 @pytest.fixture
@@ -181,3 +175,23 @@ def mock_db_session_factory() -> MagicMock:
     factory.return_value.__aenter__ = AsyncMock(return_value=session)
     factory.return_value.__aexit__ = AsyncMock(return_value=None)
     return factory
+
+
+@pytest.fixture
+def mock_template_loader() -> MagicMock:
+    """Create a mock video template loader."""
+    loader = MagicMock()
+    loader.load_template = MagicMock(return_value=MagicMock())
+    loader.get_template = MagicMock(return_value=MagicMock())
+    return loader
+
+
+@pytest.fixture
+def mock_bgm_manager() -> MagicMock:
+    """Create a mock BGM manager."""
+    manager = MagicMock()
+    manager.is_enabled = False
+    manager.get_bgm_for_script = AsyncMock(return_value=None)
+    manager.get_bgm_for_video = AsyncMock(return_value=None)
+    manager.select_bgm = AsyncMock(return_value=None)
+    return manager

@@ -133,10 +133,6 @@ class TTSSynthesisConfig:
             raise ValueError("Volume must be between -50 and 50")
 
 
-# Backward compatibility alias
-TTSConfig = TTSSynthesisConfig
-
-
 # Korean voice constants for Edge TTS
 EDGE_TTS_VOICES_KO: dict[str, VoiceInfo] = {
     "ko-KR-InJoonNeural": VoiceInfo(
@@ -335,7 +331,6 @@ __all__ = [
     "TTSResult",
     "SceneTTSResult",
     "TTSSynthesisConfig",
-    "TTSConfig",  # Backward compatibility alias
     "VoiceInfo",
     "BaseTTSEngine",
     "EDGE_TTS_VOICES_KO",

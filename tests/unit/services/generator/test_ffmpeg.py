@@ -5,12 +5,10 @@ from unittest.mock import MagicMock, patch
 import ffmpeg
 import pytest
 
-import app.services.generator.ffmpeg as ffmpeg_module
 from app.services.generator.ffmpeg import (
     FFmpegError,
     FFmpegWrapper,
     ProbeResult,
-    get_ffmpeg_wrapper,
 )
 
 
@@ -653,31 +651,14 @@ class TestGetCommand:
         assert cmd == ["ffmpeg", "-i", "input.mp4", "output.mp4"]
 
 
-class TestGetFFmpegWrapper:
-    """Tests for singleton accessor."""
+class TestDIIntegration:
+    """Tests for DI container integration."""
 
     @pytest.mark.unit
-    def test_get_ffmpeg_wrapper_singleton(self) -> None:
-        """Test singleton pattern."""
-        # Reset singleton
-        ffmpeg_module._wrapper = None
-
-        wrapper1 = get_ffmpeg_wrapper()
-        wrapper2 = get_ffmpeg_wrapper()
-
-        assert wrapper1 is wrapper2
-
-        # Reset for other tests
-        ffmpeg_module._wrapper = None
-
-    @pytest.mark.unit
-    def test_get_ffmpeg_wrapper_type(self) -> None:
-        """Test singleton returns correct type."""
-        ffmpeg_module._wrapper = None
-
-        wrapper = get_ffmpeg_wrapper()
+    def test_ffmpeg_wrapper_instantiation(self) -> None:
+        """Test FFmpegWrapper can be instantiated directly."""
+        wrapper = FFmpegWrapper()
 
         assert isinstance(wrapper, FFmpegWrapper)
-
-        # Reset for other tests
-        ffmpeg_module._wrapper = None
+        assert wrapper.overwrite is True
+        assert wrapper.quiet is True

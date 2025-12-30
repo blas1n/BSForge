@@ -9,7 +9,7 @@ All FFmpeg operations use the ffmpeg-python SDK via FFmpegWrapper.
 from pathlib import Path
 
 from app.core.logging import get_logger
-from app.services.generator.ffmpeg import FFmpegWrapper, get_ffmpeg_wrapper
+from app.services.generator.ffmpeg import FFmpegWrapper
 from app.services.generator.tts.base import SceneTTSResult, TTSResult, WordTimestamp
 
 logger = get_logger(__name__)
@@ -18,8 +18,8 @@ logger = get_logger(__name__)
 async def concatenate_scene_audio(
     scene_results: list[SceneTTSResult],
     output_path: Path,
+    ffmpeg_wrapper: FFmpegWrapper,
     gap_duration: float = 0.0,
-    ffmpeg_wrapper: FFmpegWrapper | None = None,
 ) -> TTSResult:
     """Concatenate scene audio files into a single audio file.
 
@@ -29,8 +29,8 @@ async def concatenate_scene_audio(
     Args:
         scene_results: List of SceneTTSResult from synthesize_scenes()
         output_path: Output file path (without extension)
+        ffmpeg_wrapper: FFmpegWrapper instance for audio operations
         gap_duration: Optional gap between scenes in seconds (default 0)
-        ffmpeg_wrapper: Optional FFmpegWrapper instance
 
     Returns:
         Combined TTSResult with merged audio and adjusted timestamps
@@ -38,7 +38,7 @@ async def concatenate_scene_audio(
     if not scene_results:
         raise ValueError("No scene results to concatenate")
 
-    ffmpeg = ffmpeg_wrapper or get_ffmpeg_wrapper()
+    ffmpeg = ffmpeg_wrapper
     output_path = output_path.with_suffix(".mp3")
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -100,19 +100,18 @@ async def concatenate_scene_audio(
 
 async def get_audio_duration_ffprobe(
     audio_path: Path,
-    ffmpeg_wrapper: FFmpegWrapper | None = None,
+    ffmpeg_wrapper: FFmpegWrapper,
 ) -> float:
     """Get audio duration using FFmpeg SDK probe.
 
     Args:
         audio_path: Path to audio file
-        ffmpeg_wrapper: Optional FFmpegWrapper instance
+        ffmpeg_wrapper: FFmpegWrapper instance for audio operations
 
     Returns:
         Duration in seconds
     """
-    ffmpeg = ffmpeg_wrapper or get_ffmpeg_wrapper()
-    return await ffmpeg.get_duration(audio_path)
+    return await ffmpeg_wrapper.get_duration(audio_path)
 
 
 def adjust_scene_offsets(

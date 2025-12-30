@@ -97,12 +97,12 @@ layout:
     enabled: true
     position_y_ratio: 0.55  # 중앙보다 약간 아래 (55%)
     font_name: "NotoSansCJK KR"
-    font_size: 90  # 자막 폰트 키움 (72 → 90)
+    font_size: 100  # 90 → 100 (더 볼드하게)
     bold: true
     italic: true
     primary_color: "#FFFFFF"
     outline_color: "#000000"
-    outline_width: 5  # 외곽선도 키움
+    outline_width: 6  # 5 → 6 (더 두껍게)
     emphasis_enabled: true
     emphasis_color: "#FFFF00"  # 노랑 강조
     max_chars_per_line: 20  # 글자수 늘림 (14 → 20) - 자연스러운 문장 단위
@@ -120,19 +120,19 @@ layout:
 
 subtitle:
   font_name: "Noto Sans CJK KR Bold"
-  font_size: 90
+  font_size: 100
   bold: true
   italic: true
   primary_color: "#FFFFFF"
   outline_color: "#000000"
-  outline_width: 5  # 외곽선도 키움
+  outline_width: 6
   highlight_color: "#FFFF00"
   background_enabled: false  # 배경 없음
   background_opacity: 0.0
   fade_in_ms: 100
   fade_out_ms: 80
-  karaoke_enabled: false  # 카라오케 효과 꺼둠
-  max_chars_per_line: 20  # 글자수 늘림 (14 → 20) - 자연스러운 문장 단위
+  karaoke_enabled: false
+  max_chars_per_line: 20
   max_lines: 2
 
 visual_effects:

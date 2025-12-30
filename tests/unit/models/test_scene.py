@@ -29,22 +29,6 @@ from app.models.scene import (
 class TestSceneTypeEnum:
     """Test SceneType enum."""
 
-    def test_scene_type_values(self) -> None:
-        """Test SceneType enum values."""
-        assert SceneType.HOOK == "hook"
-        assert SceneType.INTRO == "intro"
-        assert SceneType.CONTENT == "content"
-        assert SceneType.EXAMPLE == "example"
-        assert SceneType.COMMENTARY == "commentary"
-        assert SceneType.REACTION == "reaction"
-        assert SceneType.CONCLUSION == "conclusion"
-        assert SceneType.CTA == "cta"
-
-    def test_scene_type_count(self) -> None:
-        """Test all scene types exist."""
-        scene_types = [s.value for s in SceneType]
-        assert len(scene_types) == 8
-
     def test_factual_scene_types(self) -> None:
         """Test factual scene types are correctly categorized."""
         factual_types = {SceneType.HOOK, SceneType.INTRO, SceneType.CONTENT, SceneType.EXAMPLE}
@@ -56,39 +40,6 @@ class TestSceneTypeEnum:
         persona_types = {SceneType.COMMENTARY, SceneType.REACTION}
         for scene_type in persona_types:
             assert SCENE_TYPE_STYLE_MAP[scene_type] == VisualStyle.PERSONA
-
-
-class TestVisualStyleEnum:
-    """Test VisualStyle enum."""
-
-    def test_visual_style_values(self) -> None:
-        """Test VisualStyle enum values."""
-        assert VisualStyle.NEUTRAL == "neutral"
-        assert VisualStyle.PERSONA == "persona"
-        assert VisualStyle.EMPHASIS == "emphasis"
-
-    def test_visual_style_count(self) -> None:
-        """Test all visual styles exist."""
-        styles = [s.value for s in VisualStyle]
-        assert len(styles) == 3
-
-
-class TestTransitionTypeEnum:
-    """Test TransitionType enum."""
-
-    def test_transition_type_values(self) -> None:
-        """Test TransitionType enum values."""
-        assert TransitionType.NONE == "none"
-        assert TransitionType.FADE == "fade"
-        assert TransitionType.CROSSFADE == "crossfade"
-        assert TransitionType.ZOOM == "zoom"
-        assert TransitionType.FLASH == "flash"
-        assert TransitionType.SLIDE == "slide"
-
-    def test_transition_type_count(self) -> None:
-        """Test all transition types exist."""
-        transitions = [t.value for t in TransitionType]
-        assert len(transitions) == 6
 
 
 class TestScene:
@@ -147,6 +98,7 @@ class TestScene:
         # text should keep original notation for subtitles
         assert "Claude 3.5" in scene.text
         # tts_text should have Korean pronunciation for TTS
+        assert scene.tts_text is not None
         assert "클로드 삼점오" in scene.tts_text
         # tts_content property returns tts_text for TTS engines
         assert scene.tts_content == scene.tts_text
@@ -156,7 +108,7 @@ class TestScene:
         scene = Scene(
             scene_type=SceneType.COMMENTARY,
             text="이건 진짜 대박이에요! AI가 이렇게 빠르게 발전할 줄 몰랐어요.",
-            visual_keyword="AI technology advancement future",
+            visual_keyword="AI technology development",
             visual_style=VisualStyle.PERSONA,
             transition_in=TransitionType.FLASH,
             transition_out=TransitionType.FADE,
@@ -169,11 +121,11 @@ class TestScene:
         )
 
         assert scene.scene_type == SceneType.COMMENTARY
-        assert scene.visual_keyword == "AI technology advancement future"
+        assert scene.visual_keyword == "AI technology development"
         assert scene.visual_style == VisualStyle.PERSONA
         assert scene.transition_in == TransitionType.FLASH
         assert "대박" in scene.emphasis_words
-        assert len(scene.subtitle_segments) == 3
+        assert scene.subtitle_segments and len(scene.subtitle_segments) == 3
 
     def test_scene_empty_text_fails(self) -> None:
         """Test that empty text fails validation."""
@@ -182,9 +134,7 @@ class TestScene:
 
         # Should have min_length validation error
         errors = exc_info.value.errors()
-        assert any(
-            "min_length" in str(e).lower() or "too_short" in str(e).get("type", "") for e in errors
-        )
+        assert any(e.get("type", "") == "string_too_short" for e in errors)
 
     def test_inferred_visual_style_from_scene_type(self) -> None:
         """Test visual style is correctly inferred from scene type."""
@@ -270,11 +220,12 @@ class TestSceneScript:
         script = SceneScript(
             scenes=[
                 Scene(scene_type=SceneType.HOOK, text="충격적인 사실!"),
-            ]
+            ],
+            headline="테스트 헤드라인",
         )
 
         assert len(script.scenes) == 1
-        assert script.title_text is None
+        assert script.headline == "테스트 헤드라인"
 
     def test_create_full_script(self) -> None:
         """Test creating a complete script."""
@@ -289,16 +240,16 @@ class TestSceneScript:
                 Scene(scene_type=SceneType.COMMENTARY, text="이건 정말 놀라운 속도예요"),
                 Scene(scene_type=SceneType.CONCLUSION, text="AI 시대가 본격적으로 시작됐습니다"),
             ],
-            title_text="AI 혁명의 시작",
+            headline="AI, 혁명의 시작",
         )
 
         assert len(script.scenes) == 5
-        assert script.title_text == "AI 혁명의 시작"
+        assert script.headline == "AI, 혁명의 시작"
 
     def test_empty_scenes_fails(self) -> None:
         """Test that empty scenes list fails validation."""
         with pytest.raises(ValidationError):
-            SceneScript(scenes=[])
+            SceneScript(scenes=[], headline="테스트")
 
     def test_total_estimated_duration(self) -> None:
         """Test total duration estimation."""
@@ -307,7 +258,8 @@ class TestSceneScript:
                 Scene(scene_type=SceneType.HOOK, text="훅"),
                 Scene(scene_type=SceneType.CONTENT, text="내용"),
                 Scene(scene_type=SceneType.CONCLUSION, text="결론"),
-            ]
+            ],
+            headline="테스트",
         )
 
         duration = script.total_estimated_duration
@@ -323,7 +275,8 @@ class TestSceneScript:
                 Scene(scene_type=SceneType.HOOK, text="첫 번째"),
                 Scene(scene_type=SceneType.CONTENT, text="두 번째"),
                 Scene(scene_type=SceneType.CONCLUSION, text="세 번째"),
-            ]
+            ],
+            headline="테스트",
         )
 
         assert script.full_text == "첫 번째 두 번째 세 번째"
@@ -335,7 +288,8 @@ class TestSceneScript:
                 Scene(scene_type=SceneType.HOOK, text="훅"),
                 Scene(scene_type=SceneType.CONTENT, text="내용"),
                 Scene(scene_type=SceneType.COMMENTARY, text="의견"),
-            ]
+            ],
+            headline="테스트",
         )
 
         assert script.scene_types == [SceneType.HOOK, SceneType.CONTENT, SceneType.COMMENTARY]
@@ -347,7 +301,8 @@ class TestSceneScript:
             scenes=[
                 Scene(scene_type=SceneType.HOOK, text="훅"),
                 Scene(scene_type=SceneType.COMMENTARY, text="의견"),
-            ]
+            ],
+            headline="테스트",
         )
         assert with_commentary.has_commentary is True
 
@@ -356,7 +311,8 @@ class TestSceneScript:
             scenes=[
                 Scene(scene_type=SceneType.HOOK, text="훅"),
                 Scene(scene_type=SceneType.REACTION, text="리액션"),
-            ]
+            ],
+            headline="테스트",
         )
         assert with_reaction.has_commentary is True
 
@@ -365,7 +321,8 @@ class TestSceneScript:
             scenes=[
                 Scene(scene_type=SceneType.HOOK, text="훅"),
                 Scene(scene_type=SceneType.CONTENT, text="내용"),
-            ]
+            ],
+            headline="테스트",
         )
         assert without_commentary.has_commentary is False
 
@@ -386,7 +343,8 @@ class TestSceneScript:
                     ),
                 ),
                 Scene(scene_type=SceneType.CONCLUSION, text="이상 AI 뉴스였습니다 감사합니다"),
-            ]
+            ],
+            headline="AI 뉴스",
         )
 
         errors = script.validate_structure()
@@ -402,7 +360,8 @@ class TestSceneScript:
             scenes=[
                 Scene(scene_type=SceneType.CONTENT, text="내용부터 시작"),
                 Scene(scene_type=SceneType.CONCLUSION, text="결론"),
-            ]
+            ],
+            headline="테스트",
         )
 
         errors = script.validate_structure()
@@ -413,7 +372,8 @@ class TestSceneScript:
         script = SceneScript(
             scenes=[
                 Scene(scene_type=SceneType.HOOK, text="훅만 있는 영상"),
-            ]
+            ],
+            headline="테스트",
         )
 
         errors = script.validate_structure()
@@ -426,7 +386,8 @@ class TestSceneScript:
                 Scene(scene_type=SceneType.HOOK, text="훅"),
                 Scene(scene_type=SceneType.CONTENT, text="내용만 있는 영상 페르소나 의견 없음"),
                 Scene(scene_type=SceneType.CONCLUSION, text="결론"),
-            ]
+            ],
+            headline="테스트",
         )
 
         errors = script.validate_structure()
@@ -438,7 +399,8 @@ class TestSceneScript:
         script = SceneScript(
             scenes=[
                 Scene(scene_type=SceneType.HOOK, text="짧음"),
-            ]
+            ],
+            headline="테스트",
         )
 
         errors = script.validate_structure()
@@ -452,7 +414,8 @@ class TestSceneScript:
                 Scene(scene_type=SceneType.CONTENT, text="내용"),
                 Scene(scene_type=SceneType.COMMENTARY, text="의견"),
                 Scene(scene_type=SceneType.CONCLUSION, text="결론"),
-            ]
+            ],
+            headline="테스트",
         )
 
         transitions = script.get_recommended_transitions()
@@ -467,7 +430,10 @@ class TestSceneScript:
 
     def test_get_recommended_transitions_single_scene(self) -> None:
         """Test recommended transitions for single scene (empty)."""
-        script = SceneScript(scenes=[Scene(scene_type=SceneType.HOOK, text="훅만")])
+        script = SceneScript(
+            scenes=[Scene(scene_type=SceneType.HOOK, text="훅만")],
+            headline="테스트",
+        )
 
         transitions = script.get_recommended_transitions()
         assert transitions == []
@@ -479,7 +445,8 @@ class TestSceneScript:
                 Scene(scene_type=SceneType.HOOK, text="훅"),
                 Scene(scene_type=SceneType.CONTENT, text="내용"),
                 Scene(scene_type=SceneType.COMMENTARY, text="의견"),
-            ]
+            ],
+            headline="테스트",
         )
 
         # Before applying

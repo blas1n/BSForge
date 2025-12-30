@@ -324,7 +324,6 @@ class Script(Base, UUIDMixin, TimestampMixin):
 
     # 스크립트 내용
     script_text: Mapped[str] = mapped_column(Text, nullable=False)  # 전체 텍스트
-    title_text: Mapped[str | None] = mapped_column(String(200))  # 영상 오버레이 제목
     scenes: Mapped[list[dict[str, Any]] | None] = mapped_column(
         JSONB, nullable=True, comment="Scene-based script structure"
     )
@@ -841,16 +840,16 @@ def run_migrations_online():
 
 ## 4. 인덱스 전략 요약
 
-| 테이블 | 인덱스 | 용도 |
-|--------|--------|------|
-| topics | channel_id + status | 채널별 대기 주제 조회 |
-| topics | score_total | 점수순 정렬 |
-| topics | content_hash | 중복 체크 |
-| scripts | channel_id + status | 채널별 검수 대기 |
-| videos | channel_id + status | 채널별 영상 상태 |
-| uploads | scheduled_at | 예약 업로드 조회 |
-| performances | views | 성과순 정렬 |
-| review_queue | status + priority | 검수 우선순위 |
+| 테이블       | 인덱스              | 용도                  |
+| ------------ | ------------------- | --------------------- |
+| topics       | channel_id + status | 채널별 대기 주제 조회 |
+| topics       | score_total         | 점수순 정렬           |
+| topics       | content_hash        | 중복 체크             |
+| scripts      | channel_id + status | 채널별 검수 대기      |
+| videos       | channel_id + status | 채널별 영상 상태      |
+| uploads      | scheduled_at        | 예약 업로드 조회      |
+| performances | views               | 성과순 정렬           |
+| review_queue | status + priority   | 검수 우선순위         |
 
 ---
 

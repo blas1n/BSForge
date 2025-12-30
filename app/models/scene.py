@@ -226,22 +226,15 @@ class SceneScript(BaseModel):
 
     Attributes:
         scenes: List of scenes in order
-        title_text: Optional title for thumbnail/overlay
-        headline_keyword: Line 1 of 2-line headline overlay (keyword)
-        headline_hook: Line 2 of 2-line headline overlay (hook/description)
+        headline: Video headline
     """
 
     scenes: list[Scene] = Field(..., min_length=1, description="List of scenes")
-    title_text: str | None = Field(default=None, description="Title for overlay")
-
-    # 2-line headline overlay
-    headline_keyword: str | None = Field(
-        default=None,
-        description="Line 1: keyword (e.g., '일론 머스크')",
-    )
-    headline_hook: str | None = Field(
-        default=None,
-        description="Line 2: hook/description (e.g., '이번엔 진짜 대박이에요')",
+    headline: str = Field(
+        ...,
+        min_length=1,
+        max_length=20,
+        description="Video headline (max 20 chars, e.g., '테슬라, 완전 망했다')",
     )
 
     @property

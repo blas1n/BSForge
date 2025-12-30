@@ -3,11 +3,6 @@
 This module provides a typed interface for FFmpeg operations,
 using the ffmpeg-python library for better type safety and maintainability.
 All operations use the SDK approach - no subprocess calls.
-
-Usage:
-    >>> wrapper = FFmpegWrapper()
-    >>> stream = wrapper.image_to_video(image_path, output_path, duration=5.0, size=(1080, 1920))
-    >>> await wrapper.run(stream)
 """
 
 from dataclasses import dataclass
@@ -277,87 +272,6 @@ class FFmpegWrapper:
             stream = ffmpeg.concat(*inputs, v=1, a=0)
 
         stream = stream.output(str(output_path), vcodec="libx264", acodec="aac")
-
-        if self.overwrite:
-            stream = stream.overwrite_output()
-
-        return stream
-
-    def add_audio(
-        self,
-        video_path: Path | str,
-        audio_path: Path | str,
-        output_path: Path | str,
-        audio_volume: float = 1.0,
-    ) -> ffmpeg.nodes.OutputStream:
-        """Add audio track to video.
-
-        Args:
-            video_path: Path to input video
-            audio_path: Path to audio file
-            output_path: Path to output video
-            audio_volume: Audio volume multiplier
-
-        Returns:
-            FFmpeg output stream
-        """
-        video = ffmpeg.input(str(video_path))
-        audio = ffmpeg.input(str(audio_path))
-
-        if audio_volume != 1.0:
-            audio = audio.filter("volume", audio_volume)
-
-        stream = ffmpeg.output(
-            video.video,
-            audio.audio,
-            str(output_path),
-            vcodec="copy",
-            acodec="aac",
-            shortest=None,
-        )
-
-        if self.overwrite:
-            stream = stream.overwrite_output()
-
-        return stream
-
-    def mix_audio(
-        self,
-        video_path: Path | str,
-        bg_audio_path: Path | str,
-        output_path: Path | str,
-        main_volume: float = 1.0,
-        bg_volume: float = 0.3,
-    ) -> ffmpeg.nodes.OutputStream:
-        """Mix background audio with video's existing audio.
-
-        Args:
-            video_path: Path to input video (with audio)
-            bg_audio_path: Path to background audio
-            output_path: Path to output video
-            main_volume: Main audio volume
-            bg_volume: Background audio volume
-
-        Returns:
-            FFmpeg output stream
-        """
-        video = ffmpeg.input(str(video_path))
-        bg_audio = ffmpeg.input(str(bg_audio_path))
-
-        # Apply volume filters
-        main_audio = video.audio.filter("volume", main_volume)
-        bg_audio_filtered = bg_audio.audio.filter("volume", bg_volume)
-
-        # Mix audio streams
-        mixed = ffmpeg.filter([main_audio, bg_audio_filtered], "amix", inputs=2, duration="first")
-
-        stream = ffmpeg.output(
-            video.video,
-            mixed,
-            str(output_path),
-            vcodec="copy",
-            acodec="aac",
-        )
 
         if self.overwrite:
             stream = stream.overwrite_output()
@@ -912,21 +826,8 @@ class FFmpegWrapper:
         return stream
 
 
-# Singleton instance
-_wrapper: FFmpegWrapper | None = None
-
-
-def get_ffmpeg_wrapper() -> FFmpegWrapper:
-    """Get the singleton FFmpeg wrapper instance."""
-    global _wrapper
-    if _wrapper is None:
-        _wrapper = FFmpegWrapper()
-    return _wrapper
-
-
 __all__ = [
     "FFmpegError",
     "FFmpegWrapper",
     "ProbeResult",
-    "get_ffmpeg_wrapper",
 ]

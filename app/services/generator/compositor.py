@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 from app.config.video import CompositionConfig
 from app.core.logging import get_logger
 from app.infrastructure.fonts import find_font_by_name
-from app.services.generator.ffmpeg import FFmpegWrapper, get_ffmpeg_wrapper
+from app.services.generator.ffmpeg import FFmpegWrapper
 from app.services.generator.tts.base import TTSResult
 from app.services.generator.visual.base import VisualAsset
 
@@ -67,20 +67,19 @@ class FFmpegCompositor:
 
     def __init__(
         self,
-        config: CompositionConfig | None = None,
-        template: "VideoTemplateConfig | None" = None,
-        ffmpeg_wrapper: FFmpegWrapper | None = None,
+        ffmpeg_wrapper: FFmpegWrapper,
+        config: CompositionConfig,
     ) -> None:
         """Initialize FFmpegCompositor.
 
         Args:
-            config: Composition configuration
-            template: Video template for visual effects and overlays
             ffmpeg_wrapper: FFmpeg wrapper for type-safe operations
+            config: Composition configuration
         """
-        self.config = config or CompositionConfig()
-        self.template = template
-        self.ffmpeg = ffmpeg_wrapper or get_ffmpeg_wrapper()
+        self.ffmpeg = ffmpeg_wrapper
+        self.config = config
+        # Template is set at runtime via pipeline based on channel/persona settings
+        self.template: VideoTemplateConfig | None = None
 
     async def compose(
         self,
@@ -89,7 +88,6 @@ class FFmpegCompositor:
         subtitle_file: Path | None,
         output_path: Path,
         background_music_path: Path | None = None,
-        title_text: str | None = None,
     ) -> CompositionResult:
         """Compose final video from components.
 
@@ -99,7 +97,6 @@ class FFmpegCompositor:
             subtitle_file: Path to subtitle file (ASS format)
             output_path: Output video path
             background_music_path: Optional background music
-            title_text: Optional title text for overlay (상단 고정 제목)
 
         Returns:
             CompositionResult with final video info
@@ -180,9 +177,7 @@ class FFmpegCompositor:
         output_path: Path,
         persona_style: "PersonaStyleConfig | None" = None,
         background_music_path: Path | None = None,
-        title_text: str | None = None,
-        headline_keyword: str | None = None,
-        headline_hook: str | None = None,
+        headline: str | None = None,
     ) -> CompositionResult:
         """Compose video from scene-based components.
 
@@ -195,14 +190,14 @@ class FFmpegCompositor:
         (e.g., FLASH for fact→opinion).
 
         Korean Shorts Standard Layout:
-        ┌──────────────────┐
-        │  headline_keyword │  ← Line 1 (accent color)
-        │  headline_hook    │  ← Line 2 (white)
-        ├──────────────────┤
-        │   visual content  │
-        ├──────────────────┤
-        │     subtitles     │
-        └──────────────────┘
+        ┌──────────────────────┐
+        │   headline L1        │  ← Line 1 (accent color)
+        │   headline L2        │  ← Line 2 (white)
+        ├──────────────────────┤
+        │   visual content     │
+        ├──────────────────────┤
+        │     subtitles        │
+        └──────────────────────┘
 
         Args:
             scenes: List of Scene objects with metadata
@@ -213,8 +208,7 @@ class FFmpegCompositor:
             output_path: Output video path
             persona_style: PersonaStyleConfig for visual styling
             background_music_path: Optional background music
-            headline_keyword: Line 1 of headline (keyword, colored)
-            headline_hook: Line 2 of headline (hook/description, white)
+            headline: Headline text to split into 2 lines (max 20 chars)
 
         Returns:
             CompositionResult with final video info
@@ -255,7 +249,6 @@ class FFmpegCompositor:
             # Step 2: Apply transitions between scenes
             video_sequence = await self._concat_scenes_with_transitions(
                 segments=scene_segments,
-                scenes=scenes,
                 temp_dir=temp_path,
             )
 
@@ -278,16 +271,17 @@ class FFmpegCompositor:
                 with_audio = with_music
 
             # Step 5: Add headline overlay (Korean shorts style - 2 lines)
-            if headline_keyword and headline_hook and self._should_add_headline():
+            if headline and self._should_add_headline():
                 with_headline = temp_path / "with_headline.mp4"
+                line1, line2 = self._split_headline(headline)
                 await self._add_headline_overlay(
                     video_path=with_audio,
-                    line1_text=headline_keyword,
-                    line2_text=headline_hook,
+                    line1_text=line1,
+                    line2_text=line2,
                     output_path=with_headline,
                 )
                 with_audio = with_headline
-                logger.info(f"Added headline: '{headline_keyword}' / '{headline_hook}'")
+                logger.info(f"Added headline: '{line1}' / '{line2}'")
 
             # Step 6: Burn subtitles
             if subtitle_file and subtitle_file.exists():
@@ -464,41 +458,19 @@ class FFmpegCompositor:
     async def _concat_scenes_with_transitions(
         self,
         segments: list[Path],
-        scenes: list["Scene"],
         temp_dir: Path,
     ) -> Path:
-        """Concatenate scene segments with appropriate transitions.
+        """Concatenate scene segments.
 
         Args:
             segments: List of segment paths
-            scenes: List of Scene objects (for transition info)
             temp_dir: Temp directory
 
         Returns:
             Path to concatenated video
         """
-        from app.models.scene import TransitionType
-
         if len(segments) == 1:
             return segments[0]
-
-        # NOTE: FFmpeg xfade requires exact segment durations.
-        # Current implementation uses simple concat with fade-in at start.
-        # For proper crossfade transitions:
-        # 1. Pass segment durations alongside segment paths
-        # 2. Build ffmpeg filter chain: xfade=transition=fade:duration=0.5:offset=<duration-0.5>
-        # 3. Chain multiple xfade filters for multiple segments
-        # This is deferred as it requires structural changes to pass duration info.
-
-        # Get recommended transitions from scenes
-        transitions: list[TransitionType] = []
-        for i in range(len(scenes) - 1):
-            current = scenes[i]
-            # Use scene's transition_out setting
-            transitions.append(current.transition_out)
-
-        # Check if any transitions need special handling (FLASH)
-        has_flash = any(t == TransitionType.FLASH for t in transitions)
 
         # Create concat file
         concat_file = temp_dir / "concat.txt"
@@ -508,36 +480,12 @@ class FFmpegCompositor:
 
         output_path = temp_dir / "sequence.mp4"
 
-        if not has_flash:
-            # Simple concat without special effects
-            stream = self.ffmpeg.concat_with_file(
-                concat_file_path=concat_file,
-                output_path=output_path,
-                copy_codec=True,
-            )
-            await self.ffmpeg.run(stream)
-            return output_path
-
-        # With transitions: re-encode with fade effects
-        # Use concat then apply fade filter
-        temp_concat = temp_dir / "temp_concat.mp4"
-        concat_stream = self.ffmpeg.concat_with_file(
+        stream = self.ffmpeg.concat_with_file(
             concat_file_path=concat_file,
-            output_path=temp_concat,
+            output_path=output_path,
             copy_codec=True,
         )
-        await self.ffmpeg.run(concat_stream)
-
-        # Apply fade in at start for visual polish
-        fade_stream = self.ffmpeg.video_with_filters(
-            input_path=temp_concat,
-            output_path=output_path,
-            vf="fade=t=in:st=0:d=0.1",
-            fps=self.config.fps,
-            crf=self.config.crf,
-            preset=self.config.preset,
-        )
-        await self.ffmpeg.run(fade_stream)
+        await self.ffmpeg.run(stream)
         return output_path
 
     async def _add_audio_file(
@@ -817,40 +765,6 @@ class FFmpegCompositor:
 
         return full_filter
 
-    async def _image_to_video_with_filter_complex(
-        self,
-        asset: VisualAsset,
-        duration: float,
-        output_path: Path,
-    ) -> Path:
-        """Convert image to video using filter_complex for frame layout.
-
-        Args:
-            asset: Image asset
-            duration: Segment duration
-            output_path: Output path for the segment
-
-        Returns:
-            Path to video segment
-        """
-        if not asset.path:
-            raise ValueError("Asset has no local path")
-
-        vf = self._build_frame_layout_filter(duration)
-
-        stream = self.ffmpeg.image_to_video_with_filters(
-            image_path=asset.path,
-            output_path=output_path,
-            duration=duration,
-            vf=vf,
-            fps=self.config.fps,
-            crf=self.config.crf,
-            preset=self.config.preset,
-        )
-
-        await self.ffmpeg.run(stream)
-        return output_path
-
     async def _create_black_video(
         self,
         duration: float,
@@ -884,14 +798,12 @@ class FFmpegCompositor:
         self,
         segments: list[Path],
         temp_dir: Path,
-        add_flash: bool = True,
     ) -> Path:
-        """Concatenate video segments with optional flash transitions.
+        """Concatenate video segments.
 
         Args:
             segments: List of segment paths
             temp_dir: Temp directory
-            add_flash: Add white flash between segments
 
         Returns:
             Path to concatenated video
@@ -907,36 +819,12 @@ class FFmpegCompositor:
 
         output_path = temp_dir / "sequence.mp4"
 
-        if not add_flash:
-            # Simple concat without transitions
-            stream = self.ffmpeg.concat_with_file(
-                concat_file_path=concat_file,
-                output_path=output_path,
-                copy_codec=True,
-            )
-            await self.ffmpeg.run(stream)
-            return output_path
-
-        # Concat with flash transitions
-        # Use concat demuxer then apply fade filter
-        temp_concat = temp_dir / "temp_concat.mp4"
-        concat_stream = self.ffmpeg.concat_with_file(
+        stream = self.ffmpeg.concat_with_file(
             concat_file_path=concat_file,
-            output_path=temp_concat,
+            output_path=output_path,
             copy_codec=True,
         )
-        await self.ffmpeg.run(concat_stream)
-
-        # Add fade in at start for visual polish
-        fade_stream = self.ffmpeg.video_with_filters(
-            input_path=temp_concat,
-            output_path=output_path,
-            vf="fade=t=in:st=0:d=0.1",
-            fps=self.config.fps,
-            crf=self.config.crf,
-            preset=self.config.preset,
-        )
-        await self.ffmpeg.run(fade_stream)
+        await self.ffmpeg.run(stream)
         return output_path
 
     async def _add_audio(
@@ -1051,6 +939,39 @@ class FFmpegCompositor:
         """
         return await self.ffmpeg.get_duration(video_path)
 
+    def _split_headline(self, headline: str) -> tuple[str, str]:
+        """Split headline into 2 lines for display.
+
+        Splits on comma, space after keyword, or at midpoint if no delimiter.
+
+        Args:
+            headline: Single headline string (e.g., "테슬라, 완전 망했다")
+
+        Returns:
+            Tuple of (line1, line2)
+        """
+        # Try splitting by comma first
+        if ", " in headline:
+            parts = headline.split(", ", 1)
+            return parts[0], parts[1]
+
+        if "," in headline:
+            parts = headline.split(",", 1)
+            return parts[0].strip(), parts[1].strip()
+
+        # Try splitting by space (first word vs rest)
+        words = headline.split()
+        if len(words) >= 2:
+            # If first word is short (likely keyword), split after it
+            if len(words[0]) <= 5:
+                return words[0], " ".join(words[1:])
+            # Otherwise split roughly in half
+            mid = len(words) // 2
+            return " ".join(words[:mid]), " ".join(words[mid:])
+
+        # Single word - duplicate or return as-is
+        return headline, ""
+
     def _should_add_headline(self) -> bool:
         """Check if 2-line headline should be added based on template.
 
@@ -1135,6 +1056,13 @@ class FFmpegCompositor:
             # Draw black rectangle at top
             filter_parts.append(
                 f"drawbox=x=0:y=0:w={self.config.width}:h={bg_height}:"
+                f"color=0x{bg_color}@{bg_opacity}:t=fill"
+            )
+
+            # Draw black rectangle at bottom
+            footer_y = self.config.height - bg_height
+            filter_parts.append(
+                f"drawbox=x=0:y={footer_y}:w={self.config.width}:h={bg_height}:"
                 f"color=0x{bg_color}@{bg_opacity}:t=fill"
             )
 

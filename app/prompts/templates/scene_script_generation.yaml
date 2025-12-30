@@ -121,11 +121,17 @@ template: |
   | conclusion | 2-3s | Key takeaway or prediction |
   | cta | 2s | Call to action |
 
+  ## Headline Rules (중요! 반드시 지켜야 함!)
+  - headline: 한 줄로 된 제목, 최대 20자 (필수!)
+  - 형식: "[키워드], [한마디]" 또는 "[키워드] [한마디]"
+  - 좋은 예: "테슬라, 완전 망했다", "GPT-5 드디어 출시", "아이유 충격 발언"
+  - 나쁜 예: "일론 머스크가 발표한 테슬라의 새로운 전략" (20자 초과)
+  - headline이 없으면 영상 생성 불가! 반드시 포함해야 함
+
   ## JSON Format
   ```json
   {
-    "headline_keyword": "1-2 words",
-    "headline_hook": "5-10 chars",
+    "headline": "키워드, 한마디",
     "scenes": [
       {
         "scene_type": "hook|content|example|commentary|conclusion|cta",

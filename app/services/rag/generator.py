@@ -615,8 +615,7 @@ class ScriptGenerator:
         Raises:
             ScriptGenerationError: If parsing fails
         """
-        headline_keyword: str | None = None
-        headline_hook: str | None = None
+        headline: str | None = None
 
         # Try to extract JSON object first (new format with headline)
         json_obj_match = re.search(r"\{[\s\S]*\}", response)
@@ -624,9 +623,8 @@ class ScriptGenerator:
             try:
                 parsed = json.loads(json_obj_match.group())
                 if isinstance(parsed, dict) and "scenes" in parsed:
-                    # New format: {headline_keyword, headline_hook, scenes: [...]}
-                    headline_keyword = parsed.get("headline_keyword")
-                    headline_hook = parsed.get("headline_hook")
+                    # New format: {headline, scenes: [...]}
+                    headline = parsed.get("headline")
                     raw_scenes = parsed["scenes"]
                 elif isinstance(parsed, dict):
                     # Single scene object, wrap in array
@@ -688,10 +686,12 @@ class ScriptGenerator:
         if not scenes:
             raise ScriptGenerationError("No valid scenes parsed from response")
 
+        if not headline:
+            raise ScriptGenerationError("headline is required but not found in response")
+
         return SceneScript(
             scenes=scenes,
-            headline_keyword=headline_keyword,
-            headline_hook=headline_hook,
+            headline=headline,
         )
 
     async def _check_scene_quality(
@@ -803,7 +803,7 @@ class ScriptGenerator:
             channel_id=channel_id,
             topic_id=topic_id,
             script_text=full_text,
-            title_text=scene_script.title_text,
+            headline=scene_script.headline,
             scenes=scenes_data,
             estimated_duration=quality_result["duration"],
             word_count=word_count,

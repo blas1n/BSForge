@@ -18,13 +18,11 @@ from app.config.persona import (
     VoiceConfig,
     VoiceSettings,
 )
-from app.config.video import CompositionConfig, SubtitleConfig
 from app.models.scene import Scene, SceneScript, SceneType, TransitionType, VisualStyle
 from app.services.collector.base import ScoredTopic
 from app.services.generator.compositor import FFmpegCompositor
+from app.services.generator.ffmpeg import FFmpegWrapper
 from app.services.generator.subtitle import SubtitleGenerator
-from app.services.generator.templates import ASSTemplateLoader
-from app.services.generator.thumbnail import ThumbnailGenerator
 from app.services.generator.tts.base import TTSConfig as TTSConfigDataclass
 from app.services.generator.tts.edge import EdgeTTSEngine
 from app.services.generator.visual.fallback import FallbackGenerator
@@ -101,6 +99,10 @@ OpenAI가 최근 발표한 새로운 기능들이 정말 대단한데요.
         sample_persona: PersonaConfig,
         sample_topic: ScoredTopic,
         skip_without_ffmpeg: None,
+        ffmpeg_wrapper: FFmpegWrapper,
+        edge_tts_engine: EdgeTTSEngine,
+        ffmpeg_compositor: FFmpegCompositor,
+        subtitle_generator: SubtitleGenerator,
     ) -> None:
         """Test complete topic to video pipeline."""
         # Simulate generated script
@@ -109,13 +111,12 @@ OpenAI가 최근 발표한 새로운 기능들이 정말 대단한데요.
 여러분도 직접 사용해보시길 추천드립니다."""
 
         # Step 1: Generate TTS with persona voice
-        tts_engine = EdgeTTSEngine()
         tts_config = TTSConfigDataclass(
             voice_id=sample_persona.voice.voice_id,
             speed=sample_persona.voice.settings.speed,
         )
 
-        tts_result = await tts_engine.synthesize(
+        tts_result = await edge_tts_engine.synthesize(
             text=script_text,
             config=tts_config,
             output_path=temp_output_dir / "topic_audio",
@@ -124,21 +125,15 @@ OpenAI가 최근 발표한 새로운 기능들이 정말 대단한데요.
         assert tts_result.audio_path.exists()
 
         # Step 2: Generate subtitles
-        subtitle_gen = SubtitleGenerator(
-            config=SubtitleConfig(),
-            composition_config=CompositionConfig(),
-            template_loader=ASSTemplateLoader(),
-        )
-
         if tts_result.word_timestamps:
-            subtitle_file = subtitle_gen.generate_from_timestamps(tts_result.word_timestamps)
+            subtitle_file = subtitle_generator.generate_from_timestamps(tts_result.word_timestamps)
         else:
-            subtitle_file = subtitle_gen.generate_from_script(
+            subtitle_file = subtitle_generator.generate_from_script(
                 script_text, tts_result.duration_seconds
             )
 
         subtitle_path = temp_output_dir / "topic_subs.ass"
-        subtitle_gen.to_ass(subtitle_file, subtitle_path)
+        subtitle_generator.to_ass(subtitle_file, subtitle_path)
 
         # Step 3: Generate visual
         fallback_gen = FallbackGenerator()
@@ -146,10 +141,9 @@ OpenAI가 최근 발표한 새로운 기능들이 정말 대단한데요.
         visual = await fallback_gen.download(visuals[0], temp_output_dir)
 
         # Step 4: Compose video
-        compositor = FFmpegCompositor(CompositionConfig())
         video_path = temp_output_dir / "topic_video.mp4"
 
-        result = await compositor.compose(
+        result = await ffmpeg_compositor.compose(
             audio=tts_result,
             visuals=[visual],
             subtitle_file=subtitle_path,
@@ -159,12 +153,15 @@ OpenAI가 최근 발표한 새로운 기능들이 정말 대단한데요.
         assert video_path.exists()
         assert result.duration_seconds > 0
 
-        # Step 5: Generate thumbnail
-        thumb_gen = ThumbnailGenerator()
-        thumb_path = await thumb_gen.generate(
-            title=sample_topic.title_original,
-            output_path=temp_output_dir / "topic_thumb.jpg",
+        # Step 5: Extract thumbnail from first frame
+        thumb_path = temp_output_dir / "topic_thumb.jpg"
+        stream = ffmpeg_wrapper.extract_frame(
+            video_path=video_path,
+            output_path=thumb_path,
+            seek_seconds=0.0,
+            quality=2,
         )
+        await ffmpeg_wrapper.run(stream)
 
         assert thumb_path.exists()
 
@@ -177,6 +174,10 @@ class TestBatchVideoGeneration:
         self,
         temp_output_dir: Path,
         skip_without_ffmpeg: None,
+        ffmpeg_wrapper: FFmpegWrapper,
+        edge_tts_engine: EdgeTTSEngine,
+        ffmpeg_compositor: FFmpegCompositor,
+        subtitle_generator: SubtitleGenerator,
     ) -> None:
         """Test generating videos for multiple topics."""
         topics = [
@@ -184,15 +185,7 @@ class TestBatchVideoGeneration:
             ("프로그래밍 팁", "개발자를 위한 생산성 향상 방법"),
         ]
 
-        tts_engine = EdgeTTSEngine()
         fallback_gen = FallbackGenerator()
-        subtitle_gen = SubtitleGenerator(
-            config=SubtitleConfig(),
-            composition_config=CompositionConfig(),
-            template_loader=ASSTemplateLoader(),
-        )
-        compositor = FFmpegCompositor(CompositionConfig())
-        thumb_gen = ThumbnailGenerator()
 
         generated_videos = []
 
@@ -202,7 +195,7 @@ class TestBatchVideoGeneration:
 
             # TTS
             tts_config = TTSConfigDataclass(voice_id="ko-KR-SunHiNeural")
-            tts_result = await tts_engine.synthesize(
+            tts_result = await edge_tts_engine.synthesize(
                 text=script,
                 config=tts_config,
                 output_path=topic_dir / "audio",
@@ -210,12 +203,14 @@ class TestBatchVideoGeneration:
 
             # Subtitles
             if tts_result.word_timestamps:
-                sub_file = subtitle_gen.generate_from_timestamps(tts_result.word_timestamps)
+                sub_file = subtitle_generator.generate_from_timestamps(tts_result.word_timestamps)
             else:
-                sub_file = subtitle_gen.generate_from_script(script, tts_result.duration_seconds)
+                sub_file = subtitle_generator.generate_from_script(
+                    script, tts_result.duration_seconds
+                )
 
             sub_path = topic_dir / "subs.ass"
-            subtitle_gen.to_ass(sub_file, sub_path)
+            subtitle_generator.to_ass(sub_file, sub_path)
 
             # Visual
             visuals = await fallback_gen.search("tech", max_results=1)
@@ -223,18 +218,22 @@ class TestBatchVideoGeneration:
 
             # Compose
             video_path = topic_dir / "video.mp4"
-            await compositor.compose(
+            await ffmpeg_compositor.compose(
                 audio=tts_result,
                 visuals=[visual],
                 subtitle_file=sub_path,
                 output_path=video_path,
             )
 
-            # Thumbnail
-            thumb_path = await thumb_gen.generate(
-                title=title,
-                output_path=topic_dir / "thumb.jpg",
+            # Extract thumbnail from first frame
+            thumb_path = topic_dir / "thumb.jpg"
+            stream = ffmpeg_wrapper.extract_frame(
+                video_path=video_path,
+                output_path=thumb_path,
+                seek_seconds=0.0,
+                quality=2,
             )
+            await ffmpeg_wrapper.run(stream)
 
             generated_videos.append(
                 {
@@ -255,16 +254,14 @@ class TestErrorHandling:
     """E2E tests for error handling in pipeline."""
 
     @pytest.mark.asyncio
-    async def test_empty_script_handling(self, temp_output_dir: Path) -> None:
+    async def test_empty_script_handling(
+        self,
+        temp_output_dir: Path,
+        subtitle_generator: SubtitleGenerator,
+    ) -> None:
         """Test handling of empty script."""
-        subtitle_gen = SubtitleGenerator(
-            config=SubtitleConfig(),
-            composition_config=CompositionConfig(),
-            template_loader=ASSTemplateLoader(),
-        )
-
         # Empty script should return empty subtitle file
-        subtitle_file = subtitle_gen.generate_from_script("", 5.0)
+        subtitle_file = subtitle_generator.generate_from_script("", 5.0)
 
         assert len(subtitle_file.segments) == 0
 
@@ -273,16 +270,16 @@ class TestErrorHandling:
         self,
         temp_output_dir: Path,
         skip_without_ffmpeg: None,
+        edge_tts_engine: EdgeTTSEngine,
     ) -> None:
         """Test handling of very long script (beyond Shorts limit)."""
         # YouTube Shorts max is 60 seconds
         # This script should exceed that when spoken
         long_script = " ".join(["이것은 매우 긴 스크립트입니다."] * 50)
 
-        tts_engine = EdgeTTSEngine()
         tts_config = TTSConfigDataclass(voice_id="ko-KR-SunHiNeural")
 
-        tts_result = await tts_engine.synthesize(
+        tts_result = await edge_tts_engine.synthesize(
             text=long_script,
             config=tts_config,
             output_path=temp_output_dir / "long_audio",
@@ -352,7 +349,7 @@ class TestSceneBasedVideoGeneration:
                     visual_keyword="future technology digital era",
                 ),
             ],
-            title_text="AI 혁명의 시작",
+            headline="AI 혁명, 시작됐다",
         )
 
     def test_scene_script_structure_validation(self, sample_scene_script: SceneScript) -> None:
@@ -399,16 +396,16 @@ class TestSceneBasedVideoGeneration:
         self,
         temp_output_dir: Path,
         sample_scene_script: SceneScript,
+        edge_tts_engine: EdgeTTSEngine,
     ) -> None:
         """Test TTS generation for each scene."""
-        tts_engine = EdgeTTSEngine()
         tts_config = TTSConfigDataclass(voice_id="ko-KR-InJoonNeural")
 
         scene_audios = []
 
         for i, scene in enumerate(sample_scene_script.scenes):
             audio_path = temp_output_dir / f"scene_{i}"
-            tts_result = await tts_engine.synthesize(
+            tts_result = await edge_tts_engine.synthesize(
                 text=scene.text,
                 config=tts_config,
                 output_path=audio_path,
@@ -439,21 +436,17 @@ class TestSceneBasedVideoGeneration:
         temp_output_dir: Path,
         sample_scene_script: SceneScript,
         skip_without_ffmpeg: None,
+        edge_tts_engine: EdgeTTSEngine,
+        ffmpeg_compositor: FFmpegCompositor,
+        subtitle_generator: SubtitleGenerator,
     ) -> None:
         """Test video composition with scene-based structure."""
-        tts_engine = EdgeTTSEngine()
         tts_config = TTSConfigDataclass(voice_id="ko-KR-SunHiNeural")
-        subtitle_gen = SubtitleGenerator(
-            config=SubtitleConfig(),
-            composition_config=CompositionConfig(),
-            template_loader=ASSTemplateLoader(),
-        )
         fallback_gen = FallbackGenerator()
-        compositor = FFmpegCompositor(CompositionConfig())
 
         # Generate TTS for full script
         full_text = sample_scene_script.full_text
-        tts_result = await tts_engine.synthesize(
+        tts_result = await edge_tts_engine.synthesize(
             text=full_text,
             config=tts_config,
             output_path=temp_output_dir / "scene_audio",
@@ -461,14 +454,14 @@ class TestSceneBasedVideoGeneration:
 
         # Generate subtitles
         if tts_result.word_timestamps:
-            subtitle_file = subtitle_gen.generate_from_timestamps(tts_result.word_timestamps)
+            subtitle_file = subtitle_generator.generate_from_timestamps(tts_result.word_timestamps)
         else:
-            subtitle_file = subtitle_gen.generate_from_script(
+            subtitle_file = subtitle_generator.generate_from_script(
                 full_text, tts_result.duration_seconds
             )
 
         subtitle_path = temp_output_dir / "scene_subs.ass"
-        subtitle_gen.to_ass(subtitle_file, subtitle_path)
+        subtitle_generator.to_ass(subtitle_file, subtitle_path)
 
         # Generate visuals
         visuals = await fallback_gen.search("technology AI", max_results=1)
@@ -476,7 +469,7 @@ class TestSceneBasedVideoGeneration:
 
         # Compose video
         video_path = temp_output_dir / "scene_video.mp4"
-        result = await compositor.compose(
+        result = await ffmpeg_compositor.compose(
             audio=tts_result,
             visuals=[visual],
             subtitle_file=subtitle_path,
@@ -510,13 +503,15 @@ class TestFullPipelineIntegration:
         self,
         temp_output_dir: Path,
         skip_without_ffmpeg: None,
+        ffmpeg_wrapper: FFmpegWrapper,
+        edge_tts_engine: EdgeTTSEngine,
+        ffmpeg_compositor: FFmpegCompositor,
+        subtitle_generator: SubtitleGenerator,
     ) -> None:
         """Test complete pipeline: Topic -> SceneScript -> Video."""
-        # Step 1: Simulated topic (in real system, collected from sources)
-        topic_title = "GPT-5 출시 임박 소식"
         # Keywords would be used by RAG in production: ["GPT-5", "OpenAI", "AI"]
 
-        # Step 2: Simulated RAG script generation (would use ScriptGenerator)
+        # Step 1: Simulated RAG script generation (would use ScriptGenerator)
         # In production, RAG retrieves relevant chunks and LLM generates script
         scene_script = SceneScript(
             scenes=[
@@ -536,24 +531,16 @@ class TestFullPipelineIntegration:
                     visual_keyword="AI excitement future technology",
                 ),
             ],
-            title_text=topic_title,
+            headline="GPT-5, 곧 출시",
         )
 
-        # Step 3: Video generation
-        tts_engine = EdgeTTSEngine()
+        # Step 2: Video generation
         tts_config = TTSConfigDataclass(voice_id="ko-KR-InJoonNeural")
-        subtitle_gen = SubtitleGenerator(
-            config=SubtitleConfig(),
-            composition_config=CompositionConfig(),
-            template_loader=ASSTemplateLoader(),
-        )
         fallback_gen = FallbackGenerator()
-        compositor = FFmpegCompositor(CompositionConfig())
-        thumb_gen = ThumbnailGenerator()
 
         # TTS
         full_text = scene_script.full_text
-        tts_result = await tts_engine.synthesize(
+        tts_result = await edge_tts_engine.synthesize(
             text=full_text,
             config=tts_config,
             output_path=temp_output_dir / "pipeline_audio",
@@ -561,14 +548,14 @@ class TestFullPipelineIntegration:
 
         # Subtitles
         if tts_result.word_timestamps:
-            subtitle_file = subtitle_gen.generate_from_timestamps(tts_result.word_timestamps)
+            subtitle_file = subtitle_generator.generate_from_timestamps(tts_result.word_timestamps)
         else:
-            subtitle_file = subtitle_gen.generate_from_script(
+            subtitle_file = subtitle_generator.generate_from_script(
                 full_text, tts_result.duration_seconds
             )
 
         subtitle_path = temp_output_dir / "pipeline_subs.ass"
-        subtitle_gen.to_ass(subtitle_file, subtitle_path)
+        subtitle_generator.to_ass(subtitle_file, subtitle_path)
 
         # Visual
         visuals = await fallback_gen.search("AI technology", max_results=1)
@@ -576,18 +563,22 @@ class TestFullPipelineIntegration:
 
         # Compose
         video_path = temp_output_dir / "pipeline_video.mp4"
-        result = await compositor.compose(
+        result = await ffmpeg_compositor.compose(
             audio=tts_result,
             visuals=[visual],
             subtitle_file=subtitle_path,
             output_path=video_path,
         )
 
-        # Thumbnail
-        thumb_path = await thumb_gen.generate(
-            title=topic_title,
-            output_path=temp_output_dir / "pipeline_thumb.jpg",
+        # Extract thumbnail from first frame
+        thumb_path = temp_output_dir / "pipeline_thumb.jpg"
+        stream = ffmpeg_wrapper.extract_frame(
+            video_path=video_path,
+            output_path=thumb_path,
+            seek_seconds=0.0,
+            quality=2,
         )
+        await ffmpeg_wrapper.run(stream)
 
         # Verify all outputs
         assert video_path.exists()

@@ -241,7 +241,7 @@ async def run_enriched_script_generation(
         scene_script = script.get_scene_script()
         if scene_script:
             print(f"   - Scene count: {len(scene_script.scenes)}")
-            print(f"   - Headline: {scene_script.headline_keyword}")
+            print(f"   - Headline: {scene_script.headline}")
 
             print("\n   Scenes:")
             for i, scene in enumerate(scene_script.scenes[:5], 1):
@@ -280,26 +280,17 @@ async def run_video_generation(
     if channel_config_obj.persona and channel_config_obj.persona.visual_style:
         persona_style = channel_config_obj.persona.visual_style
 
-    # Generate video
-    if script.has_scenes:
-        scene_script = script.get_scene_script()
-        if scene_script:
-            result = await video_pipeline.generate_from_scenes(
-                script=script,
-                scene_script=scene_script,
-                template_name=VIDEO_TEMPLATE_NAME,
-                persona_style=persona_style,
-            )
-        else:
-            result = await video_pipeline.generate(
-                script=script,
-                template_name=VIDEO_TEMPLATE_NAME,
-            )
-    else:
-        result = await video_pipeline.generate(
-            script=script,
-            template_name=VIDEO_TEMPLATE_NAME,
-        )
+    # Generate video (scene-based generation required)
+    scene_script = script.get_scene_script()
+    if not scene_script:
+        raise ValueError("Script must have scene data for video generation")
+
+    result = await video_pipeline.generate(
+        script=script,
+        scene_script=scene_script,
+        template_name=VIDEO_TEMPLATE_NAME,
+        persona_style=persona_style,
+    )
 
     print("\n   Video generated:")
     print(f"   - Path: {result.video_path}")
