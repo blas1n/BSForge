@@ -247,7 +247,7 @@ class TopicCollectionPipeline:
         logger.info(f"Deduplicated to {len(deduplicated)} topics")
 
         # Step 5: Score topics
-        scored = self._score_topics(deduplicated, stats)
+        scored = self._score_topics(deduplicated, stats, config)
 
         # Sort by score (x[2] is ScoredTopic)
         scored.sort(key=lambda x: x[2].score_total, reverse=True)
@@ -573,12 +573,14 @@ class TopicCollectionPipeline:
         self,
         topics: list[tuple[RawTopic, NormalizedTopic]],
         stats: CollectionStats,
+        config: CollectionConfig,
     ) -> list[tuple[RawTopic, NormalizedTopic, ScoredTopic]]:
         """Score topics.
 
         Args:
             topics: List of (raw, normalized) tuples
             stats: Stats to update
+            config: Collection config with source_overrides
 
         Returns:
             List of (raw, normalized, scored) tuples
@@ -586,7 +588,14 @@ class TopicCollectionPipeline:
         scored = []
         for raw, norm in topics:
             try:
-                sc = self.scorer.score(norm)
+                # Get source weight from overrides (default 5.0 on 1-10 scale)
+                source_name = norm.metadata.get("source_name", "")
+                source_config = config.source_overrides.get(source_name, {})
+                # weight is typically 1.0-5.0, scale to 1-10 for credibility
+                weight = source_config.get("weight", 2.5)
+                source_credibility = min(10.0, weight * 2.0)  # 2.0 -> 4.0, 3.0 -> 6.0
+
+                sc = self.scorer.score(norm, source_credibility=source_credibility)
                 scored.append((raw, norm, sc))
             except Exception as e:
                 error_msg = f"Scoring failed for '{norm.title_normalized[:30]}...': {e}"

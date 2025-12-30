@@ -23,7 +23,7 @@ class PromptType(str, Enum):
     TRANSLATION = "translation"
     CLASSIFICATION = "classification"
     CONTENT_CLASSIFICATION = "content_classification"
-    SCRIPT_GENERATION = "scene_script_generation"  # Scene-based script (primary)
+    SCRIPT_GENERATION = "scene_script_generation"
     QUERY_EXPANSION = "query_expansion"
     CLUSTER_SUMMARY = "cluster_summary"
     RESEARCH_QUERY = "research_query"

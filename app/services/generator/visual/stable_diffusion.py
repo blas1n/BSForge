@@ -166,6 +166,7 @@ class StableDiffusionGenerator(BaseVisualSource):
                         "guidance_scale": self._config.guidance_scale,
                         "seed": current_seed,
                     },
+                    timeout=self._config.timeout,
                 )
                 response.raise_for_status()
                 data = response.json()
@@ -398,6 +399,7 @@ class StableDiffusionGenerator(BaseVisualSource):
                     "guidance_scale": self._config.guidance_scale,
                     "seed": current_seed,
                 },
+                timeout=self._config.timeout,
             )
             response.raise_for_status()
             data = response.json()
