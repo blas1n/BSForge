@@ -9,7 +9,7 @@ import pytest
 from app.config.video import (
     CompositionConfig,
     SubtitleConfig,
-    TTSConfig,
+    TTSProviderConfig,
     VideoGenerationConfig,
     VisualConfig,
 )
@@ -88,9 +88,9 @@ def mock_video_asset(tmp_path: Path) -> VisualAsset:
 
 
 @pytest.fixture
-def tts_config() -> TTSConfig:
+def tts_config() -> TTSProviderConfig:
     """Create a TTS config for testing."""
-    return TTSConfig()
+    return TTSProviderConfig()
 
 
 @pytest.fixture

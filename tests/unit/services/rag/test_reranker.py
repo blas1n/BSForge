@@ -166,40 +166,41 @@ class TestRAGReranker:
         assert reranked[0].score == 0.95
 
     def test_cosine_similarity(self, reranker: RAGReranker) -> None:
-        """Should compute cosine similarity correctly."""
+        """Should compute cosine similarity correctly using batch method."""
         vec1 = np.array([1.0, 0.0, 0.0])
-        vec2 = np.array([1.0, 0.0, 0.0])
+        vec2 = np.array([[1.0, 0.0, 0.0]])  # Matrix format for batch
 
-        similarity = reranker._cosine_similarity(vec1, vec2)
+        similarities = reranker._cosine_similarity_batch(vec1, vec2)
 
-        assert abs(similarity - 1.0) < 1e-6  # Should be 1.0 (identical)
+        assert abs(similarities[0] - 1.0) < 1e-6  # Should be 1.0 (identical)
 
     def test_cosine_similarity_orthogonal(self, reranker: RAGReranker) -> None:
         """Should return 0 for orthogonal vectors."""
         vec1 = np.array([1.0, 0.0, 0.0])
-        vec2 = np.array([0.0, 1.0, 0.0])
+        vec2 = np.array([[0.0, 1.0, 0.0]])  # Matrix format for batch
 
-        similarity = reranker._cosine_similarity(vec1, vec2)
+        similarities = reranker._cosine_similarity_batch(vec1, vec2)
 
-        assert abs(similarity - 0.0) < 1e-6  # Should be 0
+        assert abs(similarities[0] - 0.0) < 1e-6  # Should be 0
 
     def test_cosine_similarity_opposite(self, reranker: RAGReranker) -> None:
         """Should return -1 for opposite vectors."""
         vec1 = np.array([1.0, 0.0, 0.0])
-        vec2 = np.array([-1.0, 0.0, 0.0])
+        vec2 = np.array([[-1.0, 0.0, 0.0]])  # Matrix format for batch
 
-        similarity = reranker._cosine_similarity(vec1, vec2)
+        similarities = reranker._cosine_similarity_batch(vec1, vec2)
 
-        assert abs(similarity - (-1.0)) < 1e-6  # Should be -1
+        assert abs(similarities[0] - (-1.0)) < 1e-6  # Should be -1
 
     def test_cosine_similarity_zero_vector(self, reranker: RAGReranker) -> None:
-        """Should handle zero vector."""
+        """Should handle zero vector in matrix."""
         vec1 = np.array([1.0, 0.0, 0.0])
-        vec2 = np.array([0.0, 0.0, 0.0])
+        vec2 = np.array([[0.0, 0.0, 0.0]])  # Zero vector in matrix
 
-        similarity = reranker._cosine_similarity(vec1, vec2)
+        similarities = reranker._cosine_similarity_batch(vec1, vec2)
 
-        assert similarity == 0.0
+        # Zero vector norm causes division protection, result should be close to 0
+        assert abs(similarities[0]) < 1e-6
 
     def test_cosine_similarity_batch(self, reranker: RAGReranker) -> None:
         """Should compute batch cosine similarity."""

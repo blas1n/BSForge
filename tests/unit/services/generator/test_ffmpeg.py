@@ -378,7 +378,7 @@ class TestConcatVideos:
 
 
 class TestAddAudio:
-    """Tests for add_audio method."""
+    """Tests for add_audio_to_video method."""
 
     @pytest.fixture
     def wrapper(self) -> FFmpegWrapper:
@@ -399,7 +399,7 @@ class TestAddAudio:
             mock_output.return_value = mock_stream
             mock_stream.overwrite_output.return_value = mock_stream
 
-            result = wrapper.add_audio(
+            result = wrapper.add_audio_to_video(
                 "/path/to/video.mp4",
                 "/path/to/audio.mp3",
                 "/path/to/output.mp4",
@@ -408,8 +408,8 @@ class TestAddAudio:
         assert result is not None
 
     @pytest.mark.unit
-    def test_add_audio_with_volume(self, wrapper: FFmpegWrapper) -> None:
-        """Test adding audio with volume adjustment."""
+    def test_add_audio_with_options(self, wrapper: FFmpegWrapper) -> None:
+        """Test adding audio with custom options."""
         with (
             patch("app.services.generator.ffmpeg.ffmpeg.input") as mock_input,
             patch("app.services.generator.ffmpeg.ffmpeg.output") as mock_output,
@@ -418,22 +418,22 @@ class TestAddAudio:
             mock_audio = MagicMock()
             mock_input.side_effect = [mock_video, mock_audio]
             mock_stream = MagicMock()
-            mock_audio.filter.return_value = mock_audio
             mock_output.return_value = mock_stream
             mock_stream.overwrite_output.return_value = mock_stream
 
-            result = wrapper.add_audio(
+            result = wrapper.add_audio_to_video(
                 "/path/to/video.mp4",
                 "/path/to/audio.mp3",
                 "/path/to/output.mp4",
-                audio_volume=0.5,
+                audio_codec="aac",
+                audio_bitrate="192k",
             )
 
         assert result is not None
 
 
 class TestMixAudio:
-    """Tests for mix_audio method."""
+    """Tests for mix_background_audio method."""
 
     @pytest.fixture
     def wrapper(self) -> FFmpegWrapper:
@@ -449,18 +449,21 @@ class TestMixAudio:
             patch("app.services.generator.ffmpeg.ffmpeg.output") as mock_output,
         ):
             mock_video = MagicMock()
+            mock_video.video = MagicMock()
+            mock_video.audio = MagicMock()
             mock_bg_audio = MagicMock()
+            mock_bg_audio.audio = MagicMock()
+            mock_bg_audio.audio.filter.return_value = MagicMock()
             mock_input.side_effect = [mock_video, mock_bg_audio]
             mock_stream = MagicMock()
             mock_filter.return_value = mock_stream
             mock_output.return_value = mock_stream
             mock_stream.overwrite_output.return_value = mock_stream
 
-            result = wrapper.mix_audio(
+            result = wrapper.mix_background_audio(
                 "/path/to/video.mp4",
                 "/path/to/bg.mp3",
                 "/path/to/output.mp4",
-                main_volume=1.0,
                 bg_volume=0.3,
             )
 

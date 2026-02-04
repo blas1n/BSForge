@@ -21,6 +21,18 @@ from .conftest import create_mock_response
 class ConcreteWebScraper(WebScraperSource):
     """Concrete implementation for testing."""
 
+    @classmethod
+    def build_config(cls, overrides: dict[str, Any] | None = None) -> WebScraperConfig:
+        """Build config from overrides."""
+        defaults = {
+            "base_url": "https://example.com",
+            "name": "Test Scraper",
+            "limit": 20,
+        }
+        if overrides:
+            defaults.update(overrides)
+        return WebScraperConfig(**defaults)
+
     def _parse_list_page(self, soup: BeautifulSoup, url: str) -> list[dict[str, Any]]:
         """Parse list page HTML."""
         items = []

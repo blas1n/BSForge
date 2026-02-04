@@ -42,7 +42,7 @@ class TestVideoTemplateLoader:
         assert template.visual_effects.ken_burns_enabled is True
         # korean_shorts_standard uses Bold variant
         assert template.subtitle.font_name == "Noto Sans CJK KR Bold"
-        assert template.subtitle.font_size == 90
+        assert template.subtitle.font_size == 100
 
     def test_template_inheritance(self) -> None:
         """Test that template inheritance works correctly."""

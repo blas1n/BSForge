@@ -139,9 +139,38 @@ class TestVisualSourcingManager:
         return client
 
     @pytest.fixture
+    def mock_pixabay(self) -> AsyncMock:
+        """Create a mock Pixabay client."""
+        client = AsyncMock()
+        client.search_videos = AsyncMock(return_value=[])
+        client.search_images = AsyncMock(return_value=[])
+        client.download = AsyncMock()
+        client.close = AsyncMock()
+        return client
+
+    @pytest.fixture
+    def mock_tavily_image(self) -> AsyncMock:
+        """Create a mock Tavily image client."""
+        client = AsyncMock()
+        client.search = AsyncMock(return_value=[])
+        client.download = AsyncMock()
+        client.close = AsyncMock()
+        return client
+
+    @pytest.fixture
     def mock_dalle_generator(self) -> AsyncMock:
         """Create a mock DALL-E generator."""
         generator = AsyncMock()
+        generator.generate = AsyncMock(return_value=[])
+        generator.download = AsyncMock()
+        generator.close = AsyncMock()
+        return generator
+
+    @pytest.fixture
+    def mock_sd_generator(self) -> AsyncMock:
+        """Create a mock SD generator."""
+        generator = AsyncMock()
+        generator.is_available = AsyncMock(return_value=False)
         generator.generate = AsyncMock(return_value=[])
         generator.download = AsyncMock()
         generator.close = AsyncMock()
@@ -165,7 +194,10 @@ class TestVisualSourcingManager:
         self,
         http_client: HTTPClient,
         mock_pexels: AsyncMock,
+        mock_pixabay: AsyncMock,
+        mock_tavily_image: AsyncMock,
         mock_dalle_generator: AsyncMock,
+        mock_sd_generator: AsyncMock,
         mock_fallback: AsyncMock,
     ) -> VisualSourcingManager:
         """Create a VisualSourcingManager with mocked dependencies."""
@@ -173,7 +205,10 @@ class TestVisualSourcingManager:
             http_client=http_client,
             config=VisualConfig(),
             pexels_client=mock_pexels,
+            pixabay_client=mock_pixabay,
+            tavily_image_client=mock_tavily_image,
             dalle_generator=mock_dalle_generator,
+            sd_generator=mock_sd_generator,
             fallback_generator=mock_fallback,
         )
 
@@ -520,11 +555,17 @@ class TestVisualSourcingManagerWithPixabay:
         mock_fallback.search = AsyncMock(return_value=[])
         mock_fallback.download = AsyncMock()
 
+        mock_tavily_image = AsyncMock()
+        mock_tavily_image.search = AsyncMock(return_value=[])
+        mock_tavily_image.download = AsyncMock()
+        mock_tavily_image.close = AsyncMock()
+
         return VisualSourcingManager(
             http_client=http_client,
             config=VisualConfig(),
             pexels_client=mock_pexels,
             pixabay_client=mock_pixabay,
+            tavily_image_client=mock_tavily_image,
             dalle_generator=mock_dalle_generator,
             sd_generator=mock_sd_generator,
             fallback_generator=mock_fallback,

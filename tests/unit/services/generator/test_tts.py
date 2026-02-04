@@ -7,7 +7,7 @@ import pytest
 
 from app.config.video import TTSProviderConfig
 from app.services.generator.ffmpeg import FFmpegWrapper
-from app.services.generator.tts.base import TTSConfig as TTSConfigDataclass
+from app.services.generator.tts.base import TTSSynthesisConfig
 from app.services.generator.tts.edge import EdgeTTSEngine
 from app.services.generator.tts.factory import TTSEngineFactory
 
@@ -158,10 +158,10 @@ class TestTTSConfig:
         assert config.pitch >= -50
         assert config.pitch <= 50
 
-    def test_tts_config_dataclass(self) -> None:
-        """Test TTSConfig dataclass."""
+    def test_tts_synthesis_config(self) -> None:
+        """Test TTSSynthesisConfig dataclass."""
         # Volume range is -50 to 50 (not 0-100)
-        config = TTSConfigDataclass(
+        config = TTSSynthesisConfig(
             voice_id="test-voice",
             speed=1.2,
             pitch=5,

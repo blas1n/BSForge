@@ -405,7 +405,7 @@ class TestCheckSceneScript:
                 visual_style=VisualStyle.PERSONA,
             ),
         ]
-        return SceneScript(scenes=scenes)
+        return SceneScript(scenes=scenes, headline="Test Headline")
 
     @pytest.mark.unit
     def test_check_scene_script(
@@ -440,7 +440,7 @@ class TestCheckSceneScript:
                 visual_style=VisualStyle.PERSONA,
             ),
         ]
-        scene_script = SceneScript(scenes=scenes)
+        scene_script = SceneScript(scenes=scenes, headline="Test Headline")
 
         result = quality_checker.check_scene_script(scene_script, mock_persona)
 
