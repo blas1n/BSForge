@@ -490,6 +490,13 @@ class ServiceContainer(containers.DeclarativeContainer):
         http_client=infrastructure.http_client,
     )
 
+    tavily_image_client = providers.Singleton(
+        "app.services.generator.visual.tavily_image.TavilyImageClient",
+        tavily_client=tavily_client,
+        http_client=infrastructure.http_client,
+        sd_generator=sd_generator,
+    )
+
     fallback_generator = providers.Factory(
         "app.services.generator.visual.fallback.FallbackGenerator",
     )
@@ -500,6 +507,7 @@ class ServiceContainer(containers.DeclarativeContainer):
         config=configs.visual_config,
         pexels_client=pexels_client,
         pixabay_client=pixabay_client,
+        tavily_image_client=tavily_image_client,
         dalle_generator=dalle_generator,
         sd_generator=sd_generator,
         fallback_generator=fallback_generator,

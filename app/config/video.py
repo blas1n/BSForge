@@ -228,6 +228,7 @@ class VisualConfig(BaseModel):
 
     source_priority: list[str] = Field(
         default=[
+            "tavily_image",  # Tavily web image search (celebrities, real people)
             "pexels_video",  # Pexels videos
             "pixabay_video",  # Pixabay videos
             "pexels_image",  # Pexels images
@@ -237,6 +238,9 @@ class VisualConfig(BaseModel):
             "solid_color",  # Fallback
         ],
         description="Source priority order",
+    )
+    tavily_image_enabled: bool = Field(
+        default=True, description="Enable Tavily for web image search"
     )
     pexels: VisualSourceConfig = Field(default_factory=VisualSourceConfig)
     pixabay: PixabayConfig = Field(default_factory=PixabayConfig)

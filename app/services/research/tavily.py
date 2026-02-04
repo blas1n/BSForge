@@ -138,6 +138,49 @@ class TavilyClient(BaseResearchClient):
         tasks = [self.search(query, max_results_per_query) for query in queries]
         return await asyncio.gather(*tasks)
 
+    async def search_images(
+        self,
+        query: str,
+        max_results: int = 10,
+    ) -> list[str]:
+        """Search for images using Tavily API.
+
+        Args:
+            query: Search query string (e.g., "BTS Jungkook")
+            max_results: Maximum number of image URLs to return
+
+        Returns:
+            List of image URLs
+        """
+        payload = {
+            "api_key": self.api_key,
+            "query": query,
+            "search_depth": "basic",
+            "include_images": True,
+            "include_answer": False,
+            "include_raw_content": False,
+            "max_results": 5,  # Text results (minimal)
+        }
+
+        try:
+            response = await self.http_client.post(
+                f"{self.BASE_URL}/search",
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            images: list[str] = data.get("images", [])
+            logger.info(f"Tavily image search for '{query}': found {len(images)} images")
+            return images[:max_results]
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Tavily image search error: {e.response.status_code}")
+            return []
+        except httpx.RequestError as e:
+            logger.error(f"Tavily image search request error: {e}")
+            return []
+
     async def health_check(self) -> bool:
         """Check if Tavily API is available.
 

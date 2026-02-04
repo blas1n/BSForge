@@ -31,13 +31,15 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    ports:
+      - "8000:8000"
     networks:
       - bsforge-network
 
   # PostgreSQL Database with pgvector + pg_search (BM25) extension
   postgres:
     image: paradedb/paradedb:latest-pg16
-    container_name: postgres
+    container_name: bsforge-postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: bsforge
@@ -47,8 +49,6 @@ services:
       postgres -c shared_preload_libraries=pg_search
     volumes:
       - postgres-data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}" ]
       interval: 10s
@@ -61,13 +61,11 @@ services:
   # Redis Cache
   redis:
     image: redis:7-alpine
-    container_name: redis
+    container_name: bsforge-redis
     restart: unless-stopped
     command: redis-server --appendonly yes
     volumes:
       - redis-data:/data
-    ports:
-      - "6379:6379"
     healthcheck:
       test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
@@ -85,13 +83,11 @@ services:
     build:
       context: ..
       dockerfile: .devcontainer/sd.Dockerfile
-    container_name: sd
+    container_name: bsforge-sd
     restart: unless-stopped
     environment:
       - SD_DEVICE=auto
       - HF_HOME=/root/.cache/huggingface
-    ports:
-      - "7860:7860"
     volumes:
       - huggingface-cache:/root/.cache/huggingface
     healthcheck:

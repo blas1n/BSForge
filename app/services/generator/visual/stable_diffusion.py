@@ -449,5 +449,72 @@ class StableDiffusionGenerator(BaseVisualSource):
             self._service_available = False
             return None
 
+    async def upscale(
+        self,
+        source_image: Path,
+        output_dir: Path,
+        scale: int = 2,
+    ) -> Path | None:
+        """Upscale image using SD img2img with low strength.
+
+        Uses Stable Diffusion's img2img pipeline with very low strength
+        to enhance resolution while preserving the original content.
+
+        Args:
+            source_image: Path to source image
+            output_dir: Output directory for upscaled image
+            scale: Upscale factor (2, 3, or 4)
+
+        Returns:
+            Path to upscaled image, or None if upscaling fails
+        """
+        if not await self.is_available():
+            logger.warning("SD service not available for upscaling")
+            return None
+
+        try:
+            # Read and encode source image
+            with open(source_image, "rb") as f:
+                image_base64 = base64.b64encode(f.read()).decode("utf-8")
+
+            logger.info(f"Upscaling image {source_image} with scale={scale}x")
+
+            response = await self._client.post(
+                f"{self._config.service_url}/upscale",
+                json={
+                    "image": image_base64,
+                    "scale": scale,
+                },
+                timeout=120.0,  # Upscaling can take time
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            # Create output directory
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            # Save the upscaled image
+            filename = f"upscaled_{source_image.stem}.png"
+            output_path = output_dir / filename
+
+            result_base64 = data.get("image")
+            if result_base64:
+                image_data = base64.b64decode(result_base64)
+                with open(output_path, "wb") as f:
+                    f.write(image_data)
+
+            original_size = f"{data.get('original_width')}x{data.get('original_height')}"
+            new_size = f"{data.get('width')}x{data.get('height')}"
+            logger.info(f"Upscaled {original_size} -> {new_size}: {output_path}")
+
+            return output_path
+
+        except FileNotFoundError:
+            logger.error(f"Source image not found: {source_image}")
+            return None
+        except Exception as e:
+            logger.error(f"Upscaling failed: {e}", exc_info=True)
+            return None
+
 
 __all__ = ["StableDiffusionGenerator"]
