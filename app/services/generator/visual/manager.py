@@ -20,12 +20,12 @@ from typing import TYPE_CHECKING, Literal
 from app.config.video import VisualConfig
 from app.infrastructure.http_client import HTTPClient
 from app.services.generator.visual.base import VisualAsset
-from app.services.generator.visual.brave import BraveImageClient
 from app.services.generator.visual.dall_e import DALLEGenerator
 from app.services.generator.visual.fallback import FallbackGenerator
 from app.services.generator.visual.pexels import PexelsClient
 from app.services.generator.visual.pixabay import PixabayClient
 from app.services.generator.visual.stable_diffusion import StableDiffusionGenerator
+from app.services.generator.visual.tavily_image import TavilyImageClient
 
 if TYPE_CHECKING:
     from app.models.scene import Scene
@@ -79,7 +79,7 @@ class VisualSourcingManager:
         config: VisualConfig,
         pexels_client: PexelsClient,
         pixabay_client: PixabayClient,
-        brave_client: BraveImageClient,
+        tavily_image_client: TavilyImageClient,
         dalle_generator: DALLEGenerator,
         sd_generator: StableDiffusionGenerator,
         fallback_generator: FallbackGenerator,
@@ -91,7 +91,7 @@ class VisualSourcingManager:
             config: Visual configuration
             pexels_client: Pexels client instance
             pixabay_client: Pixabay client instance
-            brave_client: Brave Search client instance
+            tavily_image_client: Tavily web image search client instance
             dalle_generator: DALL-E generator instance
             sd_generator: Stable Diffusion generator instance
             fallback_generator: Fallback generator instance
@@ -100,7 +100,7 @@ class VisualSourcingManager:
         self._http_client = http_client
         self._pexels = pexels_client
         self._pixabay = pixabay_client
-        self._brave = brave_client
+        self._tavily_image = tavily_image_client
         self._dalle_generator = dalle_generator
         self._sd_generator = sd_generator
         self._fallback = fallback_generator
@@ -227,13 +227,12 @@ class VisualSourcingManager:
         query = " ".join(keywords[:3])  # Use first 3 keywords
         max_results = max(1, int(duration_needed / image_duration) + 2)
 
-        if source_type == "brave_image":
-            if not self.config.brave_enabled:
+        if source_type == "tavily_image":
+            if not self.config.tavily_image_enabled:
                 return []
-            return await self._brave.search_images(
+            return await self._tavily_image.search_images(
                 query=query,
                 max_results=max_results,
-                orientation=orientation,
             )
 
         elif source_type == "pexels_video":
@@ -339,8 +338,8 @@ class VisualSourcingManager:
             return await self._pexels.download(asset, output_dir)
         elif asset.source == "pixabay":
             return await self._pixabay.download(asset, output_dir)
-        elif asset.source == "brave":
-            return await self._brave.download(asset, output_dir)
+        elif asset.source == "tavily_web":
+            return await self._tavily_image.download(asset, output_dir)
         elif asset.source == "dalle":
             return await self._dalle_generator.download(asset, output_dir)
         elif asset.source == "stable_diffusion":
@@ -460,6 +459,7 @@ class VisualSourcingManager:
                     output_dir=output_dir / f"scene_{i:03d}",
                     orientation=orientation,
                     exclude_source_ids=used_source_ids,
+                    requires_web_search=scene.requires_web_search,
                 )
 
                 # Ensure asset has correct duration
@@ -515,6 +515,7 @@ class VisualSourcingManager:
         output_dir: Path,
         orientation: Literal["portrait", "landscape", "square"],
         exclude_source_ids: set[str] | None = None,
+        requires_web_search: bool = False,
     ) -> VisualAsset:
         """Source a single visual asset for a scene.
 
@@ -526,6 +527,8 @@ class VisualSourcingManager:
             output_dir: Output directory
             orientation: Visual orientation
             exclude_source_ids: Set of source IDs to exclude (already used)
+            requires_web_search: True if keyword refers to real person/brand
+                               (use Tavily web search instead of stock)
 
         Returns:
             Downloaded visual asset
@@ -539,6 +542,7 @@ class VisualSourcingManager:
             output_dir=output_dir,
             orientation=orientation,
             exclude_source_ids=exclude_ids,
+            requires_web_search=requires_web_search,
         )
 
     async def _source_stock_with_quality_check(
@@ -548,6 +552,7 @@ class VisualSourcingManager:
         output_dir: Path,
         orientation: Literal["portrait", "landscape", "square"],
         exclude_source_ids: set[str] | None = None,
+        requires_web_search: bool = False,
     ) -> VisualAsset:
         """Source from stock with hybrid quality evaluation.
 
@@ -564,6 +569,7 @@ class VisualSourcingManager:
             output_dir: Output directory
             orientation: Visual orientation
             exclude_source_ids: Set of source IDs to exclude (already used)
+            requires_web_search: True if keyword refers to real person/brand
 
         Returns:
             Visual asset
@@ -574,9 +580,35 @@ class VisualSourcingManager:
         clip_img2img_threshold = self.config.clip_img2img_threshold
         exclude_ids = exclude_source_ids or set()
 
-        # Try stock sources
+        # Use Tavily web search ONLY for real person/brand images
+        if requires_web_search and self.config.tavily_image_enabled:
+            logger.info(f"  [WEB SEARCH] '{keyword}' requires real person/brand image")
+            try:
+                tavily_asset = await self._tavily_image.search_and_select_best(
+                    query=keyword,
+                    output_dir=output_dir,
+                    num_candidates=10,
+                    min_clip_score=clip_img2img_threshold,
+                )
+                if tavily_asset:
+                    logger.info(
+                        f"  [SELECT] tavily_web via CLIP verification: "
+                        f"score={tavily_asset.metadata.get('clip_score', 0):.3f}"
+                    )
+                    return tavily_asset
+            except Exception as e:
+                logger.warning(f"Tavily CLIP search failed: {e}")
+            # Fallback to AI generation for person/brand if Tavily fails
+            logger.info("  [FALLBACK] Web search failed, trying AI generation")
+            return await self._source_ai_only(
+                keywords=[keyword],
+                duration=duration,
+                output_dir=output_dir,
+                orientation=orientation,
+            )
+
+        # Try stock sources for general keywords
         stock_sources = [
-            "brave_image",
             "pexels_image",
             "pixabay_image",
             "pexels_video",
@@ -833,7 +865,6 @@ class VisualSourcingManager:
         """Close all clients."""
         await self._pexels.close()
         await self._pixabay.close()
-        await self._brave.close()
         await self._dalle_generator.close()
 
 

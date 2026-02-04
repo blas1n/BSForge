@@ -59,24 +59,6 @@
       }
     }
   },
-  // Forward ports for all services
-  "forwardPorts": [
-    8000, // FastAPI
-    5432, // PostgreSQL
-    6379 // Redis
-  ],
-  "portsAttributes": {
-    "8000": {
-      "label": "FastAPI",
-      "onAutoForward": "notify"
-    },
-    "5432": {
-      "label": "PostgreSQL"
-    },
-    "6379": {
-      "label": "Redis"
-    }
-  },
   // Features
   "features": {
     "ghcr.io/devcontainers/features/git:1": {},

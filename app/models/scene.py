@@ -151,6 +151,12 @@ class Scene(BaseModel):
         description="English keyword for visual search (Pexels/Pixabay/Stable Diffusion). "
         "Should be 3-5 descriptive English words. Example: 'excited fans cheering concert'",
     )
+    requires_web_search: bool = Field(
+        default=False,
+        description="True if visual_keyword refers to a specific real person, celebrity, "
+        "brand, or entity that requires web image search (not stock images). "
+        "Examples: 'Taylor Swift', 'BTS Jungkook', 'Apple logo', 'Tesla Cybertruck'",
+    )
     visual_style: VisualStyle | None = Field(
         default=None,
         description="Override visual style (auto-inferred if None)",

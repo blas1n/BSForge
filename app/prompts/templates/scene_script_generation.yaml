@@ -110,6 +110,7 @@ template: |
   3. **Hook in 2 seconds** - shocking stat, bold claim, or provocative question
   4. **One idea per scene**, max 40 characters per text
   5. **End with CTA** - "구독과 좋아요!" style
+  6. **실제 인물/브랜드 씬은 requires_web_search: true 필수!** (아래 상세 규칙 참조)
 
   ## Scene Types
   | Type | Duration | Purpose |
@@ -129,42 +130,90 @@ template: |
   - headline이 없으면 영상 생성 불가! 반드시 포함해야 함
 
   ## JSON Format
+  각 scene 객체의 필드:
+  - `scene_type`: "hook" | "content" | "example" | "commentary" | "conclusion" | "cta"
+  - `text`: 화면 자막용 (GPT-4, Claude 3.5 원본 표기)
+  - `tts_text`: TTS 발음용 (GPT 사, 클로드 삼점오) - text와 다를 때만 포함
+  - `visual_keyword`: 영어 3-5단어, 이미지 검색용
+  - `requires_web_search`: true (실제 인물/브랜드) | false (일반 장면)
+  - `emphasis_words`: 강조할 단어 배열
+
   ```json
   {
     "headline": "키워드, 한마디",
     "scenes": [
       {
-        "scene_type": "hook|content|example|commentary|conclusion|cta",
-        "text": "자막용 (GPT-4, Claude 3.5 원본 표기)",
-        "tts_text": "발음용 (GPT 사, 클로드 삼점오) - 다를 때만",
-        "visual_keyword": "3-5 English words for visual search",
-        "emphasis_words": ["word1"]
+        "scene_type": "hook",
+        "text": "GPT-4를 넘었습니다!",
+        "tts_text": "GPT 사를 넘었습니다!",
+        "visual_keyword": "AI benchmark chart",
+        "requires_web_search": false,
+        "emphasis_words": ["넘었습니다"]
+      },
+      {
+        "scene_type": "content",
+        "text": "니키미나즈가 폭로했어요",
+        "visual_keyword": "Nicki Minaj",
+        "requires_web_search": true,
+        "emphasis_words": ["폭로"]
+      },
+      {
+        "scene_type": "commentary",
+        "text": "팬들 반응이 엇갈려요",
+        "visual_keyword": "fans social media reactions",
+        "requires_web_search": false,
+        "emphasis_words": []
       }
     ]
   }
   ```
 
-  ## text vs tts_text
-  - `text`: 화면에 표시 → "GPT-4를 넘었어요"
-  - `tts_text`: TTS 발음 → "GPT 사를 넘었어요" (다를 때만 포함)
+  ## text vs tts_text 규칙
+  - `text`: 화면에 표시되는 자막 (원본 표기)
+  - `tts_text`: TTS가 읽을 발음 (text와 다를 때만 포함!)
+  - text와 tts_text가 같으면 tts_text 생략
 
-  ## TTS 발음 규칙
-  - GPT-4 → GPT 사
-  - GPT-4o → GPT 포오
-  - Claude 3.5 → 클로드 삼점오
-  - API → 에이피아이
+  ### TTS 발음 변환 예시
+  | text (화면) | tts_text (발음) |
+  |-------------|-----------------|
+  | GPT-4 | GPT 사 |
+  | GPT-4o | GPT 포오 |
+  | Claude 3.5 | 클로드 삼점오 |
+  | API | 에이피아이 |
+  | iOS 18 | 아이오에스 십팔 |
+  | $100M | 일억 달러 |
 
   ## visual_keyword Tips
   - MUST be in English, 3-5 descriptive words
-  - Used for web search (Brave), stock search (Pexels/Pixabay), AND AI image generation
+  - Used for stock search (Pexels/Pixabay) or AI image generation
   - Each scene MUST have DIFFERENT visual_keyword (variety is critical)
-  - **If scene references a specific entity, INCLUDE ITS NAME** (person, brand, character, place, etc.)
-    - Good: "NewJeans Hanni interview", "Tesla Cybertruck", "Genshin Raiden Shogun", "Eiffel Tower night"
-    - Bad: "idol performance", "electric car", "game character", "famous landmark" (no name = wrong image)
   - For generic/abstract scenes: Use descriptive keywords
     - Good: "excited fans concert crowd", "office meeting discussion", "futuristic city night"
     - Bad: "music", "technology", "future" (too vague)
   - Make each scene's visual_keyword unique and specific to scene content
+
+  ## requires_web_search 판단 규칙
+
+  ### 핵심 원칙
+  - `true`: visual_keyword가 **실제 인물/브랜드/제품** (웹에서 실제 사진 검색)
+  - `false`: visual_keyword가 **일반 장면/추상적 개념** (스톡이미지/AI 생성)
+
+  ### true 예시 (실제 사진 필요)
+  | visual_keyword | 이유 |
+  |----------------|------|
+  | "BTS Jungkook" | 실제 인물 |
+  | "Nicki Minaj concert" | 실제 인물 |
+  | "Elon Musk interview" | 실제 인물 |
+  | "Tesla Cybertruck" | 특정 제품 |
+  | "iPhone 15 Pro" | 특정 제품 |
+
+  ### false 예시 (스톡/AI 가능)
+  | visual_keyword | 이유 |
+  |----------------|------|
+  | "excited concert fans" | 일반 장면 |
+  | "futuristic city night" | 추상적 |
+  | "office meeting" | 일반 장면 |
+  | "smartphone technology" | 일반 명사 |
 
   % if avoid_words:
   Avoid these words: ${", ".join(avoid_words)}

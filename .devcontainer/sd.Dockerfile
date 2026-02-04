@@ -15,10 +15,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Install Python dependencies
+# Pin transformers<5.0 to avoid MT5Tokenizer removal issue
+# (diffusers 0.36 fix is merged but not yet released with full compatibility)
 RUN pip install --no-cache-dir \
     torch \
-    diffusers>=0.26.0 \
-    transformers>=4.38.0 \
+    diffusers>=0.36.0 \
+    "transformers>=4.40.0,<5.0.0" \
     accelerate>=0.27.0 \
     safetensors>=0.4.0 \
     fastapi>=0.109.0 \

@@ -228,7 +228,7 @@ class VisualConfig(BaseModel):
 
     source_priority: list[str] = Field(
         default=[
-            "brave_image",  # Brave Search
+            "tavily_image",  # Tavily web image search (celebrities, real people)
             "pexels_video",  # Pexels videos
             "pixabay_video",  # Pixabay videos
             "pexels_image",  # Pexels images
@@ -239,7 +239,9 @@ class VisualConfig(BaseModel):
         ],
         description="Source priority order",
     )
-    brave_enabled: bool = Field(default=True, description="Enable Brave Search for web images")
+    tavily_image_enabled: bool = Field(
+        default=True, description="Enable Tavily for web image search"
+    )
     pexels: VisualSourceConfig = Field(default_factory=VisualSourceConfig)
     pixabay: PixabayConfig = Field(default_factory=PixabayConfig)
     stable_diffusion: StableDiffusionConfig = Field(default_factory=StableDiffusionConfig)

@@ -480,11 +480,6 @@ class ServiceContainer(containers.DeclarativeContainer):
         api_key=global_config.provided.pixabay_api_key,
     )
 
-    brave_client = providers.Singleton(
-        "app.services.generator.visual.brave.BraveImageClient",
-        api_key=global_config.provided.brave_search_api_key,
-    )
-
     dalle_generator = providers.Singleton(
         "app.services.generator.visual.dall_e.DALLEGenerator",
         api_key=global_config.provided.openai_api_key,
@@ -493,6 +488,13 @@ class ServiceContainer(containers.DeclarativeContainer):
     sd_generator = providers.Singleton(
         "app.services.generator.visual.stable_diffusion.StableDiffusionGenerator",
         http_client=infrastructure.http_client,
+    )
+
+    tavily_image_client = providers.Singleton(
+        "app.services.generator.visual.tavily_image.TavilyImageClient",
+        tavily_client=tavily_client,
+        http_client=infrastructure.http_client,
+        sd_generator=sd_generator,
     )
 
     fallback_generator = providers.Factory(
@@ -505,7 +507,7 @@ class ServiceContainer(containers.DeclarativeContainer):
         config=configs.visual_config,
         pexels_client=pexels_client,
         pixabay_client=pixabay_client,
-        brave_client=brave_client,
+        tavily_image_client=tavily_image_client,
         dalle_generator=dalle_generator,
         sd_generator=sd_generator,
         fallback_generator=fallback_generator,

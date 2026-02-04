@@ -110,31 +110,23 @@ def _load_txt2img_pipeline() -> Any:
 def _load_img2img_pipeline() -> Any:
     """Load RealVisXL V5.0 Lightning image-to-image pipeline.
 
+    Derives from txt2img pipeline to share model weights and save memory.
+
     Returns:
         Loaded diffusion pipeline
     """
-    global _device
-    if _device == "cpu":
-        _device = _detect_device()
+    global _txt2img_pipeline, _device
 
-    logger.info(f"Loading RealVisXL V5.0 Lightning img2img on device: {_device}")
+    # Ensure txt2img is loaded first (shares weights)
+    if _txt2img_pipeline is None:
+        _txt2img_pipeline = _load_txt2img_pipeline()
 
-    torch_dtype = torch.float16 if _device in ("cuda", "mps") else torch.float32
+    logger.info("Creating img2img pipeline from txt2img (shared weights)")
 
-    pipeline = AutoPipelineForImage2Image.from_pretrained(
-        "SG161222/RealVisXL_V5.0_Lightning",
-        torch_dtype=torch_dtype,
-        variant="fp16" if torch_dtype == torch.float16 else None,
-    )
+    # Create img2img from txt2img pipeline (shares model weights)
+    pipeline = AutoPipelineForImage2Image.from_pipe(_txt2img_pipeline)
 
-    pipeline = pipeline.to(_device)
-
-    if _device == "cuda":
-        pipeline.enable_model_cpu_offload()
-    elif _device != "mps":
-        pipeline.enable_sequential_cpu_offload()
-
-    logger.info(f"RealVisXL V5.0 Lightning img2img loaded successfully on {_device}")
+    logger.info(f"RealVisXL V5.0 Lightning img2img ready on {_device}")
     return pipeline
 
 
@@ -688,18 +680,133 @@ async def evaluate_video(request: EvaluateVideoRequest) -> EvaluateVideoResponse
         raise HTTPException(status_code=500, detail=f"Evaluation failed: {e}") from e
 
 
+class UpscaleRequest(BaseModel):
+    """Image upscaling request using SD img2img."""
+
+    image: str = Field(..., description="Base64 encoded input image")
+    scale: int = Field(default=2, ge=2, le=4, description="Upscale factor (2x, 3x, or 4x)")
+    prompt: str = Field(
+        default="high resolution, detailed, sharp, 8k uhd",
+        description="Enhancement prompt",
+    )
+
+
+class UpscaleResponse(BaseModel):
+    """Image upscaling response."""
+
+    image: str = Field(..., description="Base64 encoded upscaled image")
+    width: int = Field(..., description="Output width")
+    height: int = Field(..., description="Output height")
+    original_width: int = Field(..., description="Original width")
+    original_height: int = Field(..., description="Original height")
+
+
+@app.post("/upscale", response_model=UpscaleResponse)
+async def upscale(request: UpscaleRequest) -> UpscaleResponse:
+    """Upscale image using SD img2img with low strength.
+
+    Uses Stable Diffusion img2img pipeline with very low strength (0.15-0.25)
+    to enhance resolution while preserving the original image content.
+
+    Args:
+        request: Upscale parameters
+
+    Returns:
+        Upscaled image as base64
+
+    Raises:
+        HTTPException: If upscaling fails
+    """
+    global _img2img_pipeline
+
+    # Lazy load pipeline if not loaded
+    if _img2img_pipeline is None:
+        try:
+            _img2img_pipeline = _load_img2img_pipeline()
+        except Exception as e:
+            logger.error(f"Failed to load img2img pipeline: {e}")
+            raise HTTPException(status_code=503, detail=f"Model loading failed: {e}") from e
+
+    # Decode input image
+    try:
+        input_image = _base64_to_image(request.image)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid image: {e}") from e
+
+    original_width, original_height = input_image.size
+
+    # Calculate target size (must be multiples of 8 for SD)
+    target_width = ((original_width * request.scale) // 8) * 8
+    target_height = ((original_height * request.scale) // 8) * 8
+
+    # SDXL requires minimum 512x512, cap at 1024
+    target_width = max(512, min(target_width, 1024))
+    target_height = max(512, min(target_height, 1024))
+
+    try:
+        logger.info(
+            f"Upscaling image: {original_width}x{original_height} -> "
+            f"{target_width}x{target_height} (scale={request.scale})"
+        )
+
+        # Resize input to target size using high-quality resampling
+        resized_image = input_image.resize(
+            (target_width, target_height),
+            Image.Resampling.LANCZOS,
+        )
+
+        # Use low strength to preserve original content
+        # strength * num_inference_steps must be >= 1 to avoid "0 elements" tensor error
+        # Higher scale = slightly higher strength for better detail enhancement
+        strength = 0.3 + (request.scale - 2) * 0.05  # 0.30 for 2x, 0.35 for 3x, 0.40 for 4x
+
+        seed = int(torch.randint(0, 2**32, (1,)).item())
+        generator = torch.Generator(device=_device).manual_seed(seed)
+
+        result = _img2img_pipeline(
+            prompt=request.prompt,
+            negative_prompt="blurry, low quality, pixelated, noise, artifacts",
+            image=resized_image,
+            strength=strength,
+            num_inference_steps=4,  # Lightning model works best with 4-6 steps
+            guidance_scale=0.0,  # Lightning model uses CFG=0
+            generator=generator,
+        )
+
+        output_image = result.images[0]
+        image_base64 = _image_to_base64(output_image)
+
+        logger.info(
+            f"Upscale complete: {output_image.width}x{output_image.height} "
+            f"(strength={strength:.2f})"
+        )
+
+        return UpscaleResponse(
+            image=image_base64,
+            width=output_image.width,
+            height=output_image.height,
+            original_width=original_width,
+            original_height=original_height,
+        )
+
+    except Exception as e:
+        logger.error(f"Upscaling failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Upscaling failed: {e}") from e
+
+
 @app.get("/")
 async def root() -> dict[str, str | dict[str, str]]:
     """Root endpoint with API info."""
     return {
         "service": "Stable Diffusion",
         "model": "RealVisXL V5.0 Lightning",
-        "version": "2.0.0",
+        "version": "2.2.0",
         "endpoints": {
             "health": "/health",
             "generate": "/generate (txt2img)",
-            "evaluate_video": "/evaluate_video (CLIP video)",
             "img2img": "/img2img",
+            "upscale": "/upscale (SD img2img based)",
             "evaluate": "/evaluate (CLIP)",
+            "evaluate_video": "/evaluate_video (CLIP video)",
         },
     }

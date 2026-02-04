@@ -664,11 +664,15 @@ class ScriptGenerator:
                     )
                     scene_type = SceneType.CONTENT
 
+                visual_keyword = raw.get("visual_keyword")
+                requires_web_search = raw.get("requires_web_search", False)
+
                 scenes.append(
                     Scene(
                         scene_type=scene_type,
                         text=raw.get("text", ""),
-                        visual_keyword=raw.get("visual_keyword"),
+                        visual_keyword=visual_keyword,
+                        requires_web_search=requires_web_search,
                         emphasis_words=raw.get("emphasis_words", []),
                     )
                 )
