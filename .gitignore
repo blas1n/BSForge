@@ -185,6 +185,7 @@ analytics/
 reports/
 performance/
 metrics/
+!app/services/analytics/
 
 # Jupyter Notebooks (analytics)
 *.ipynb
