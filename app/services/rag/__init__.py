@@ -15,6 +15,7 @@ from app.services.rag.chunker import ScriptChunker
 from app.services.rag.classifier import ContentClassifier
 from app.services.rag.context import ContextBuilder
 from app.services.rag.embedder import ContentEmbedder
+from app.services.rag.facade import RAGFacade
 from app.services.rag.generator import ScriptGenerator
 from app.services.rag.prompt import PromptBuilder
 from app.services.rag.reranker import RAGReranker
@@ -30,4 +31,5 @@ __all__ = [
     "ContextBuilder",
     "PromptBuilder",
     "ScriptGenerator",
+    "RAGFacade",
 ]

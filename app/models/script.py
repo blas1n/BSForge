@@ -76,6 +76,17 @@ class Script(Base, UUIDMixin, TimestampMixin):
     # Headline for video
     headline: Mapped[str] = mapped_column(String(30), nullable=False, default="")
 
+    # YouTube Metadata (generated with script)
+    youtube_title: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, comment="YouTube video title"
+    )
+    youtube_description: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="YouTube video description"
+    )
+    youtube_tags: Mapped[list[str] | None] = mapped_column(
+        ARRAY(String), nullable=True, comment="YouTube video tags"
+    )
+
     # Scene-based structure (new)
     # Stores JSON array: [{scene_type, text, keyword, visual_hint, ...}, ...]
     scenes: Mapped[list[dict[str, Any]] | None] = mapped_column(

@@ -126,6 +126,14 @@ class Config(BaseSettings):
     google_redirect_uri: str = Field(
         default="http://localhost:8000/auth/google/callback", description="OAuth redirect URI"
     )
+    youtube_credentials_path: str = Field(
+        default="config/youtube_credentials.json",
+        description="Path to YouTube OAuth credentials file",
+    )
+    youtube_token_path: str = Field(
+        default="config/youtube_token.pickle",
+        description="Path to YouTube OAuth token file",
+    )
 
     # ============================================
     # Text-to-Speech
