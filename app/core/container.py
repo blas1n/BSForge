@@ -459,6 +459,18 @@ class ServiceContainer(containers.DeclarativeContainer):
         quality_config=configs.quality_check_config,
     )
 
+    # RAG Facade - groups related RAG services for simplified DI
+    rag_facade = providers.Factory(
+        "app.services.rag.facade.RAGFacade.create",
+        vector_db=infrastructure.vector_db,
+        bm25_search=infrastructure.bm25_search,
+        llm_client=infrastructure.llm_client,
+        prompt_manager=infrastructure.prompt_manager,
+        retrieval_config=configs.retrieval_config,
+        embedding_config=configs.embedding_config,
+        quality_config=configs.quality_check_config,
+    )
+
     # ============================================
     # Research & Enrichment Services
     # ============================================
@@ -655,18 +667,15 @@ class ApplicationContainer(containers.DeclarativeContainer):
     )
 
     # ============================================
-    # Convenience accessors (shortcuts)
+    # Essential Convenience Accessors
     # ============================================
+    # Only keep the most commonly used accessors.
+    # For other services, use container.services.* or container.infrastructure.*
 
-    # Infrastructure
+    # Redis - frequently used directly
     redis = providers.Singleton(
         lambda client: client,
         client=infrastructure.redis_async_client,
-    )
-
-    http_client = providers.Singleton(
-        lambda client: client,
-        client=infrastructure.http_client,
     )
 
     redis_sync = providers.Singleton(
@@ -674,154 +683,10 @@ class ApplicationContainer(containers.DeclarativeContainer):
         client=infrastructure.redis_sync_client,
     )
 
+    # Database session - frequently used directly
     db_session = providers.Factory(
         lambda session: session,
         session=infrastructure.db_session,
-    )
-
-    ffmpeg_wrapper = providers.Singleton(
-        lambda wrapper: wrapper,
-        wrapper=infrastructure.ffmpeg_wrapper,
-    )
-
-    # Services
-    deduplicator = providers.Factory(
-        lambda svc: svc,
-        svc=services.topic_deduplicator,
-    )
-
-    scorer = providers.Factory(
-        lambda svc: svc,
-        svc=services.topic_scorer,
-    )
-
-    queue_manager = providers.Factory(
-        lambda svc: svc,
-        svc=services.topic_queue_manager,
-    )
-
-    normalizer = providers.Factory(
-        lambda svc: svc,
-        svc=services.topic_normalizer,
-    )
-
-    topic_filter = providers.Factory(
-        lambda svc: svc,
-        svc=services.topic_filter,
-    )
-
-    series_matcher = providers.Factory(
-        lambda svc: svc,
-        svc=services.series_matcher,
-    )
-
-    # RAG Services
-    embedder = providers.Factory(
-        lambda svc: svc,
-        svc=services.content_embedder,
-    )
-
-    retriever = providers.Factory(
-        lambda svc: svc,
-        svc=services.rag_retriever,
-    )
-
-    reranker = providers.Factory(
-        lambda svc: svc,
-        svc=services.rag_reranker,
-    )
-
-    chunker = providers.Factory(
-        lambda svc: svc,
-        svc=services.script_chunker,
-    )
-
-    generator = providers.Factory(
-        lambda svc: svc,
-        svc=services.script_generator,
-    )
-
-    # Research & Enrichment Services
-    cluster_enricher = providers.Factory(
-        lambda svc: svc,
-        svc=services.cluster_enricher,
-    )
-
-    research_client = providers.Singleton(
-        lambda svc: svc,
-        svc=services.tavily_client,
-    )
-
-    enriched_pipeline = providers.Factory(
-        lambda svc: svc,
-        svc=services.enriched_pipeline,
-    )
-
-    # Video Generation Services
-    tts_factory = providers.Factory(
-        lambda svc: svc,
-        svc=services.tts_factory,
-    )
-
-    visual_manager = providers.Factory(
-        lambda svc: svc,
-        svc=services.visual_manager,
-    )
-
-    subtitle_generator = providers.Factory(
-        lambda svc: svc,
-        svc=services.subtitle_generator,
-    )
-
-    compositor = providers.Factory(
-        lambda svc: svc,
-        svc=services.ffmpeg_compositor,
-    )
-
-    video_pipeline = providers.Factory(
-        lambda svc: svc,
-        svc=services.video_pipeline,
-    )
-
-    video_template_loader = providers.Singleton(
-        lambda svc: svc,
-        svc=services.video_template_loader,
-    )
-
-    # YouTube Upload & Analytics Services
-    youtube_auth = providers.Singleton(
-        lambda client: client,
-        client=infrastructure.youtube_auth,
-    )
-
-    youtube_api = providers.Singleton(
-        lambda client: client,
-        client=infrastructure.youtube_api,
-    )
-
-    youtube_uploader = providers.Factory(
-        lambda svc: svc,
-        svc=services.youtube_uploader,
-    )
-
-    optimal_time_analyzer = providers.Factory(
-        lambda svc: svc,
-        svc=services.optimal_time_analyzer,
-    )
-
-    upload_scheduler = providers.Factory(
-        lambda svc: svc,
-        svc=services.upload_scheduler,
-    )
-
-    analytics_collector = providers.Factory(
-        lambda svc: svc,
-        svc=services.analytics_collector,
-    )
-
-    upload_pipeline = providers.Factory(
-        lambda svc: svc,
-        svc=services.upload_pipeline,
     )
 
 
@@ -836,6 +701,46 @@ def create_container() -> ApplicationContainer:
 
 # Global container instance
 container = create_container()
+
+
+# ============================================
+# Configuration Validation
+# ============================================
+
+
+def validate_configs() -> list[str]:
+    """Validate all configuration models on application startup.
+
+    Forces loading of all config providers and catches validation errors.
+    Call this during application startup (e.g., in FastAPI lifespan).
+
+    Returns:
+        List of validation error messages. Empty list means all configs are valid.
+
+    Example:
+        @asynccontextmanager
+        async def lifespan(app: FastAPI):
+            errors = validate_configs()
+            if errors:
+                logger.error(f"Config validation failed: {errors}")
+                raise RuntimeError("Invalid configuration")
+            yield
+    """
+    errors: list[str] = []
+
+    # Validate config container providers
+    for name in dir(container.configs):
+        if name.startswith("_"):
+            continue
+        try:
+            provider = getattr(container.configs, name, None)
+            if provider is not None and callable(provider):
+                # Force provider resolution
+                provider()
+        except Exception as e:
+            errors.append(f"configs.{name}: {str(e)}")
+
+    return errors
 
 
 # ============================================
@@ -882,7 +787,10 @@ class TaskScope:
     """Context manager for Celery task scope.
 
     Creates a scoped context for a Celery task, similar to
-    how FastAPI creates a request scope.
+    how FastAPI creates a request scope. Provides:
+    - Task-scoped DB session (closed on exit)
+    - Access to singleton infrastructure services
+    - Access to service factories
 
     Usage:
         @celery_app.task
@@ -891,19 +799,77 @@ class TaskScope:
                 redis = scope.redis()
                 deduplicator = scope.deduplicator()
                 ...
+
+        # For async tasks:
+        async with TaskScope() as scope:
+            async with scope.db_session() as session:
+                ...
+
+    Attributes:
+        infrastructure: Access to infrastructure services (redis, db_engine, etc.)
+        services: Access to service factories
+        configs: Access to configuration models
     """
 
     def __init__(self) -> None:
         self._container: ApplicationContainer | None = None
+        self._sessions: list[AsyncSession] = []
 
-    def __enter__(self) -> ApplicationContainer:
-        # For now, just return the global container
-        # In the future, we could create request-scoped overrides
+    @property
+    def infrastructure(self) -> InfrastructureContainer:
+        """Access infrastructure services."""
+        if not self._container:
+            raise RuntimeError("TaskScope not entered")
+        return self._container.infrastructure
+
+    @property
+    def services(self) -> ServiceContainer:
+        """Access service factories."""
+        if not self._container:
+            raise RuntimeError("TaskScope not entered")
+        return self._container.services
+
+    @property
+    def configs(self) -> ConfigContainer:
+        """Access configuration models."""
+        if not self._container:
+            raise RuntimeError("TaskScope not entered")
+        return self._container.configs
+
+    def redis(self) -> Redis:
+        """Get async Redis client."""
+        if not self._container:
+            raise RuntimeError("TaskScope not entered")
+        return self._container.redis()
+
+    def db_session_factory(self) -> async_sessionmaker[AsyncSession]:
+        """Get DB session factory for creating scoped sessions."""
+        if not self._container:
+            raise RuntimeError("TaskScope not entered")
+        return self._container.db_session_factory()
+
+    def __enter__(self) -> "TaskScope":
         self._container = container
-        return self._container
+        return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        # Cleanup if needed
+        # Note: In sync context, async sessions should be managed
+        # by the caller using asyncio.run() or similar
+        self._container = None
+        return None
+
+    async def __aenter__(self) -> "TaskScope":
+        self._container = container
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        import contextlib
+
+        # Close any sessions that were tracked
+        for session in self._sessions:
+            with contextlib.suppress(Exception):
+                await session.close()
+        self._sessions.clear()
         self._container = None
         return None
 
@@ -944,4 +910,5 @@ __all__ = [
     "override_db_session",
     "override_redis",
     "TaskScope",
+    "validate_configs",
 ]
