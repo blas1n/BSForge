@@ -17,6 +17,7 @@ from app.models.base import Base, TimestampMixin, UUIDMixin
 if TYPE_CHECKING:
     from app.models.channel import Channel
     from app.models.script import Script
+    from app.models.upload import Upload
 
 
 class VideoStatus(str, enum.Enum):
@@ -103,7 +104,7 @@ class Video(Base, UUIDMixin, TimestampMixin):
     # Relationships
     channel: Mapped["Channel"] = relationship("Channel", back_populates="videos")
     script: Mapped["Script"] = relationship("Script", back_populates="videos")
-    # NOTE: upload relationship will be added in Phase 6
+    upload: Mapped["Upload | None"] = relationship("Upload", back_populates="video", uselist=False)
 
     # Composite Indexes
     __table_args__ = (

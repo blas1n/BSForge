@@ -147,6 +147,21 @@ class InfrastructureContainer(containers.DeclarativeContainer):
         "app.services.generator.ffmpeg.FFmpegWrapper",
     )
 
+    # ============================================
+    # YouTube API Infrastructure
+    # ============================================
+
+    youtube_auth = providers.Singleton(
+        "app.infrastructure.youtube_auth.YouTubeAuthClient",
+        credentials_path=global_config.provided.youtube_credentials_path,
+        token_path=global_config.provided.youtube_token_path,
+    )
+
+    youtube_api = providers.Singleton(
+        "app.infrastructure.youtube_api.YouTubeAPIClient",
+        auth_client=youtube_auth,
+    )
+
 
 class ConfigContainer(containers.DeclarativeContainer):
     """Configuration models container.
@@ -271,6 +286,26 @@ class ConfigContainer(containers.DeclarativeContainer):
 
     bgm_config = providers.Singleton(
         "app.config.bgm.BGMConfig",
+    )
+
+    # ============================================
+    # YouTube Upload & Analytics configs
+    # ============================================
+
+    schedule_preference_config = providers.Singleton(
+        "app.config.youtube_upload.SchedulePreferenceConfig",
+    )
+
+    youtube_api_config = providers.Singleton(
+        "app.config.youtube_upload.YouTubeAPIConfig",
+    )
+
+    analytics_config = providers.Singleton(
+        "app.config.youtube_upload.AnalyticsConfig",
+    )
+
+    youtube_upload_pipeline_config = providers.Singleton(
+        "app.config.youtube_upload.YouTubeUploadPipelineConfig",
     )
 
 
@@ -554,6 +589,43 @@ class ServiceContainer(containers.DeclarativeContainer):
         bgm_manager=bgm_manager,
     )
 
+    # ============================================
+    # YouTube Upload & Analytics Services
+    # ============================================
+
+    youtube_uploader = providers.Factory(
+        "app.services.uploader.youtube_uploader.YouTubeUploader",
+        youtube_api=infrastructure.youtube_api,
+        db_session_factory=infrastructure.db_session_factory,
+    )
+
+    optimal_time_analyzer = providers.Factory(
+        "app.services.analytics.optimal_time.OptimalTimeAnalyzer",
+        db_session_factory=infrastructure.db_session_factory,
+        config=configs.analytics_config,
+    )
+
+    upload_scheduler = providers.Factory(
+        "app.services.scheduler.upload_scheduler.UploadScheduler",
+        db_session_factory=infrastructure.db_session_factory,
+        config=configs.schedule_preference_config,
+        optimal_time_analyzer=optimal_time_analyzer,
+    )
+
+    analytics_collector = providers.Factory(
+        "app.services.analytics.collector.YouTubeAnalyticsCollector",
+        youtube_api=infrastructure.youtube_api,
+        db_session_factory=infrastructure.db_session_factory,
+        config=configs.analytics_config,
+    )
+
+    upload_pipeline = providers.Factory(
+        "app.services.uploader.pipeline.UploadPipeline",
+        uploader=youtube_uploader,
+        db_session_factory=infrastructure.db_session_factory,
+        config=configs.youtube_upload_pipeline_config,
+    )
+
 
 class ApplicationContainer(containers.DeclarativeContainer):
     """Root application container.
@@ -714,6 +786,42 @@ class ApplicationContainer(containers.DeclarativeContainer):
     video_template_loader = providers.Singleton(
         lambda svc: svc,
         svc=services.video_template_loader,
+    )
+
+    # YouTube Upload & Analytics Services
+    youtube_auth = providers.Singleton(
+        lambda client: client,
+        client=infrastructure.youtube_auth,
+    )
+
+    youtube_api = providers.Singleton(
+        lambda client: client,
+        client=infrastructure.youtube_api,
+    )
+
+    youtube_uploader = providers.Factory(
+        lambda svc: svc,
+        svc=services.youtube_uploader,
+    )
+
+    optimal_time_analyzer = providers.Factory(
+        lambda svc: svc,
+        svc=services.optimal_time_analyzer,
+    )
+
+    upload_scheduler = providers.Factory(
+        lambda svc: svc,
+        svc=services.upload_scheduler,
+    )
+
+    analytics_collector = providers.Factory(
+        lambda svc: svc,
+        svc=services.analytics_collector,
+    )
+
+    upload_pipeline = providers.Factory(
+        lambda svc: svc,
+        svc=services.upload_pipeline,
     )
 
 

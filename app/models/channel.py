@@ -16,6 +16,7 @@ from app.models.base import Base, TimestampMixin, UUIDMixin
 if TYPE_CHECKING:
     from app.models.content_chunk import ContentChunk
     from app.models.script import Script
+    from app.models.series import Series
     from app.models.source import Source
     from app.models.topic import Topic
     from app.models.video import Video
@@ -97,6 +98,9 @@ class Channel(Base, UUIDMixin, TimestampMixin):
     )
     videos: Mapped[list["Video"]] = relationship(
         "Video", back_populates="channel", cascade="all, delete-orphan"
+    )
+    series_list: Mapped[list["Series"]] = relationship(
+        "Series", back_populates="channel", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:

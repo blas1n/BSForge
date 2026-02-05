@@ -27,6 +27,7 @@ from app.models.base import Base, TimestampMixin, UUIDMixin
 if TYPE_CHECKING:
     from app.models.channel import Channel
     from app.models.script import Script
+    from app.models.series import Series
     from app.models.source import Source
 
 
@@ -79,7 +80,9 @@ class Topic(Base, UUIDMixin, TimestampMixin):
     source_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("sources.id", ondelete="SET NULL"), nullable=True
     )
-    # NOTE: series_id FK will be added in Phase 6 when Series model is implemented
+    series_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("series.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     # Title Variants
     title_original: Mapped[str] = mapped_column(Text, nullable=False)
@@ -122,6 +125,7 @@ class Topic(Base, UUIDMixin, TimestampMixin):
     # Relationships
     channel: Mapped["Channel"] = relationship("Channel", back_populates="topics")
     source: Mapped["Source"] = relationship("Source", back_populates="topics")
+    series: Mapped["Series | None"] = relationship("Series", back_populates="topics")
     scripts: Mapped[list["Script"]] = relationship(
         "Script", back_populates="topic", cascade="all, delete-orphan"
     )

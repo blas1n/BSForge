@@ -44,6 +44,12 @@ from app.config.sources import (
     WebScraperConfig,
     YouTubeTrendingConfig,
 )
+from app.config.youtube_upload import (
+    AnalyticsConfig,
+    SchedulePreferenceConfig,
+    YouTubeAPIConfig,
+    YouTubeUploadPipelineConfig,
+)
 
 
 class ChannelConfig(BaseModel):
@@ -120,4 +126,9 @@ __all__ = [
     "WebScraperConfig",
     # Main
     "ChannelConfig",
+    # YouTube Upload & Analytics
+    "SchedulePreferenceConfig",
+    "YouTubeAPIConfig",
+    "AnalyticsConfig",
+    "YouTubeUploadPipelineConfig",
 ]
