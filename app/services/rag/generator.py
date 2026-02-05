@@ -636,18 +636,6 @@ class ScriptGenerator:
         else:
             raw_scenes = None
 
-        # Fallback: try to extract JSON array (legacy format)
-        if raw_scenes is None:
-            json_arr_match = re.search(r"\[[\s\S]*\]", response)
-            if not json_arr_match:
-                raise ScriptGenerationError(
-                    f"No valid JSON in scene response. Got: {response[:200]}..."
-                )
-            try:
-                raw_scenes = json.loads(json_arr_match.group())
-            except json.JSONDecodeError as e:
-                raise ScriptGenerationError(f"Invalid JSON in scene response: {e}") from e
-
         if not isinstance(raw_scenes, list) or len(raw_scenes) == 0:
             raise ScriptGenerationError("Scene response must be a non-empty array")
 
