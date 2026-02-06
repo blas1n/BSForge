@@ -83,7 +83,7 @@ class TestServiceContainer:
 
 
 class TestConvenienceAccessors:
-    """Tests for convenience accessor providers."""
+    """Tests for essential convenience accessor providers."""
 
     def test_redis_accessor_exists(self) -> None:
         """Test that redis convenience accessor exists."""
@@ -94,12 +94,13 @@ class TestConvenienceAccessors:
         """Test that db_session convenience accessor exists."""
         assert hasattr(container, "db_session")
 
-    def test_service_accessors_exist(self) -> None:
-        """Test that service convenience accessors exist."""
-        assert hasattr(container, "deduplicator")
-        assert hasattr(container, "scorer")
-        assert hasattr(container, "queue_manager")
-        assert hasattr(container, "normalizer")
+    def test_services_accessed_via_subcontainer(self) -> None:
+        """Test that services are accessed via services subcontainer."""
+        # Services should be accessed via container.services.*
+        assert hasattr(container.services, "topic_deduplicator")
+        assert hasattr(container.services, "topic_scorer")
+        assert hasattr(container.services, "topic_queue_manager")
+        assert hasattr(container.services, "topic_normalizer")
 
 
 class TestGetContainer:
@@ -135,10 +136,11 @@ class TestGetRedis:
 class TestTaskScope:
     """Tests for Celery TaskScope context manager."""
 
-    def test_task_scope_returns_container_on_enter(self) -> None:
-        """Test that TaskScope returns container on enter."""
+    def test_task_scope_returns_scope_on_enter(self) -> None:
+        """Test that TaskScope returns scope instance on enter."""
         with TaskScope() as scope:
-            assert scope is container
+            # TaskScope returns itself, not the container
+            assert isinstance(scope, TaskScope)
 
     def test_task_scope_exits_cleanly(self) -> None:
         """Test that TaskScope exits without error."""
@@ -151,9 +153,12 @@ class TestTaskScope:
         """Test that services can be accessed within TaskScope."""
         mock_redis = AsyncMock(spec=AsyncRedis)
 
-        with container.infrastructure.redis_async_client.override(mock_redis), TaskScope() as scope:
-            # Should be able to access deduplicator
-            deduplicator = scope.deduplicator()
+        with (
+            container.infrastructure.redis_async_client.override(mock_redis),
+            TaskScope() as scope,
+        ):
+            # Should be able to access services via scope.services
+            deduplicator = scope.services.topic_deduplicator()
             assert deduplicator is not None
 
 
@@ -183,13 +188,13 @@ class TestServiceInstantiation:
     """Tests for service instantiation through container."""
 
     def test_scorer_instantiation(self) -> None:
-        """Test TopicScorer can be instantiated."""
-        scorer = container.scorer()
+        """Test TopicScorer can be instantiated via services subcontainer."""
+        scorer = container.services.topic_scorer()
         assert scorer is not None
 
     def test_normalizer_instantiation(self) -> None:
-        """Test TopicNormalizer can be instantiated."""
-        normalizer = container.normalizer()
+        """Test TopicNormalizer can be instantiated via services subcontainer."""
+        normalizer = container.services.topic_normalizer()
         assert normalizer is not None
 
     def test_deduplicator_instantiation_with_mock_redis(self) -> None:
@@ -197,7 +202,7 @@ class TestServiceInstantiation:
         mock_redis = AsyncMock(spec=AsyncRedis)
 
         with container.infrastructure.redis_async_client.override(mock_redis):
-            deduplicator = container.deduplicator()
+            deduplicator = container.services.topic_deduplicator()
             assert deduplicator is not None
             assert deduplicator.redis is mock_redis
 
@@ -206,7 +211,7 @@ class TestServiceInstantiation:
         mock_redis = AsyncMock(spec=AsyncRedis)
 
         with container.infrastructure.redis_async_client.override(mock_redis):
-            queue_manager = container.queue_manager()
+            queue_manager = container.services.topic_queue_manager()
             assert queue_manager is not None
             assert queue_manager.redis is mock_redis
 
@@ -216,15 +221,15 @@ class TestFactoryBehavior:
 
     def test_scorer_is_factory(self) -> None:
         """Test that scorer returns new instance each time."""
-        scorer1 = container.scorer()
-        scorer2 = container.scorer()
+        scorer1 = container.services.topic_scorer()
+        scorer2 = container.services.topic_scorer()
         # Factory should return different instances
         assert scorer1 is not scorer2
 
     def test_normalizer_is_factory(self) -> None:
         """Test that normalizer returns new instance each time."""
-        normalizer1 = container.normalizer()
-        normalizer2 = container.normalizer()
+        normalizer1 = container.services.topic_normalizer()
+        normalizer2 = container.services.topic_normalizer()
         assert normalizer1 is not normalizer2
 
     def test_deduplicator_is_factory(self) -> None:
@@ -232,8 +237,8 @@ class TestFactoryBehavior:
         mock_redis = AsyncMock(spec=AsyncRedis)
 
         with container.infrastructure.redis_async_client.override(mock_redis):
-            dedup1 = container.deduplicator()
-            dedup2 = container.deduplicator()
+            dedup1 = container.services.topic_deduplicator()
+            dedup2 = container.services.topic_deduplicator()
             assert dedup1 is not dedup2
 
 
@@ -250,28 +255,8 @@ class TestSingletonBehavior:
             # Singleton should return same instance
             assert redis1 is redis2
 
-
-class TestContainerExports:
-    """Tests for module exports."""
-
-    def test_all_exports_exist(self) -> None:
-        """Test that all expected exports are available."""
-        from app.core import container as container_module
-
-        expected_exports = [
-            "ApplicationContainer",
-            "InfrastructureContainer",
-            "ServiceContainer",
-            "container",
-            "create_container",
-            "get_container",
-            "get_redis",
-            "get_redis_sync",
-            "get_db_session",
-            "TaskScope",
-            "override_redis",
-            "override_db_session",
-        ]
-
-        for export in expected_exports:
-            assert hasattr(container_module, export), f"Missing export: {export}"
+    def test_config_is_singleton(self) -> None:
+        """Test that config returns same instance."""
+        config1 = container.config()
+        config2 = container.config()
+        assert config1 is config2

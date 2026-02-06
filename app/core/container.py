@@ -460,15 +460,20 @@ class ServiceContainer(containers.DeclarativeContainer):
     )
 
     # RAG Facade - groups related RAG services for simplified DI
+    # Note: RAGFacade is a dataclass, instantiate directly with pre-configured components
     rag_facade = providers.Factory(
-        "app.services.rag.facade.RAGFacade.create",
-        vector_db=infrastructure.vector_db,
-        bm25_search=infrastructure.bm25_search,
+        "app.services.rag.facade.RAGFacade",
+        retriever=rag_retriever,
+        embedder=content_embedder,
+        context_builder=context_builder,
+        prompt_builder=prompt_builder,
+        chunker=script_chunker,
+        quality_checker=providers.Factory(
+            "app.services.rag.quality.ScriptQualityChecker",
+            config=configs.quality_check_config,
+        ),
         llm_client=infrastructure.llm_client,
         prompt_manager=infrastructure.prompt_manager,
-        retrieval_config=configs.retrieval_config,
-        embedding_config=configs.embedding_config,
-        quality_config=configs.quality_check_config,
     )
 
     # ============================================
