@@ -36,7 +36,7 @@ class LLMSettings(BaseModel):
     which model and parameters to use for that specific task.
     """
 
-    model: str = "anthropic/claude-3-5-haiku-20241022"
+    model: str = "anthropic/claude-haiku-4-5-20251001"
     max_tokens: int = 500
     temperature: float = 0.3
 
@@ -124,7 +124,7 @@ class PromptManager:
 
             # Parse LLM settings from template
             llm_settings = LLMSettings(
-                model=data.get("model", "anthropic/claude-3-5-haiku-20241022"),
+                model=data.get("model", "anthropic/claude-haiku-4-5-20251001"),
                 max_tokens=data.get("max_tokens", 500),
                 temperature=data.get("temperature", 0.3),
             )

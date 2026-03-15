@@ -35,14 +35,14 @@ class TestContentClassifier:
         return ContentClassifier(
             llm_client=mock_llm_client,
             prompt_manager=mock_prompt_manager,
-            model="anthropic/claude-3-5-haiku-20241022",
+            model="anthropic/claude-haiku-4-5-20251001",
         )
 
     def _create_mock_response(self, text: str) -> LLMResponse:
         """Create mock LLM response."""
         return LLMResponse(
             content=text,
-            model="anthropic/claude-3-5-haiku-20241022",
+            model="anthropic/claude-haiku-4-5-20251001",
             usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
         )
 
@@ -189,7 +189,7 @@ class TestContentClassifier:
         """Should use PromptManager for template rendering."""
         mock_llm_client.complete.return_value = LLMResponse(
             content="opinion: no\nexample: no\nanalogy: no",
-            model="anthropic/claude-3-5-haiku-20241022",
+            model="anthropic/claude-haiku-4-5-20251001",
             usage={},
         )
 
