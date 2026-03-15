@@ -26,6 +26,7 @@ from app.services.generator.visual.pexels import PexelsClient
 from app.services.generator.visual.pixabay import PixabayClient
 from app.services.generator.visual.stable_diffusion import StableDiffusionGenerator
 from app.services.generator.visual.tavily_image import TavilyImageClient
+from app.services.generator.visual.wan_video_source import WanVideoSource
 
 if TYPE_CHECKING:
     from app.models.scene import Scene
@@ -82,6 +83,7 @@ class VisualSourcingManager:
         tavily_image_client: TavilyImageClient,
         dalle_generator: DALLEGenerator,
         sd_generator: StableDiffusionGenerator,
+        wan_video_source: WanVideoSource,
         fallback_generator: FallbackGenerator,
     ) -> None:
         """Initialize VisualSourcingManager.
@@ -94,6 +96,7 @@ class VisualSourcingManager:
             tavily_image_client: Tavily web image search client instance
             dalle_generator: DALL-E generator instance
             sd_generator: Stable Diffusion generator instance
+            wan_video_source: Wan 2.2 video generation source instance
             fallback_generator: Fallback generator instance
         """
         self.config = config
@@ -103,6 +106,7 @@ class VisualSourcingManager:
         self._tavily_image = tavily_image_client
         self._dalle_generator = dalle_generator
         self._sd_generator = sd_generator
+        self._wan_video = wan_video_source
         self._fallback = fallback_generator
 
     async def source_visuals(
@@ -272,6 +276,14 @@ class VisualSourcingManager:
                 orientation=orientation,
             )
 
+        elif source_type == "wan_video":
+            return await self._generate_with_wan(
+                prompt=self._build_ai_prompt(keywords),
+                count=min(2, max_results),
+                orientation=orientation,
+                duration_needed=duration_needed,
+            )
+
         elif source_type == "dalle":
             return await self._dalle_generator.generate(
                 prompt=self._build_ai_prompt(keywords),
@@ -318,6 +330,37 @@ class VisualSourcingManager:
             prompt=prompt,
             count=count,
             orientation=orientation,
+        )
+
+    async def _generate_with_wan(
+        self,
+        prompt: str,
+        count: int,
+        orientation: Literal["portrait", "landscape", "square"],
+        duration_needed: float,
+    ) -> list[VisualAsset]:
+        """Generate video clips with Wan 2.2.
+
+        Args:
+            prompt: Video description prompt
+            count: Number of clips to generate
+            orientation: Video orientation
+            duration_needed: Total duration needed (used to size individual clips)
+
+        Returns:
+            List of generated video assets, empty if Wan unavailable
+        """
+        if not await self._wan_video.is_available():
+            return []
+
+        # Clip duration: aim for ~5s clips to cover duration
+        clip_duration = self._wan_video.default_duration
+
+        return await self._wan_video.generate(
+            prompt=prompt,
+            count=count,
+            orientation=orientation,
+            duration_seconds=clip_duration,
         )
 
     async def _download_asset(

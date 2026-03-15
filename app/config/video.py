@@ -208,6 +208,44 @@ class DALLEConfig(BaseModel):
     style: Literal["vivid", "natural"] = Field(default="natural", description="Generation style")
 
 
+class WanConfig(BaseModel):
+    """Wan 2.2 text-to-video generation configuration.
+
+    Wan runs as a separate Docker service and communicates via HTTP API.
+    Supports CUDA (NVIDIA) and CPU fallback.
+
+    Attributes:
+        service_url: Wan service HTTP endpoint
+        enabled: Whether to use Wan for video generation
+        timeout: Request timeout in seconds (longer than SD, video takes more time)
+        model_id: HuggingFace model ID to load
+        default_duration_seconds: Default video clip duration
+        default_fps: Default frames per second
+        base_width: Generation width (portrait: width < height)
+        base_height: Generation height (portrait: height > width)
+        wan_version: Model version for future A/B testing (2.2=local, 2.6=API)
+        enable_lipsync: Enable Wan 2.6 lip-sync (requires wan_version="2.6")
+    """
+
+    service_url: str = Field(default="http://wan:7861", description="Wan service URL")
+    enabled: bool = Field(default=True, description="Enable Wan generation")
+    timeout: float = Field(default=300.0, ge=30.0, le=900.0, description="Request timeout")
+    model_id: str = Field(default="Wan-AI/Wan2.2-T2V-1.3B", description="HuggingFace model ID")
+    default_duration_seconds: float = Field(
+        default=5.0, ge=2.0, le=10.0, description="Default clip duration"
+    )
+    default_fps: int = Field(default=16, ge=8, le=30, description="Default FPS")
+    base_width: int = Field(default=480, ge=256, le=1280, description="Generation width")
+    base_height: int = Field(default=832, ge=256, le=1280, description="Generation height")
+    # A/B testing flags (wan_version="2.6" uses fal.ai API instead of local service)
+    wan_version: Literal["2.2", "2.6"] = Field(
+        default="2.2", description="Wan version: 2.2=local, 2.6=fal.ai API"
+    )
+    enable_lipsync: bool = Field(
+        default=False, description="Enable Wan 2.6 lip-sync (wan_version=2.6 only)"
+    )
+
+
 class VisualConfig(BaseModel):
     """Visual sourcing configuration.
 
@@ -233,8 +271,7 @@ class VisualConfig(BaseModel):
             "pixabay_video",  # Pixabay videos
             "pexels_image",  # Pexels images
             "pixabay_image",  # Pixabay images
-            "stable_diffusion",  # Local SD image generation
-            "dalle",  # DALL-E image generation
+            "wan_video",  # Wan 2.2 AI video generation (local, free)
             "solid_color",  # Fallback
         ],
         description="Source priority order",
@@ -245,6 +282,7 @@ class VisualConfig(BaseModel):
     pexels: VisualSourceConfig = Field(default_factory=VisualSourceConfig)
     pixabay: PixabayConfig = Field(default_factory=PixabayConfig)
     stable_diffusion: StableDiffusionConfig = Field(default_factory=StableDiffusionConfig)
+    wan: WanConfig = Field(default_factory=WanConfig)
     dalle: DALLEConfig = Field(default_factory=DALLEConfig)
     fallback_color: str = Field(default="#1a1a2e", description="Fallback solid color")
     fallback_gradient: list[str] = Field(

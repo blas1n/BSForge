@@ -1,0 +1,55 @@
+# Cinematic Template (시네마틱 스타일)
+#
+# Dark moody theme, slow Ken Burns, fade transitions.
+# Best for: 미스터리, 역사, 다큐멘터리, 공포
+
+name: cinematic
+extends: korean_shorts_standard
+description: 시네마틱 스타일 - 어두운 톤, 느린 Ken Burns, 페이드 전환
+
+layout:
+  headline:
+    enabled: true
+    headline_animation: fade_in
+    line1:
+      color: "#C0C0C0"  # Silver
+    background_enabled: true
+    background_color: "#000000"
+    background_opacity: 0.7
+
+theme:
+  accent_color: "#C0C0C0"
+  secondary_color: "#808080"
+  font_family: "Pretendard"
+  headline_font_size_line1: 100
+  headline_font_size_line2: 70
+  subtitle_font_size: 90
+  headline_bg_color: "#000000"
+  headline_bg_opacity: 0.7
+  highlight_color: "#FF4444"  # Muted red
+  text_color: "#E0E0E0"
+  outline_color: "#000000"
+
+subtitle:
+  text_animation: fade_in
+  karaoke_enabled: false
+  highlight_color: "#FF4444"
+
+visual_effects:
+  ken_burns_enabled: true
+  ken_burns_zoom_speed: 0.0002  # Very slow
+  ken_burns_start_scale: 1.05
+  camera_movement: ken_burns
+  camera_movement_options:
+    - ken_burns
+    - tilt_up
+    - tilt_down
+    - zoom_out
+  randomize_camera: true
+  transition_type: crossfade
+  transition_duration: 0.3
+  segment_duration: 4.0
+  brightness: -0.05
+  contrast: 1.15
+  saturation: 0.9
+  warmth: -0.05

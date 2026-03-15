@@ -1,0 +1,48 @@
+# Minimal Text Template (미니멀 텍스트 스타일)
+#
+# Large centered text, minimal effects, clean design.
+# Best for: 명언, 팁, 인용구, 텍스트 중심 콘텐츠
+
+name: minimal_text
+extends: korean_shorts_standard
+description: 미니멀 텍스트 스타일 - 큰 중앙 텍스트, 최소 효과, 깔끔한 디자인
+
+layout:
+  headline:
+    enabled: true
+    headline_animation: pop
+    line1:
+      color: "#FFFFFF"
+    background_enabled: true
+    background_color: "#000000"
+    background_opacity: 0.85
+
+theme:
+  accent_color: "#FFFFFF"
+  secondary_color: "#CCCCCC"
+  font_family: "Pretendard"
+  headline_font_size_line1: 120
+  headline_font_size_line2: 85
+  subtitle_font_size: 110
+  headline_bg_color: "#000000"
+  headline_bg_opacity: 0.85
+  highlight_color: "#FFD700"
+  text_color: "#FFFFFF"
+  outline_color: "#333333"
+
+subtitle:
+  text_animation: pop
+  font_size: 110
+  karaoke_enabled: true
+  highlight_color: "#FFD700"
+
+visual_effects:
+  camera_movement: static
+  randomize_camera: false
+  transition_type: fade
+  transition_duration: 0.2
+  segment_duration: 3.0
+  brightness: -0.02
+  contrast: 1.0
+  saturation: 0.8
+  warmth: 0.0

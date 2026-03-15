@@ -12,8 +12,6 @@ import logging
 from pathlib import Path
 from typing import Any
 
-import whisper
-
 from app.services.generator.tts.base import (
     BaseTTSEngine,
     TTSResult,
@@ -240,6 +238,8 @@ class ElevenLabsEngine(BaseTTSEngine):
         """
         try:
             # Load model (cached after first load)
+            import whisper  # lazy: heavy dependency, only needed here
+
             model = whisper.load_model("base")
 
             # Transcribe with word timestamps

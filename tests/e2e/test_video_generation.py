@@ -18,7 +18,7 @@ from app.services.generator.compositor import FFmpegCompositor
 from app.services.generator.ffmpeg import FFmpegWrapper
 from app.services.generator.subtitle import SubtitleGenerator
 from app.services.generator.templates import ASSTemplateLoader
-from app.services.generator.tts.base import TTSConfig as TTSConfigDataclass
+from app.services.generator.tts.base import TTSSynthesisConfig as TTSConfigDataclass
 from app.services.generator.tts.edge import EdgeTTSEngine
 from app.services.generator.tts.utils import concatenate_scene_audio
 from app.services.generator.visual.fallback import FallbackGenerator

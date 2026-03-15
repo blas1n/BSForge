@@ -6,17 +6,18 @@ common data structures used across all visual implementations.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal
 
 
-class VisualSourceType(str, Enum):
+class VisualSourceType(StrEnum):
     """Types of visual sources."""
 
     STOCK_VIDEO = "stock_video"
     STOCK_IMAGE = "stock_image"
     AI_IMAGE = "ai_image"
+    AI_VIDEO = "ai_video"
     SOLID_COLOR = "solid_color"
     GRADIENT = "gradient"
 
@@ -60,7 +61,7 @@ class VisualAsset:
     @property
     def is_video(self) -> bool:
         """Check if this asset is a video."""
-        return self.type == VisualSourceType.STOCK_VIDEO
+        return self.type in (VisualSourceType.STOCK_VIDEO, VisualSourceType.AI_VIDEO)
 
     @property
     def is_image(self) -> bool:

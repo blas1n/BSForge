@@ -190,6 +190,15 @@ class TestVisualSourcingManager:
         return HTTPClient()
 
     @pytest.fixture
+    def mock_wan_video(self) -> AsyncMock:
+        """Create a mock Wan video source."""
+        client = AsyncMock()
+        client.generate = AsyncMock(return_value=[])
+        client.download = AsyncMock()
+        client.close = AsyncMock()
+        return client
+
+    @pytest.fixture
     def manager(
         self,
         http_client: HTTPClient,
@@ -198,6 +207,7 @@ class TestVisualSourcingManager:
         mock_tavily_image: AsyncMock,
         mock_dalle_generator: AsyncMock,
         mock_sd_generator: AsyncMock,
+        mock_wan_video: AsyncMock,
         mock_fallback: AsyncMock,
     ) -> VisualSourcingManager:
         """Create a VisualSourcingManager with mocked dependencies."""
@@ -209,6 +219,7 @@ class TestVisualSourcingManager:
             tavily_image_client=mock_tavily_image,
             dalle_generator=mock_dalle_generator,
             sd_generator=mock_sd_generator,
+            wan_video_source=mock_wan_video,
             fallback_generator=mock_fallback,
         )
 
@@ -281,12 +292,11 @@ class TestVisualConfig:
         assert "pixabay_video" in config.source_priority
         assert "pixabay_image" in config.source_priority
 
-    def test_sd_and_dalle_in_default_priority(self) -> None:
-        """Test that SD and DALL-E are included in default priority."""
+    def test_wan_video_in_default_priority(self) -> None:
+        """Test that Wan video is included in default priority."""
         config = VisualConfig()
 
-        assert "stable_diffusion" in config.source_priority
-        assert "dalle" in config.source_priority
+        assert "wan_video" in config.source_priority
 
     def test_stable_diffusion_enabled_default(self) -> None:
         """Test that Stable Diffusion is enabled by default."""
@@ -560,6 +570,11 @@ class TestVisualSourcingManagerWithPixabay:
         mock_tavily_image.download = AsyncMock()
         mock_tavily_image.close = AsyncMock()
 
+        mock_wan_video = AsyncMock()
+        mock_wan_video.generate = AsyncMock(return_value=[])
+        mock_wan_video.download = AsyncMock()
+        mock_wan_video.close = AsyncMock()
+
         return VisualSourcingManager(
             http_client=http_client,
             config=VisualConfig(),
@@ -568,6 +583,7 @@ class TestVisualSourcingManagerWithPixabay:
             tavily_image_client=mock_tavily_image,
             dalle_generator=mock_dalle_generator,
             sd_generator=mock_sd_generator,
+            wan_video_source=mock_wan_video,
             fallback_generator=mock_fallback,
         )
 

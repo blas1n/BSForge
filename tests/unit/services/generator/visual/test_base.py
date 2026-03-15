@@ -19,12 +19,13 @@ class TestVisualSourceType:
         assert VisualSourceType.STOCK_VIDEO.value == "stock_video"
         assert VisualSourceType.STOCK_IMAGE.value == "stock_image"
         assert VisualSourceType.AI_IMAGE.value == "ai_image"
+        assert VisualSourceType.AI_VIDEO.value == "ai_video"
         assert VisualSourceType.SOLID_COLOR.value == "solid_color"
         assert VisualSourceType.GRADIENT.value == "gradient"
 
     def test_enum_count(self):
         """Test expected number of enum values."""
-        assert len(VisualSourceType) == 5
+        assert len(VisualSourceType) == 6
 
     def test_is_string_enum(self):
         """Test that enum is a string enum."""
@@ -109,6 +110,12 @@ class TestVisualAssetIsVideo:
 
         assert asset.is_video is False
 
+    def test_ai_video_is_video(self):
+        """Test that AI_VIDEO is identified as video."""
+        asset = VisualAsset(type=VisualSourceType.AI_VIDEO)
+
+        assert asset.is_video is True
+
 
 class TestVisualAssetIsImage:
     """Tests for VisualAsset.is_image property."""
@@ -142,6 +149,12 @@ class TestVisualAssetIsImage:
         asset = VisualAsset(type=VisualSourceType.GRADIENT)
 
         assert asset.is_image is True
+
+    def test_ai_video_is_not_image(self):
+        """Test that AI_VIDEO is not image."""
+        asset = VisualAsset(type=VisualSourceType.AI_VIDEO)
+
+        assert asset.is_image is False
 
 
 class TestVisualAssetIsDownloaded:

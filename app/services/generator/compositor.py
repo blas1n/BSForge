@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from app.config.persona import PersonaStyleConfig
     from app.config.video_template import VideoTemplateConfig
     from app.models.scene import Scene, VisualStyle
+    from app.services.generator.subtitle import SubtitleFile
     from app.services.generator.tts.base import SceneTTSResult
     from app.services.generator.visual.manager import SceneVisualResult
 
@@ -178,6 +179,7 @@ class FFmpegCompositor:
         persona_style: "PersonaStyleConfig | None" = None,
         background_music_path: Path | None = None,
         headline: str | None = None,
+        subtitle_data: "SubtitleFile | None" = None,
     ) -> CompositionResult:
         """Compose video from scene-based components.
 

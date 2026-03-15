@@ -1,0 +1,51 @@
+# News Infographic Template (뉴스/정보 스타일)
+#
+# Clean blue accents, slide transitions, professional feel.
+# Best for: 뉴스, 정보 전달, 팩트 체크, 사회 이슈
+
+name: news_infographic
+extends: korean_shorts_standard
+description: 뉴스/정보 스타일 - 깔끔한 파란색 계열, 슬라이드 전환, 전문적 느낌
+
+layout:
+  headline:
+    enabled: true
+    headline_animation: slide_up
+    line1:
+      color: "#00BFFF"  # Deep sky blue
+    background_enabled: true
+    background_color: "#0A1628"  # Dark navy
+    background_opacity: 0.95
+
+theme:
+  accent_color: "#00BFFF"
+  secondary_color: "#E0E0E0"
+  font_family: "Pretendard"
+  headline_font_size_line1: 105
+  headline_font_size_line2: 75
+  subtitle_font_size: 95
+  headline_bg_color: "#0A1628"
+  headline_bg_opacity: 0.95
+  highlight_color: "#00FF7F"  # Spring green
+  text_color: "#FFFFFF"
+  outline_color: "#000000"
+
+subtitle:
+  text_animation: slide_up
+  karaoke_enabled: false
+  highlight_color: "#00FF7F"
+
+visual_effects:
+  camera_movement: static
+  camera_movement_options:
+    - static
+    - pan_left
+    - pan_right
+  randomize_camera: true
+  transition_type: slide_left
+  transition_duration: 0.2
+  segment_duration: 3.0
+  brightness: 0.0
+  contrast: 1.05
+  saturation: 1.0
+  warmth: 0.0

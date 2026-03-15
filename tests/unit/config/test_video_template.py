@@ -243,8 +243,12 @@ class TestVisualEffectsConfig:
             config = VisualEffectsConfig(transition_type=transition)
             assert config.transition_type == transition
 
+        for extra_transition in ["slide_left", "slide_right", "zoom", "wipe"]:
+            config = VisualEffectsConfig(transition_type=extra_transition)
+            assert config.transition_type == extra_transition
+
         with pytest.raises(ValidationError):
-            VisualEffectsConfig(transition_type="wipe")
+            VisualEffectsConfig(transition_type="invalid_transition")
 
     def test_color_grading_ranges(self):
         """Test color grading validation."""

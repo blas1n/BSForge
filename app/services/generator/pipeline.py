@@ -21,6 +21,7 @@ from app.models.script import Script
 from app.services.generator.bgm import BGMManager
 from app.services.generator.compositor import FFmpegCompositor
 from app.services.generator.ffmpeg import FFmpegWrapper
+from app.services.generator.remotion_compositor import RemotionCompositor
 from app.services.generator.subtitle import SubtitleGenerator
 from app.services.generator.tts.base import TTSSynthesisConfig
 from app.services.generator.tts.factory import TTSEngineFactory
@@ -93,7 +94,7 @@ class VideoGenerationPipeline:
         tts_factory: TTSEngineFactory,
         visual_manager: VisualSourcingManager,
         subtitle_generator: SubtitleGenerator,
-        compositor: FFmpegCompositor,
+        compositor: FFmpegCompositor | RemotionCompositor,
         ffmpeg_wrapper: FFmpegWrapper,
         db_session_factory: SessionFactory,
         config: VideoGenerationConfig,
@@ -106,7 +107,7 @@ class VideoGenerationPipeline:
             tts_factory: TTS engine factory
             visual_manager: Visual sourcing manager
             subtitle_generator: Subtitle generator
-            compositor: FFmpeg compositor
+            compositor: Video compositor (FFmpeg or Remotion)
             ffmpeg_wrapper: FFmpeg wrapper for type-safe operations
             db_session_factory: Database session factory
             config: Video generation configuration
@@ -285,6 +286,9 @@ class VideoGenerationPipeline:
                 background_music_path=background_music_path,
                 persona_style=persona_style,
                 headline=headline,
+                # subtitle_data is used by RemotionCompositor for karaoke word timestamps
+                # FFmpegCompositor ignores this extra kwarg gracefully
+                subtitle_data=subtitle_file if self.config.subtitle.enabled else None,
             )
 
             logger.info(f"Video composed: {composition_result.duration_seconds:.1f}s")
