@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   AbsoluteFill,
   Easing,
@@ -7,7 +7,6 @@ import {
   staticFile,
   useCurrentFrame,
   useVideoConfig,
-  Video,
 } from "remotion";
 import { CameraMovement, TransitionType, VisualAsset } from "../types";
 
@@ -190,6 +189,39 @@ function getTransitionTransform(
 }
 
 /**
+ * Native <video> element that syncs to the current frame without delayRender.
+ * Remotion's <Video> component calls delayRender() internally which causes
+ * 28s timeouts when Chromium can't decode the video codec (VP9, AV1, etc.).
+ * This component silently fails on unsupported codecs.
+ */
+const NativeVideo: React.FC<{
+  src: string;
+  style: React.CSSProperties;
+  onError: () => void;
+  currentTimeSec: number;
+}> = ({ src, style, onError, currentTimeSec }) => {
+  const ref = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (el && el.readyState >= 1) {
+      el.currentTime = currentTimeSec;
+    }
+  }, [currentTimeSec]);
+
+  return (
+    <video
+      ref={ref}
+      src={src}
+      style={style}
+      muted
+      playsInline
+      onError={onError}
+    />
+  );
+};
+
+/**
  * Single image/video visual with camera movement and transitions.
  */
 const SingleVisual: React.FC<SingleVisualProps> = ({
@@ -255,13 +287,11 @@ const SingleVisual: React.FC<SingleVisualProps> = ({
   return (
     <div style={containerStyle}>
       {asset.type === "video" ? (
-        <Video
+        <NativeVideo
           src={staticFile(asset.path)}
           style={mediaStyle}
-          muted
-          loop
-          volume={0}
           onError={handleError}
+          currentTimeSec={frameOffset / fps}
         />
       ) : (
         <Img src={staticFile(asset.path)} style={mediaStyle} />

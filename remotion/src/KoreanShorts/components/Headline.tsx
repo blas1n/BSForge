@@ -26,11 +26,28 @@ const DEFAULT_SAFE_ZONE: SafeZone = {
   right_px: 120,
 };
 
+/** Text outline via multi-directional text-shadow for readability on any background */
+function makeOutlineShadow(color: string, size: number): string {
+  return [
+    `${-size}px ${-size}px 0 ${color}`,
+    `${size}px ${-size}px 0 ${color}`,
+    `${-size}px ${size}px 0 ${color}`,
+    `${size}px ${size}px 0 ${color}`,
+    `0 ${-size}px 0 ${color}`,
+    `0 ${size}px 0 ${color}`,
+    `${-size}px 0 0 ${color}`,
+    `${size}px 0 0 ${color}`,
+    `0 0 12px rgba(0,0,0,0.6)`,
+  ].join(", ");
+}
+
 /**
  * Top headline area for Korean Shorts.
  *
- * Positioned below the platform safe zone to avoid being hidden
- * by YouTube/TikTok UI overlays.
+ * Uses a top-to-transparent gradient instead of a solid background band
+ * so the background visual shows through naturally.
+ *
+ * Text readability is ensured via heavy outline + drop shadow.
  *
  * Entrance: Line 1 slides from left with spring physics,
  * Line 2 slides from right with a staggered delay.
@@ -52,8 +69,6 @@ export const Headline: React.FC<HeadlineProps> = ({
   const fontFamily = `'${theme?.font_family ?? "Pretendard"}', 'Noto Sans KR', sans-serif`;
   const line1Color = theme?.accent_color ?? accentColor;
   const line2Color = theme?.secondary_color ?? "#FFFFFF";
-  const bgColor = theme?.headline_bg_color ?? "#000000";
-  const bgOpacity = theme?.headline_bg_opacity ?? 0.82;
   const fontSize1 = theme?.headline_font_size_line1 ?? 110;
   const fontSize2 = theme?.headline_font_size_line2 ?? 80;
 
@@ -84,32 +99,43 @@ export const Headline: React.FC<HeadlineProps> = ({
   // --- Scene-type glow for persona/emphasis ---
   const isPersona =
     currentSceneType === "commentary" || currentSceneType === "reaction";
-  const glowColor = isPersona ? line1Color : "transparent";
-  const boxShadow = isPersona
-    ? `inset 0 0 30px ${glowColor}40, 0 0 20px ${glowColor}30`
-    : "none";
+
+  // Text outline for readability
+  const outlineShadow = makeOutlineShadow("#000000", 4);
+  const personaGlow = isPersona
+    ? `, 0 0 24px ${line1Color}80, 0 0 48px ${line1Color}40`
+    : "";
 
   return (
     <AbsoluteFill>
+      {/* Gradient overlay: top edge → transparent, so background shows through */}
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: sz.top_px + 320,
+          background: "linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.4) 60%, rgba(0,0,0,0) 100%)",
+          opacity: containerOpacity,
+          pointerEvents: "none",
+        }}
+      />
+
+      {/* Text container: positioned below safe zone top */}
       <div
         style={{
           position: "absolute",
           top: sz.top_px,
           left: 0,
           right: 0,
-          height: 280,
-          backgroundColor: `${bgColor}${Math.round(bgOpacity * 255)
-            .toString(16)
-            .padStart(2, "0")}`,
           display: "flex",
           flexDirection: "column",
-          justifyContent: "center",
+          justifyContent: "flex-start",
           alignItems: "center",
           padding: `0 ${Math.max(sz.left_px, sz.right_px)}px`,
           gap: 8,
           opacity: containerOpacity,
-          boxShadow,
-          transition: "box-shadow 0.3s ease",
         }}
       >
         {line1 ? (
@@ -124,10 +150,10 @@ export const Headline: React.FC<HeadlineProps> = ({
               lineHeight: 1.1,
               letterSpacing: "-2px",
               width: "100%",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
+              wordBreak: "keep-all",
+              overflowWrap: "break-word",
               transform: `translateX(${line1TranslateX}px) scale(${line1Scale})`,
+              textShadow: outlineShadow + personaGlow,
             }}
           >
             {line1}
@@ -145,10 +171,10 @@ export const Headline: React.FC<HeadlineProps> = ({
               lineHeight: 1.1,
               letterSpacing: "-1px",
               width: "100%",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
+              wordBreak: "keep-all",
+              overflowWrap: "break-word",
               transform: `translateX(${line2TranslateX}px) scale(${line2Scale})`,
+              textShadow: outlineShadow,
             }}
           >
             {line2}

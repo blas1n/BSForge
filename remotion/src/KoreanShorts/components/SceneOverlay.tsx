@@ -58,8 +58,7 @@ export const SceneOverlay: React.FC<SceneOverlayProps> = ({
       <AbsoluteFill
         style={{
           backgroundColor: `rgba(0, 0, 0, ${0.4 * transitionProgress})`,
-          borderLeft: `6px solid ${accentColor}`,
-          boxShadow: `inset 8px 0 24px ${accentColor}40, inset -2px 0 12px ${accentColor}20`,
+          boxShadow: `inset 0 0 60px ${accentColor}25`,
           opacity: transitionProgress,
           pointerEvents: "none",
         }}
