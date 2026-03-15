@@ -115,24 +115,3 @@ enrichment:
   web_research:
     enabled: true
     max_queries: 3
-
-# Stable Diffusion (AI image generation)
-stable_diffusion:
-  service_url: "http://sd:7860"
-  enabled: true
-  timeout: 120.0
-
-  # Generation parameters
-  base_width: 768
-  base_height: 1024
-  output_width: 1080
-  output_height: 1920
-  num_inference_steps: 8
-  guidance_scale: 2.0
-
-  # Prompts
-  negative_prompt: "blurry, low quality, distorted, deformed, ugly, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, mutation"
-  ai_quality_suffix: "high quality, professional, sharp focus, 4k"
-
-  # img2img transformation
-  img2img_strength: 0.5

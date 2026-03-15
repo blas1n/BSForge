@@ -90,11 +90,11 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
   const segmentOpacity = Math.min(fadeInOpacity, fadeOutOpacity);
   const segmentTranslateY = fadeInY;
 
-  // Check if a word is an emphasis word
+  // Check if a word is an emphasis word (exact match or starts with emphasis word)
   const isEmphasis = (word: string): boolean => {
     if (emphasisWords.length === 0) return false;
     const clean = word.trim();
-    return emphasisWords.some((ew) => clean.includes(ew));
+    return emphasisWords.some((ew) => clean === ew || clean.startsWith(ew));
   };
 
   // Karaoke: find current word progress for smooth color transition

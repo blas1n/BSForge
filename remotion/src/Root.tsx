@@ -6,6 +6,8 @@ import type { KoreanShortsProps } from "./KoreanShorts/types";
 const defaultProps: KoreanShortsProps = {
   duration_seconds: 60,
   fps: 30,
+  width: 1080,
+  height: 1920,
   audio_path: "",
   bgm_path: null,
   bgm_volume: 0.08,
@@ -28,15 +30,15 @@ export const RemotionRoot: React.FC = () => {
         component={KoreanShorts as any}
         durationInFrames={defaultProps.duration_seconds * defaultProps.fps}
         fps={defaultProps.fps}
-        width={1080}
-        height={1920}
+        width={defaultProps.width}
+        height={defaultProps.height}
         defaultProps={defaultProps as any}
         calculateMetadata={async ({ props }: { props: any }) => {
           return {
             durationInFrames: Math.ceil(props.duration_seconds * props.fps),
             fps: props.fps,
-            width: 1080,
-            height: 1920,
+            width: props.width,
+            height: props.height,
           };
         }}
       />

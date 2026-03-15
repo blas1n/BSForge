@@ -232,7 +232,12 @@ const SingleVisual: React.FC<SingleVisualProps> = ({
   totalFrames,
 }) => {
   const [hasError, setHasError] = useState(false);
-  const handleError = useCallback(() => setHasError(true), []);
+  const handleError = useCallback(() => {
+    console.warn(
+      `[BackgroundVisual] Failed to decode video: ${asset.path} — falling back to black screen`,
+    );
+    setHasError(true);
+  }, [asset.path]);
 
   // Determine camera movement
   const movement: CameraMovement =

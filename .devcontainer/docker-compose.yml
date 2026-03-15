@@ -71,32 +71,8 @@ services:
     networks:
       - bsforge-network
 
-  # Stable Diffusion Service (SDXL Turbo)
-  # TODO: Mac GPU (Metal/MPS) support in Docker
-  #   - Docker cannot access Mac GPU (Apple blocks virtualized Metal access)
-  #   - Mac users fall back to CPU mode, or must run SD server on host
-  #     and change stable_diffusion.service_url accordingly
-  sd:
-    build:
-      context: ..
-      dockerfile: .devcontainer/sd.Dockerfile
-    restart: unless-stopped
-    environment:
-      - SD_DEVICE=auto
-      - HF_HOME=/root/.cache/huggingface
-    volumes:
-      - huggingface-cache:/root/.cache/huggingface
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:7860/health" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 120s
-    networks:
-      - bsforge-network
-
   # Wan 2.2 Text-to-Video Service
-  # Generates short video clips from text prompts (replaces SD for video generation)
+  # Generates short video clips from text prompts
   # NOTE: Mac GPU not supported in Docker; falls back to CPU (slow)
   wan:
     build:

@@ -7,7 +7,6 @@ import pytest
 
 from app.config.video import (
     PixabayConfig,
-    StableDiffusionConfig,
     VisualConfig,
 )
 from app.infrastructure.http_client import HTTPClient
@@ -15,7 +14,6 @@ from app.services.generator.visual.base import VisualAsset, VisualSourceType
 from app.services.generator.visual.fallback import FallbackGenerator
 from app.services.generator.visual.manager import VisualSourcingManager
 from app.services.generator.visual.pixabay import PixabayClient
-from app.services.generator.visual.stable_diffusion import StableDiffusionGenerator
 
 
 class TestVisualAsset:
@@ -158,25 +156,6 @@ class TestVisualSourcingManager:
         return client
 
     @pytest.fixture
-    def mock_dalle_generator(self) -> AsyncMock:
-        """Create a mock DALL-E generator."""
-        generator = AsyncMock()
-        generator.generate = AsyncMock(return_value=[])
-        generator.download = AsyncMock()
-        generator.close = AsyncMock()
-        return generator
-
-    @pytest.fixture
-    def mock_sd_generator(self) -> AsyncMock:
-        """Create a mock SD generator."""
-        generator = AsyncMock()
-        generator.is_available = AsyncMock(return_value=False)
-        generator.generate = AsyncMock(return_value=[])
-        generator.download = AsyncMock()
-        generator.close = AsyncMock()
-        return generator
-
-    @pytest.fixture
     def mock_fallback(self) -> AsyncMock:
         """Create a mock fallback generator."""
         generator = AsyncMock()
@@ -205,8 +184,6 @@ class TestVisualSourcingManager:
         mock_pexels: AsyncMock,
         mock_pixabay: AsyncMock,
         mock_tavily_image: AsyncMock,
-        mock_dalle_generator: AsyncMock,
-        mock_sd_generator: AsyncMock,
         mock_wan_video: AsyncMock,
         mock_fallback: AsyncMock,
     ) -> VisualSourcingManager:
@@ -217,8 +194,6 @@ class TestVisualSourcingManager:
             pexels_client=mock_pexels,
             pixabay_client=mock_pixabay,
             tavily_image_client=mock_tavily_image,
-            dalle_generator=mock_dalle_generator,
-            sd_generator=mock_sd_generator,
             wan_video_source=mock_wan_video,
             fallback_generator=mock_fallback,
         )
@@ -279,11 +254,10 @@ class TestVisualConfig:
 
     def test_custom_priority(self) -> None:
         """Test custom source priority."""
-        config = VisualConfig(source_priority=["stable_diffusion", "dalle", "solid_color"])
+        config = VisualConfig(source_priority=["wan_video", "solid_color"])
 
-        assert config.source_priority[0] == "stable_diffusion"
-        assert config.source_priority[1] == "dalle"
-        assert config.source_priority[2] == "solid_color"
+        assert config.source_priority[0] == "wan_video"
+        assert config.source_priority[1] == "solid_color"
 
     def test_pixabay_in_default_priority(self) -> None:
         """Test that Pixabay is included in default priority."""
@@ -297,12 +271,6 @@ class TestVisualConfig:
         config = VisualConfig()
 
         assert "wan_video" in config.source_priority
-
-    def test_stable_diffusion_enabled_default(self) -> None:
-        """Test that Stable Diffusion is enabled by default."""
-        config = VisualConfig()
-
-        assert config.stable_diffusion.enabled is True
 
 
 class TestPixabayConfig:
@@ -389,131 +357,6 @@ class TestPixabayClient:
         assert url is None
 
 
-class TestStableDiffusionGenerator:
-    """Test suite for StableDiffusionGenerator."""
-
-    @pytest.fixture
-    def http_client(self) -> HTTPClient:
-        """Create HTTP client."""
-        return HTTPClient()
-
-    @pytest.fixture
-    def config(self) -> StableDiffusionConfig:
-        """Create SD config."""
-        return StableDiffusionConfig(
-            service_url="http://localhost:7860",
-            enabled=True,
-        )
-
-    @pytest.fixture
-    def generator(
-        self, http_client: HTTPClient, config: StableDiffusionConfig
-    ) -> StableDiffusionGenerator:
-        """Create a StableDiffusionGenerator instance."""
-        return StableDiffusionGenerator(http_client=http_client, config=config)
-
-    @pytest.fixture
-    def disabled_generator(self, http_client: HTTPClient) -> StableDiffusionGenerator:
-        """Create a disabled StableDiffusionGenerator instance."""
-        config = StableDiffusionConfig(enabled=False)
-        return StableDiffusionGenerator(http_client=http_client, config=config)
-
-    @pytest.mark.asyncio
-    async def test_is_available_returns_false_when_disabled(
-        self, disabled_generator: StableDiffusionGenerator
-    ) -> None:
-        """Test that is_available returns False when disabled."""
-        result = await disabled_generator.is_available()
-
-        assert result is False
-
-    @pytest.mark.asyncio
-    async def test_generate_returns_empty_when_disabled(
-        self, disabled_generator: StableDiffusionGenerator
-    ) -> None:
-        """Test that generate returns empty list when disabled."""
-        assets = await disabled_generator.generate(
-            prompt="test prompt",
-            count=1,
-            orientation="portrait",
-        )
-
-        assert assets == []
-
-    @pytest.mark.asyncio
-    async def test_is_available_returns_false_on_connection_error(
-        self, generator: StableDiffusionGenerator
-    ) -> None:
-        """Test that is_available returns False when service is unreachable."""
-        # Service is not actually running, so should return False
-        result = await generator.is_available()
-
-        assert result is False
-
-    @pytest.mark.asyncio
-    async def test_generate_skips_when_service_unavailable(
-        self, generator: StableDiffusionGenerator
-    ) -> None:
-        """Test that generate returns empty list when service is unavailable."""
-        assets = await generator.generate(
-            prompt="test prompt",
-            count=1,
-            orientation="portrait",
-        )
-
-        assert assets == []
-
-    @pytest.mark.asyncio
-    async def test_download_saves_base64_image(
-        self, generator: StableDiffusionGenerator, tmp_path: Path
-    ) -> None:
-        """Test that download correctly saves base64 image data."""
-        import base64
-
-        # Create a small test PNG (1x1 red pixel)
-        png_data = (
-            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"
-            b"\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00\x00"
-            b"\x00\x0cIDATx\x9cc\xf8\xcf\xc0\x00\x00\x00\x03\x00\x01"
-            b"\x00\x05\xfe\xd4\x00\x00\x00\x00IEND\xaeB`\x82"
-        )
-
-        asset = VisualAsset(
-            type=VisualSourceType.AI_IMAGE,
-            source="stable_diffusion",
-            source_id="test_123",
-            width=512,
-            height=768,
-            metadata={
-                "image_base64": base64.b64encode(png_data).decode("utf-8"),
-                "seed": 123,
-            },
-        )
-
-        result = await generator.download(asset, tmp_path)
-
-        assert result.path is not None
-        assert result.path.exists()
-        assert result.path.suffix == ".png"
-
-    @pytest.mark.asyncio
-    async def test_download_raises_on_missing_data(
-        self, generator: StableDiffusionGenerator, tmp_path: Path
-    ) -> None:
-        """Test that download raises ValueError when image data is missing."""
-        asset = VisualAsset(
-            type=VisualSourceType.AI_IMAGE,
-            source="stable_diffusion",
-            source_id="test_no_data",
-            width=512,
-            height=768,
-            metadata={},
-        )
-
-        with pytest.raises(ValueError, match="no image data"):
-            await generator.download(asset, tmp_path)
-
-
 class TestVisualSourcingManagerWithPixabay:
     """Test VisualSourcingManager with Pixabay integration."""
 
@@ -528,16 +371,6 @@ class TestVisualSourcingManagerWithPixabay:
         return client
 
     @pytest.fixture
-    def mock_sd_generator(self) -> AsyncMock:
-        """Create a mock SD generator."""
-        generator = AsyncMock()
-        generator.is_available = AsyncMock(return_value=False)
-        generator.generate = AsyncMock(return_value=[])
-        generator.download = AsyncMock()
-        generator.close = AsyncMock()
-        return generator
-
-    @pytest.fixture
     def http_client(self) -> HTTPClient:
         """Create HTTP client."""
         return HTTPClient()
@@ -547,7 +380,6 @@ class TestVisualSourcingManagerWithPixabay:
         self,
         http_client: HTTPClient,
         mock_pixabay: AsyncMock,
-        mock_sd_generator: AsyncMock,
     ) -> VisualSourcingManager:
         """Create a VisualSourcingManager with all sources mocked."""
         mock_pexels = AsyncMock()
@@ -555,11 +387,6 @@ class TestVisualSourcingManagerWithPixabay:
         mock_pexels.search_images = AsyncMock(return_value=[])
         mock_pexels.download = AsyncMock()
         mock_pexels.close = AsyncMock()
-
-        mock_dalle_generator = AsyncMock()
-        mock_dalle_generator.generate = AsyncMock(return_value=[])
-        mock_dalle_generator.download = AsyncMock()
-        mock_dalle_generator.close = AsyncMock()
 
         mock_fallback = AsyncMock()
         mock_fallback.search = AsyncMock(return_value=[])
@@ -581,8 +408,6 @@ class TestVisualSourcingManagerWithPixabay:
             pexels_client=mock_pexels,
             pixabay_client=mock_pixabay,
             tavily_image_client=mock_tavily_image,
-            dalle_generator=mock_dalle_generator,
-            sd_generator=mock_sd_generator,
             wan_video_source=mock_wan_video,
             fallback_generator=mock_fallback,
         )

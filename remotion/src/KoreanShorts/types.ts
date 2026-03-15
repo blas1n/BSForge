@@ -102,6 +102,8 @@ export interface KoreanShortsProps {
   // Video parameters
   duration_seconds: number;
   fps: number;
+  width: number;
+  height: number;
 
   // Audio
   audio_path: string;

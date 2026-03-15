@@ -5,9 +5,7 @@ from pydantic import ValidationError
 
 from app.config.video import (
     CompositionConfig,
-    DALLEConfig,
     PixabayConfig,
-    StableDiffusionConfig,
     SubtitleConfig,
     SubtitleStyleConfig,
     ThumbnailConfig,
@@ -15,6 +13,7 @@ from app.config.video import (
     VideoGenerationConfig,
     VisualConfig,
     VisualSourceConfig,
+    WanConfig,
 )
 
 
@@ -174,77 +173,31 @@ class TestPixabayConfig:
             PixabayConfig(image_type="gif")
 
 
-class TestStableDiffusionConfig:
-    """Tests for StableDiffusionConfig model."""
+class TestWanConfig:
+    """Tests for WanConfig model."""
 
     def test_default_values(self):
         """Test default configuration values."""
-        config = StableDiffusionConfig()
-        assert config.service_url == "http://sd:7860"
+        config = WanConfig()
+        assert config.service_url == "http://wan:7861"
         assert config.enabled is True
-        assert config.timeout == 120.0
-        assert config.base_width == 768
-        assert config.base_height == 1024
-        assert config.num_inference_steps == 8
-        assert config.guidance_scale == 2.0
+        assert config.timeout == 300.0
+        assert config.default_duration_seconds == 5.0
+        assert config.default_fps == 16
 
     def test_timeout_range(self):
         """Test timeout validation."""
-        config = StableDiffusionConfig(timeout=10.0)
-        assert config.timeout == 10.0
+        config = WanConfig(timeout=30.0)
+        assert config.timeout == 30.0
 
-        config = StableDiffusionConfig(timeout=600.0)
-        assert config.timeout == 600.0
-
-        with pytest.raises(ValidationError):
-            StableDiffusionConfig(timeout=9.9)
+        config = WanConfig(timeout=900.0)
+        assert config.timeout == 900.0
 
         with pytest.raises(ValidationError):
-            StableDiffusionConfig(timeout=600.1)
-
-    def test_dimension_ranges(self):
-        """Test dimension validation."""
-        config = StableDiffusionConfig(base_width=256, base_height=256)
-        assert config.base_width == 256
-        assert config.base_height == 256
-
-        config = StableDiffusionConfig(base_width=1024, base_height=1024)
-        assert config.base_width == 1024
-        assert config.base_height == 1024
-
-
-class TestDALLEConfig:
-    """Tests for DALLEConfig model."""
-
-    def test_default_values(self):
-        """Test default configuration values."""
-        config = DALLEConfig()
-        assert config.model == "dall-e-3"
-        assert config.size == "1024x1792"
-        assert config.quality == "standard"
-        assert config.style == "natural"
-
-    def test_quality_options(self):
-        """Test quality validation."""
-        config = DALLEConfig(quality="standard")
-        assert config.quality == "standard"
-
-        config = DALLEConfig(quality="hd")
-        assert config.quality == "hd"
+            WanConfig(timeout=29.9)
 
         with pytest.raises(ValidationError):
-            DALLEConfig(quality="ultra")
-
-    def test_style_options(self):
-        """Test style validation."""
-        config = DALLEConfig(style="vivid")
-        assert config.style == "vivid"
-
-        config = DALLEConfig(style="natural")
-        assert config.style == "natural"
-
-        with pytest.raises(ValidationError):
-            DALLEConfig(style="abstract")
+            WanConfig(timeout=900.1)
 
 
 class TestVisualConfig:
@@ -258,24 +211,15 @@ class TestVisualConfig:
         assert config.cache_ttl_hours == 24
         assert isinstance(config.pexels, VisualSourceConfig)
         assert isinstance(config.pixabay, PixabayConfig)
-        assert isinstance(config.stable_diffusion, StableDiffusionConfig)
-        assert isinstance(config.dalle, DALLEConfig)
+        assert isinstance(config.wan, WanConfig)
 
     def test_threshold_ranges(self):
         """Test threshold validation."""
-        config = VisualConfig(
-            metadata_score_threshold=0.0,
-            clip_score_threshold=0.0,
-            clip_img2img_threshold=0.0,
-        )
+        config = VisualConfig(metadata_score_threshold=0.0)
         assert config.metadata_score_threshold == 0.0
 
-        config = VisualConfig(
-            metadata_score_threshold=1.0,
-            clip_score_threshold=1.0,
-            clip_img2img_threshold=1.0,
-        )
-        assert config.clip_score_threshold == 1.0
+        config = VisualConfig(metadata_score_threshold=1.0)
+        assert config.metadata_score_threshold == 1.0
 
 
 class TestCompositionConfig:

@@ -20,8 +20,8 @@ from app.config.persona import (
 )
 from app.models.scene import Scene, SceneScript, SceneType, TransitionType, VisualStyle
 from app.services.collector.base import ScoredTopic
-from app.services.generator.compositor import FFmpegCompositor
 from app.services.generator.ffmpeg import FFmpegWrapper
+from app.services.generator.remotion_compositor import RemotionCompositor
 from app.services.generator.subtitle import SubtitleGenerator
 from app.services.generator.tts.base import TTSSynthesisConfig as TTSConfigDataclass
 from app.services.generator.tts.edge import EdgeTTSEngine
@@ -101,7 +101,7 @@ OpenAI가 최근 발표한 새로운 기능들이 정말 대단한데요.
         skip_without_ffmpeg: None,
         ffmpeg_wrapper: FFmpegWrapper,
         edge_tts_engine: EdgeTTSEngine,
-        ffmpeg_compositor: FFmpegCompositor,
+        remotion_compositor: RemotionCompositor,
         subtitle_generator: SubtitleGenerator,
     ) -> None:
         """Test complete topic to video pipeline."""
@@ -143,7 +143,7 @@ OpenAI가 최근 발표한 새로운 기능들이 정말 대단한데요.
         # Step 4: Compose video
         video_path = temp_output_dir / "topic_video.mp4"
 
-        result = await ffmpeg_compositor.compose(
+        result = await remotion_compositor.compose(
             audio=tts_result,
             visuals=[visual],
             subtitle_file=subtitle_path,
@@ -176,7 +176,7 @@ class TestBatchVideoGeneration:
         skip_without_ffmpeg: None,
         ffmpeg_wrapper: FFmpegWrapper,
         edge_tts_engine: EdgeTTSEngine,
-        ffmpeg_compositor: FFmpegCompositor,
+        remotion_compositor: RemotionCompositor,
         subtitle_generator: SubtitleGenerator,
     ) -> None:
         """Test generating videos for multiple topics."""
@@ -218,7 +218,7 @@ class TestBatchVideoGeneration:
 
             # Compose
             video_path = topic_dir / "video.mp4"
-            await ffmpeg_compositor.compose(
+            await remotion_compositor.compose(
                 audio=tts_result,
                 visuals=[visual],
                 subtitle_file=sub_path,
@@ -437,7 +437,7 @@ class TestSceneBasedVideoGeneration:
         sample_scene_script: SceneScript,
         skip_without_ffmpeg: None,
         edge_tts_engine: EdgeTTSEngine,
-        ffmpeg_compositor: FFmpegCompositor,
+        remotion_compositor: RemotionCompositor,
         subtitle_generator: SubtitleGenerator,
     ) -> None:
         """Test video composition with scene-based structure."""
@@ -469,7 +469,7 @@ class TestSceneBasedVideoGeneration:
 
         # Compose video
         video_path = temp_output_dir / "scene_video.mp4"
-        result = await ffmpeg_compositor.compose(
+        result = await remotion_compositor.compose(
             audio=tts_result,
             visuals=[visual],
             subtitle_file=subtitle_path,
@@ -505,7 +505,7 @@ class TestFullPipelineIntegration:
         skip_without_ffmpeg: None,
         ffmpeg_wrapper: FFmpegWrapper,
         edge_tts_engine: EdgeTTSEngine,
-        ffmpeg_compositor: FFmpegCompositor,
+        remotion_compositor: RemotionCompositor,
         subtitle_generator: SubtitleGenerator,
     ) -> None:
         """Test complete pipeline: Topic -> SceneScript -> Video."""
@@ -563,7 +563,7 @@ class TestFullPipelineIntegration:
 
         # Compose
         video_path = temp_output_dir / "pipeline_video.mp4"
-        result = await ffmpeg_compositor.compose(
+        result = await remotion_compositor.compose(
             audio=tts_result,
             visuals=[visual],
             subtitle_file=subtitle_path,

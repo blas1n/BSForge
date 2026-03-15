@@ -5,7 +5,6 @@ Supports template-based styling for consistent visual appearance.
 Supports scene-based generation for BSForge's scene architecture.
 """
 
-import logging
 import shutil
 import time
 from dataclasses import dataclass, field
@@ -15,11 +14,11 @@ from typing import TYPE_CHECKING
 
 from app.config.video import VideoGenerationConfig
 from app.config.video_template import VideoTemplateConfig
+from app.core.logging import get_logger
 from app.core.template_loader import VideoTemplateLoader
 from app.core.types import SessionFactory
 from app.models.script import Script
 from app.services.generator.bgm import BGMManager
-from app.services.generator.compositor import FFmpegCompositor
 from app.services.generator.ffmpeg import FFmpegWrapper
 from app.services.generator.remotion_compositor import RemotionCompositor
 from app.services.generator.subtitle import SubtitleGenerator
@@ -32,7 +31,7 @@ if TYPE_CHECKING:
     from app.config.persona import PersonaStyleConfig
     from app.models.scene import SceneScript
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -94,7 +93,7 @@ class VideoGenerationPipeline:
         tts_factory: TTSEngineFactory,
         visual_manager: VisualSourcingManager,
         subtitle_generator: SubtitleGenerator,
-        compositor: FFmpegCompositor | RemotionCompositor,
+        compositor: RemotionCompositor,
         ffmpeg_wrapper: FFmpegWrapper,
         db_session_factory: SessionFactory,
         config: VideoGenerationConfig,
@@ -107,7 +106,7 @@ class VideoGenerationPipeline:
             tts_factory: TTS engine factory
             visual_manager: Visual sourcing manager
             subtitle_generator: Subtitle generator
-            compositor: Video compositor (FFmpeg or Remotion)
+            compositor: Video compositor (Remotion)
             ffmpeg_wrapper: FFmpeg wrapper for type-safe operations
             db_session_factory: Database session factory
             config: Video generation configuration
@@ -167,10 +166,6 @@ class VideoGenerationPipeline:
                 logger.info(f"Using video template: {template_name}")
             except Exception as e:
                 logger.warning(f"Failed to load template '{template_name}': {e}")
-
-        # Update compositor with template
-        if template:
-            self.compositor.template = template
 
         # Determine output directory (simplified to single UUID)
         output_dir = Path(self.config.output_dir) / str(script.id)
@@ -286,9 +281,8 @@ class VideoGenerationPipeline:
                 background_music_path=background_music_path,
                 persona_style=persona_style,
                 headline=headline,
-                # subtitle_data is used by RemotionCompositor for karaoke word timestamps
-                # FFmpegCompositor ignores this extra kwarg gracefully
                 subtitle_data=subtitle_file if self.config.subtitle.enabled else None,
+                video_template=template,
             )
 
             logger.info(f"Video composed: {composition_result.duration_seconds:.1f}s")

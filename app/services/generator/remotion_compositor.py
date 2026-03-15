@@ -11,13 +11,13 @@ import os
 import re
 import shutil
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from app.config.video import CompositionConfig
 from app.config.video_template import SafeZoneConfig, ThemeConfig, VisualEffectsConfig
 from app.core.logging import get_logger
-from app.services.generator.compositor import CompositionResult
 
 if TYPE_CHECKING:
     from app.config.persona import PersonaStyleConfig
@@ -29,8 +29,25 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-# Path to the Remotion project within the workspace
-_REMOTION_DIR = Path("/workspace/remotion")
+
+@dataclass
+class CompositionResult:
+    """Result of video composition.
+
+    Attributes:
+        video_path: Path to final video file
+        duration_seconds: Video duration
+        file_size_bytes: Video file size
+        resolution: Video resolution string
+        fps: Frames per second
+    """
+
+    video_path: Path
+    duration_seconds: float
+    file_size_bytes: int
+    resolution: str
+    fps: int
+
 
 # Composition ID registered in remotion/src/Root.tsx
 _COMPOSITION_ID = "KoreanShorts"
@@ -51,13 +68,19 @@ class RemotionCompositor:
     them.  The subdirectory is cleaned up after rendering.
     """
 
-    def __init__(self, config: CompositionConfig) -> None:
+    def __init__(
+        self,
+        config: CompositionConfig,
+        remotion_dir: Path | None = None,
+    ) -> None:
         """Initialize RemotionCompositor.
 
         Args:
             config: Video composition configuration
+            remotion_dir: Path to the Remotion project directory
         """
         self.config = config
+        self.remotion_dir = remotion_dir or Path("/workspace/remotion")
 
     async def compose_scenes(
         self,
@@ -129,7 +152,7 @@ class RemotionCompositor:
         # Stage assets into Remotion's public/ directory for staticFile() resolution.
         # Use a unique subdirectory per render to avoid collisions.
         render_id = f"_render_{os.getpid()}_{int(time.time())}"
-        public_dir = _REMOTION_DIR / "public" / render_id
+        public_dir = self.remotion_dir / "public" / render_id
         public_dir.mkdir(parents=True, exist_ok=True)
 
         audio_rel = self._stage_asset(combined_audio_path, public_dir, "audio", render_id)
@@ -176,6 +199,8 @@ class RemotionCompositor:
         props: dict = {
             "duration_seconds": total_duration,
             "fps": self.config.fps,
+            "width": self.config.width,
+            "height": self.config.height,
             "audio_path": audio_rel,
             "bgm_path": bgm_rel,
             "bgm_volume": bgm_volume,
@@ -302,7 +327,7 @@ class RemotionCompositor:
         Raises:
             RuntimeError: If Remotion render fails
         """
-        entry_point = _REMOTION_DIR / "src" / "index.ts"
+        entry_point = self.remotion_dir / "src" / "index.ts"
         cmd = [
             "npx",
             "remotion",
@@ -330,7 +355,7 @@ class RemotionCompositor:
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,
-            cwd=str(_REMOTION_DIR),
+            cwd=str(self.remotion_dir),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
