@@ -4,7 +4,7 @@ These tests verify the complete video generation workflow:
 1. TTS audio generation
 2. Subtitle creation
 3. Visual sourcing
-4. FFmpeg composition
+4. Remotion composition
 """
 
 import subprocess
@@ -14,11 +14,11 @@ import pytest
 
 from app.config.video import CompositionConfig, SubtitleConfig
 from app.models.scene import Scene, SceneScript, SceneType
-from app.services.generator.compositor import FFmpegCompositor
 from app.services.generator.ffmpeg import FFmpegWrapper
+from app.services.generator.remotion_compositor import RemotionCompositor
 from app.services.generator.subtitle import SubtitleGenerator
 from app.services.generator.templates import ASSTemplateLoader
-from app.services.generator.tts.base import TTSConfig as TTSConfigDataclass
+from app.services.generator.tts.base import TTSSynthesisConfig as TTSConfigDataclass
 from app.services.generator.tts.edge import EdgeTTSEngine
 from app.services.generator.tts.utils import concatenate_scene_audio
 from app.services.generator.visual.fallback import FallbackGenerator
@@ -181,7 +181,7 @@ class TestFullVideoPipeline:
         temp_output_dir: Path,
         skip_without_ffmpeg: None,
         edge_tts_engine: EdgeTTSEngine,
-        ffmpeg_compositor: FFmpegCompositor,
+        remotion_compositor: RemotionCompositor,
     ) -> None:
         """Test complete video generation from script to final video."""
         script_text = "안녕하세요. 이것은 E2E 테스트입니다."
@@ -226,7 +226,7 @@ class TestFullVideoPipeline:
         # Step 4: Compose video
         final_path = temp_output_dir / "final_video.mp4"
 
-        result = await ffmpeg_compositor.compose(
+        result = await remotion_compositor.compose(
             audio=tts_result,
             visuals=[downloaded_visual],
             subtitle_file=subtitle_path,
@@ -275,7 +275,7 @@ class TestVideoQuality:
         temp_output_dir: Path,
         skip_without_ffmpeg: None,
         edge_tts_engine: EdgeTTSEngine,
-        ffmpeg_compositor: FFmpegCompositor,
+        remotion_compositor: RemotionCompositor,
     ) -> None:
         """Test video meets YouTube Shorts specifications."""
         config = TTSConfigDataclass(voice_id="ko-KR-SunHiNeural")
@@ -292,7 +292,7 @@ class TestVideoQuality:
 
         final_path = temp_output_dir / "quality_test.mp4"
 
-        await ffmpeg_compositor.compose(
+        await remotion_compositor.compose(
             audio=tts_result,
             visuals=[visual],
             subtitle_file=None,
@@ -338,7 +338,7 @@ class TestSceneBasedPipeline:
         skip_without_ffmpeg: None,
         edge_tts_engine: EdgeTTSEngine,
         ffmpeg_wrapper: FFmpegWrapper,
-        ffmpeg_compositor: FFmpegCompositor,
+        remotion_compositor: RemotionCompositor,
     ) -> None:
         """Test complete scene-based video generation."""
         # Create sample scenes
@@ -434,7 +434,7 @@ class TestSceneBasedPipeline:
 
         final_path = temp_output_dir / "scene_video.mp4"
 
-        result = await ffmpeg_compositor.compose_scenes(
+        result = await remotion_compositor.compose_scenes(
             scenes=scenes,
             scene_tts_results=scene_tts_results,
             scene_visuals=scene_visuals,

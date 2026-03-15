@@ -26,7 +26,7 @@ class TestPromptManager:
         assert "${target_name}" in template.template
         assert "${text}" in template.template
         # Check LLM settings are loaded
-        assert template.llm_settings.model == "anthropic/claude-3-5-haiku-20241022"
+        assert template.llm_settings.model == "anthropic/claude-haiku-4-5-20251001"
         assert template.llm_settings.max_tokens == 500
         assert template.llm_settings.temperature == 0.2
 
@@ -40,7 +40,7 @@ class TestPromptManager:
         assert template.version == "1.2.0"
         assert "${text_to_analyze}" in template.template
         # Check LLM settings are loaded
-        assert template.llm_settings.model == "anthropic/claude-3-5-haiku-20241022"
+        assert template.llm_settings.model == "anthropic/claude-haiku-4-5-20251001"
         assert template.llm_settings.max_tokens == 500
         assert template.llm_settings.temperature == 0.3
 
@@ -220,7 +220,7 @@ class TestLLMSettings:
         """Should use default values."""
         settings = LLMSettings()
 
-        assert settings.model == "anthropic/claude-3-5-haiku-20241022"
+        assert settings.model == "anthropic/claude-haiku-4-5-20251001"
         assert settings.max_tokens == 500
         assert settings.temperature == 0.3
 

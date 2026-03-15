@@ -92,7 +92,7 @@ class Config(BaseSettings):
     # LLM Model Settings (LiteLLM format: provider/model-name)
     # Lightweight tasks (translation, classification, content classification)
     llm_model_light: str = Field(
-        default="anthropic/claude-3-5-haiku-20241022",
+        default="anthropic/claude-haiku-4-5-20251001",
         description="LLM model for lightweight tasks (translation, classification)",
     )
     llm_model_light_max_tokens: int = Field(

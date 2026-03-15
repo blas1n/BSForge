@@ -24,7 +24,12 @@ fi
 # 2. Ensure uv is in PATH for current session
 export PATH="$HOME/.local/bin:$PATH"
 
-# 3. Create virtual environment if it doesn't exist
+# 3. Create virtual environment (recreate if interpreter is invalid, e.g. host-created .venv)
+if [ -d ".venv" ] && ! .venv/bin/python3 --version &> /dev/null; then
+    echo ""
+    echo "Detected invalid .venv (likely created on host), recreating..."
+    rm -rf .venv
+fi
 if [ ! -d ".venv" ]; then
     echo ""
     echo "Creating virtual environment..."
@@ -40,14 +45,15 @@ echo ""
 echo "Installing Python dependencies..."
 if [ -f "pyproject.toml" ]; then
     # Use copy mode to avoid hardlink warnings (host volume vs container filesystem)
-    UV_LINK_MODE=copy uv pip install -e ".[dev]"
+    # uv sync handles [dependency-groups] (not [project.optional-dependencies])
+    UV_LINK_MODE=copy uv sync
     echo "[OK] Dependencies installed successfully"
 
     # 6. Set up pre-commit hooks (after dependencies are installed)
     echo ""
     echo "Setting up pre-commit hooks..."
     if [ -f ".pre-commit-config.yaml" ]; then
-        pre-commit install
+        uv run pre-commit install
         echo "[OK] Pre-commit hooks installed"
     else
         echo "[SKIP] .pre-commit-config.yaml not found"
@@ -85,11 +91,22 @@ else
     echo "[WARN] fc-cache not available, fonts may not be recognized"
 fi
 
-# 8. Make sure scripts are executable
+# 8. Install Remotion npm dependencies
+echo ""
+echo "Installing Remotion npm dependencies..."
+if [ -f "remotion/package.json" ]; then
+    cd remotion && npm install --prefer-offline 2>/dev/null || npm install
+    cd /workspace
+    echo "[OK] Remotion dependencies installed"
+else
+    echo "[SKIP] remotion/package.json not found"
+fi
+
+# 9. Make sure scripts are executable
 chmod +x .devcontainer/scripts/*.sh 2>/dev/null || true
 
-# 9. Add venv activation to bashrc
-if ! grep -q "source /workspace/.venv/bin/activate" ~/.bashrc; then
+# 10. Add venv activation to bashrc
+if ! grep -q "source /workspace/.venv/bin/activate" ~/.bashrc 2>/dev/null; then
     echo 'source /workspace/.venv/bin/activate' >> ~/.bashrc
     echo "[OK] Auto-activation added to bashrc"
 fi
@@ -103,6 +120,7 @@ echo "Available services:"
 echo "  - PostgreSQL 16: localhost:5432"
 echo "  - Redis 7:       localhost:6379"
 echo "  - FFmpeg:        pre-installed"
+echo "  - Remotion:      /workspace/remotion (npm installed)"
 echo ""
 echo "Quick start:"
 echo "  make dev     # Start FastAPI server"

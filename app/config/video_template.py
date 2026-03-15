@@ -33,6 +33,47 @@ from pydantic import BaseModel, Field
 from app.config.video import ThumbnailConfig
 
 
+class SafeZoneConfig(BaseModel):
+    """Platform-specific safe zone configuration.
+
+    Defines margins where platform UI overlays appear, ensuring
+    content (headlines, subtitles) remains visible.
+
+    YouTube Shorts: top=380, bottom=380, left=60, right=120
+    TikTok:         top=160, bottom=480, left=120, right=120
+    Cross-platform: top=380, bottom=480, left=120, right=120
+    """
+
+    top_px: int = Field(default=380, ge=0, le=600, description="Top margin in pixels")
+    bottom_px: int = Field(default=480, ge=0, le=800, description="Bottom margin in pixels")
+    left_px: int = Field(default=120, ge=0, le=300, description="Left margin in pixels")
+    right_px: int = Field(default=120, ge=0, le=300, description="Right margin in pixels")
+    platform: Literal["youtube", "tiktok", "cross_platform"] = Field(
+        default="cross_platform",
+        description="Target platform (determines default margins)",
+    )
+
+
+class ThemeConfig(BaseModel):
+    """Channel-specific visual theme configuration.
+
+    Allows per-channel customization of colors, fonts, and sizes.
+    Passed to Remotion components via props for consistent branding.
+    """
+
+    accent_color: str = Field(default="#FF69B4", description="Primary accent color (hex)")
+    secondary_color: str = Field(default="#FFFFFF", description="Secondary text color")
+    font_family: str = Field(default="Pretendard", description="Primary font family name")
+    headline_font_size_line1: int = Field(default=110, ge=48, le=200)
+    headline_font_size_line2: int = Field(default=80, ge=36, le=160)
+    subtitle_font_size: int = Field(default=100, ge=36, le=200)
+    headline_bg_color: str = Field(default="#000000", description="Headline background color")
+    headline_bg_opacity: float = Field(default=0.82, ge=0.0, le=1.0)
+    highlight_color: str = Field(default="#FFFF00", description="Karaoke highlight color")
+    text_color: str = Field(default="#FFFFFF", description="Primary text color")
+    outline_color: str = Field(default="#000000", description="Text outline color")
+
+
 class HeadlineLineConfig(BaseModel):
     """Configuration for a single headline line.
 
@@ -101,6 +142,9 @@ class HeadlineConfig(BaseModel):
         description="Letter spacing ratio (negative = tighter, 쇼츠 감성)",
     )
     max_width_ratio: float = Field(default=0.9, ge=0.5, le=1.0)
+
+    # Headline entrance animation
+    headline_animation: Literal["none", "fade_in", "slide_up", "pop", "bounce"] = "fade_in"
 
     # Shadow for better visibility on any background
     shadow_enabled: bool = True
@@ -229,6 +273,9 @@ class LayoutConfig(BaseModel):
         description="Vertical position ratio (0.18=bottom 18%, for UI safe zone)",
     )
 
+    # Safe zone for platform UI overlays
+    safe_zone: SafeZoneConfig = Field(default_factory=SafeZoneConfig)
+
     # Frame layout for "양산형" style (optional, for framed content)
     frame: FrameLayoutConfig = Field(default_factory=FrameLayoutConfig)
 
@@ -266,6 +313,9 @@ class SubtitleTemplateConfig(BaseModel):
     fade_out_ms: int = Field(default=100, ge=0, le=1000)
     karaoke_enabled: bool = True
 
+    # Text entrance animation
+    text_animation: Literal["none", "fade_in", "slide_up", "pop", "bounce"] = "fade_in"
+
     # Text layout
     max_chars_per_line: int = Field(default=20, ge=5, le=50)
     max_lines: int = Field(default=2, ge=1, le=4)
@@ -292,8 +342,36 @@ class VisualEffectsConfig(BaseModel):
         description="Starting scale for zoom-out effect",
     )
 
+    # Camera movement for background visuals
+    camera_movement: Literal[
+        "ken_burns",
+        "pan_left",
+        "pan_right",
+        "tilt_up",
+        "tilt_down",
+        "zoom_out",
+        "static",
+    ] = "ken_burns"
+    camera_movement_options: list[str] = Field(
+        default_factory=lambda: ["ken_burns", "pan_left", "pan_right", "zoom_out"],
+        description="Pool of camera movements to randomly assign per scene",
+    )
+    randomize_camera: bool = Field(
+        default=False,
+        description="Randomly select camera movement per scene from options",
+    )
+
     # Transitions
-    transition_type: Literal["none", "fade", "flash", "crossfade"] = "flash"
+    transition_type: Literal[
+        "none",
+        "fade",
+        "flash",
+        "crossfade",
+        "slide_left",
+        "slide_right",
+        "zoom",
+        "wipe",
+    ] = "flash"
     transition_duration: float = Field(default=0.15, ge=0.0, le=2.0)
 
     # Segment timing
@@ -410,11 +488,14 @@ class VideoTemplateConfig(BaseModel):
     audio: AudioTemplateConfig = Field(default_factory=AudioTemplateConfig)
     visual_prompt: VisualPromptConfig = Field(default_factory=VisualPromptConfig)
     thumbnail: ThumbnailConfig = Field(default_factory=ThumbnailConfig)
+    theme: ThemeConfig = Field(default_factory=ThemeConfig)
 
 
 __all__ = [
     "VideoTemplateConfig",
     "LayoutConfig",
+    "SafeZoneConfig",
+    "ThemeConfig",
     "HeadlineConfig",
     "HeadlineLineConfig",
     "CaptionConfig",

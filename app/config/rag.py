@@ -74,7 +74,7 @@ class QueryExpansionConfig(BaseModel):
 
     enabled: bool = Field(default=True)
     num_expansions: int = Field(default=2, ge=1, le=5)
-    model: str = Field(default="claude-3-5-haiku-20241022")
+    model: str = Field(default="claude-haiku-4-5-20251001")
     max_tokens: int = Field(default=100, ge=50, le=500)
 
 

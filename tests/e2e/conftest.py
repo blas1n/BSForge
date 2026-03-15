@@ -12,7 +12,6 @@ import pytest
 
 from app.config.video import CompositionConfig, SubtitleConfig
 from app.services.collector.base import NormalizedTopic, RawTopic, ScoredTopic
-from app.services.generator.compositor import FFmpegCompositor
 from app.services.generator.ffmpeg import FFmpegWrapper
 from app.services.generator.subtitle import SubtitleGenerator
 from app.services.generator.templates import ASSTemplateLoader
@@ -229,18 +228,6 @@ def ffmpeg_wrapper() -> FFmpegWrapper:
 def edge_tts_engine(ffmpeg_wrapper: FFmpegWrapper) -> EdgeTTSEngine:
     """Create EdgeTTSEngine with DI-injected FFmpegWrapper."""
     return EdgeTTSEngine(ffmpeg_wrapper=ffmpeg_wrapper)
-
-
-@pytest.fixture
-def ffmpeg_compositor(
-    ffmpeg_wrapper: FFmpegWrapper,
-    composition_config: CompositionConfig,
-) -> FFmpegCompositor:
-    """Create FFmpegCompositor with DI-injected dependencies."""
-    return FFmpegCompositor(
-        ffmpeg_wrapper=ffmpeg_wrapper,
-        config=composition_config,
-    )
 
 
 # Mark for E2E tests that need external services

@@ -19,12 +19,13 @@ RUN apt-get update && \
     iptables ipset iproute2 dnsutils aggregate jq vim ca-certificates \
     postgresql-client locales ffmpeg fonts-noto-cjk fonts-noto-cjk-extra \
     libicu-dev pkg-config \
+    libnss3 libnspr4 libatk1.0-0 libatspi2.0-0 \
+    libxcomposite1 libxdamage1 libxrandr2 libxkbcommon0 \
+    libgbm1 libasound2 libpango-1.0-0 libcairo2 libcups2 \
     && break || { echo "Retry $i..."; sleep 5; apt-get update; }; \
     done && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# Generate locale
-RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && \
+    apt-get clean && rm -rf /var/lib/apt/lists/* && \
+    sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && \
     locale-gen en_US.UTF-8
 
 ARG USERNAME=vscode
@@ -75,6 +76,7 @@ COPY scripts/init-firewall.sh /usr/local/bin/
 USER root
 RUN chmod +x /usr/local/bin/init-firewall.sh && \
     echo "$USERNAME ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh" > /etc/sudoers.d/firewall && \
+    echo "$USERNAME ALL=(root) NOPASSWD: /usr/bin/apt-get, /usr/bin/apt" >> /etc/sudoers.d/firewall && \
     chmod 0440 /etc/sudoers.d/firewall
 
 USER $USERNAME

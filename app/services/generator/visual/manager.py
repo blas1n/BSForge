@@ -8,30 +8,29 @@ Source priority (configurable):
 2. Pixabay videos
 3. Pexels images
 4. Pixabay images
-5. AI images (Stable Diffusion or DALL-E)
+5. Wan 2.2 AI video
 6. Fallback (solid color/gradient)
 """
 
-import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from app.config.video import VisualConfig
+from app.core.logging import get_logger
 from app.infrastructure.http_client import HTTPClient
 from app.services.generator.visual.base import VisualAsset
-from app.services.generator.visual.dall_e import DALLEGenerator
 from app.services.generator.visual.fallback import FallbackGenerator
 from app.services.generator.visual.pexels import PexelsClient
 from app.services.generator.visual.pixabay import PixabayClient
-from app.services.generator.visual.stable_diffusion import StableDiffusionGenerator
 from app.services.generator.visual.tavily_image import TavilyImageClient
+from app.services.generator.visual.wan_video_source import WanVideoSource
 
 if TYPE_CHECKING:
     from app.models.scene import Scene
     from app.services.generator.tts.base import SceneTTSResult
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -61,7 +60,7 @@ class VisualSourcingManager:
     2. Stock videos (Pixabay)
     3. Stock images (Pexels)
     4. Stock images (Pixabay)
-    5. AI-generated images (Stable Diffusion or DALL-E)
+    5. AI-generated video (Wan 2.2)
     6. Fallback backgrounds (solid/gradient)
 
     Example:
@@ -80,8 +79,7 @@ class VisualSourcingManager:
         pexels_client: PexelsClient,
         pixabay_client: PixabayClient,
         tavily_image_client: TavilyImageClient,
-        dalle_generator: DALLEGenerator,
-        sd_generator: StableDiffusionGenerator,
+        wan_video_source: WanVideoSource,
         fallback_generator: FallbackGenerator,
     ) -> None:
         """Initialize VisualSourcingManager.
@@ -92,8 +90,7 @@ class VisualSourcingManager:
             pexels_client: Pexels client instance
             pixabay_client: Pixabay client instance
             tavily_image_client: Tavily web image search client instance
-            dalle_generator: DALL-E generator instance
-            sd_generator: Stable Diffusion generator instance
+            wan_video_source: Wan 2.2 video generation source instance
             fallback_generator: Fallback generator instance
         """
         self.config = config
@@ -101,8 +98,7 @@ class VisualSourcingManager:
         self._pexels = pexels_client
         self._pixabay = pixabay_client
         self._tavily_image = tavily_image_client
-        self._dalle_generator = dalle_generator
-        self._sd_generator = sd_generator
+        self._wan_video = wan_video_source
         self._fallback = fallback_generator
 
     async def source_visuals(
@@ -265,18 +261,12 @@ class VisualSourcingManager:
                 orientation=orientation,
             )
 
-        elif source_type == "stable_diffusion":
-            return await self._generate_with_sd(
+        elif source_type == "wan_video":
+            return await self._generate_with_wan(
                 prompt=self._build_ai_prompt(keywords),
                 count=min(2, max_results),
                 orientation=orientation,
-            )
-
-        elif source_type == "dalle":
-            return await self._dalle_generator.generate(
-                prompt=self._build_ai_prompt(keywords),
-                count=min(2, max_results),
-                orientation=orientation,
+                duration_needed=duration_needed,
             )
 
         elif source_type in ("solid_color", "gradient"):
@@ -290,34 +280,35 @@ class VisualSourcingManager:
             logger.warning(f"Unknown source type: {source_type}")
             return []
 
-    async def _generate_with_sd(
+    async def _generate_with_wan(
         self,
         prompt: str,
         count: int,
         orientation: Literal["portrait", "landscape", "square"],
+        duration_needed: float,
     ) -> list[VisualAsset]:
-        """Generate images with Stable Diffusion.
-
-        Lazily initializes SD generator and checks availability.
+        """Generate video clips with Wan 2.2.
 
         Args:
-            prompt: Image prompt
-            count: Number of images
-            orientation: Image orientation
+            prompt: Video description prompt
+            count: Number of clips to generate
+            orientation: Video orientation
+            duration_needed: Total duration needed (used to size individual clips)
 
         Returns:
-            List of generated assets, empty if SD unavailable
+            List of generated video assets, empty if Wan unavailable
         """
-        sd_generator = self._sd_generator
-
-        # Check if SD service is available
-        if not await sd_generator.is_available():
+        if not await self._wan_video.is_available():
             return []
 
-        return await sd_generator.generate(
+        # Clip duration: aim for ~5s clips to cover duration
+        clip_duration = self._wan_video.default_duration
+
+        return await self._wan_video.generate(
             prompt=prompt,
             count=count,
             orientation=orientation,
+            duration_seconds=clip_duration,
         )
 
     async def _download_asset(
@@ -340,11 +331,6 @@ class VisualSourcingManager:
             return await self._pixabay.download(asset, output_dir)
         elif asset.source == "tavily_web":
             return await self._tavily_image.download(asset, output_dir)
-        elif asset.source == "dalle":
-            return await self._dalle_generator.download(asset, output_dir)
-        elif asset.source == "stable_diffusion":
-            sd_generator = self._sd_generator
-            return await sd_generator.download(asset, output_dir)
         elif asset.source == "fallback":
             return await self._fallback.download(asset, output_dir)
         else:
@@ -354,7 +340,7 @@ class VisualSourcingManager:
         """Build AI image prompt from keywords.
 
         visual_keyword already contains scene-specific style info,
-        so we just add common quality suffix from config.
+        so we just add common quality suffix.
 
         Args:
             keywords: Keywords to incorporate (from visual_keyword)
@@ -365,14 +351,7 @@ class VisualSourcingManager:
         if not keywords:
             return "abstract digital background, modern, professional"
 
-        prompt = ", ".join(keywords)
-
-        # Add quality suffix from SD config
-        quality_suffix = self.config.stable_diffusion.ai_quality_suffix
-        if quality_suffix:
-            prompt += f", {quality_suffix}"
-
-        return prompt
+        return ", ".join(keywords)
 
     async def source_visuals_for_scenes(
         self,
@@ -519,7 +498,7 @@ class VisualSourcingManager:
     ) -> VisualAsset:
         """Source a single visual asset for a scene.
 
-        Uses stock search with quality check, falls back to AI generation.
+        Uses stock search with metadata score filtering, falls back to AI generation.
 
         Args:
             keyword: Search keyword
@@ -554,14 +533,10 @@ class VisualSourcingManager:
         exclude_source_ids: set[str] | None = None,
         requires_web_search: bool = False,
     ) -> VisualAsset:
-        """Source from stock with hybrid quality evaluation.
+        """Source from stock with metadata-based quality evaluation.
 
-        1st pass: Filter by metadata_score (fast, title/tags matching)
-        2nd pass: Evaluate with CLIP (slower, visual similarity)
-        3-tier CLIP decision:
-          - score >= clip_threshold: use as-is
-          - score >= clip_img2img_threshold: use img2img
-          - score < clip_img2img_threshold: skip, try next or AI
+        Filters candidates by metadata_score (title/tags matching).
+        Falls back to Wan AI video generation or solid color.
 
         Args:
             keyword: Search keyword
@@ -574,10 +549,7 @@ class VisualSourcingManager:
         Returns:
             Visual asset
         """
-        # Get thresholds from config
         metadata_threshold = self.config.metadata_score_threshold
-        clip_threshold = self.config.clip_score_threshold
-        clip_img2img_threshold = self.config.clip_img2img_threshold
         exclude_ids = exclude_source_ids or set()
 
         # Use Tavily web search ONLY for real person/brand images
@@ -588,16 +560,12 @@ class VisualSourcingManager:
                     query=keyword,
                     output_dir=output_dir,
                     num_candidates=10,
-                    min_clip_score=clip_img2img_threshold,
                 )
                 if tavily_asset:
-                    logger.info(
-                        f"  [SELECT] tavily_web via CLIP verification: "
-                        f"score={tavily_asset.metadata.get('clip_score', 0):.3f}"
-                    )
+                    logger.info(f"  [SELECT] tavily_web: {tavily_asset.source_id}")
                     return tavily_asset
             except Exception as e:
-                logger.warning(f"Tavily CLIP search failed: {e}")
+                logger.warning(f"Tavily search failed: {e}")
             # Fallback to AI generation for person/brand if Tavily fails
             logger.info("  [FALLBACK] Web search failed, trying AI generation")
             return await self._source_ai_only(
@@ -639,7 +607,7 @@ class VisualSourcingManager:
                         logger.info(f"  [SKIP] {asset.source}:{asset.source_id} already used")
                         continue
 
-                    # 1st pass: metadata filter
+                    # Filter by metadata score
                     meta_score = asset.metadata_score or 0.0
                     if meta_score < metadata_threshold:
                         logger.info(
@@ -649,11 +617,11 @@ class VisualSourcingManager:
                         continue
 
                     logger.info(
-                        f"  [EVAL] {asset.source}:{asset.source_id} "
+                        f"  [SELECT] {asset.source}:{asset.source_id} "
                         f"metadata={meta_score:.2f} (>= {metadata_threshold})"
                     )
 
-                    # Download for CLIP evaluation
+                    # Download if needed
                     if not asset.is_downloaded:
                         try:
                             asset = await self._download_asset(asset, output_dir)
@@ -661,51 +629,7 @@ class VisualSourcingManager:
                             logger.warning(f"Failed to download {asset.source_id}: {e}")
                             continue
 
-                    # 2nd pass: CLIP evaluation (if SD service available)
-                    clip_score = await self._evaluate_with_clip(asset, keyword)
-
-                    if clip_score is None:
-                        # CLIP not available, use metadata score as fallback
-                        logger.info(
-                            f"  [SELECT] {asset.source}:{asset.source_id} "
-                            f"(CLIP unavailable, using metadata score)"
-                        )
-                        return asset
-
-                    if clip_score >= clip_threshold:
-                        # Good match, use as-is
-                        logger.info(
-                            f"  [SELECT] {asset.source}:{asset.source_id} "
-                            f"CLIP={clip_score:.3f} >= {clip_threshold} (use as-is)"
-                        )
-                        return asset
-
-                    if clip_score >= clip_img2img_threshold:
-                        # Medium match, try img2img
-                        logger.info(
-                            f"  [TRANSFORM] {asset.source}:{asset.source_id} "
-                            f"CLIP={clip_score:.3f} in [{clip_img2img_threshold}, {clip_threshold})"
-                        )
-                        transformed = await self._transform_with_sd(
-                            asset=asset,
-                            keyword=keyword,
-                            output_dir=output_dir,
-                        )
-                        if transformed:
-                            logger.info(f"  [SELECT] transformed -> {transformed.source_id}")
-                            return transformed
-                        # If transform failed, still use original
-                        logger.info(
-                            f"  [SELECT] {asset.source}:{asset.source_id} "
-                            f"(transform failed, using original)"
-                        )
-                        return asset
-
-                    # Low score, try next asset
-                    logger.info(
-                        f"  [SKIP] {asset.source}:{asset.source_id} "
-                        f"CLIP={clip_score:.3f} < {clip_img2img_threshold}"
-                    )
+                    return asset
 
             except Exception as e:
                 logger.warning(f"Source {source_type} failed: {e}")
@@ -727,7 +651,7 @@ class VisualSourcingManager:
         output_dir: Path,
         orientation: Literal["portrait", "landscape", "square"],
     ) -> VisualAsset:
-        """Source using AI generation only (SD or DALL-E).
+        """Source using AI generation only (Wan 2.2).
 
         Args:
             keywords: Keywords for prompt generation
@@ -740,93 +664,27 @@ class VisualSourcingManager:
         """
         prompt = self._build_ai_prompt(keywords)
 
-        # Try Stable Diffusion first (local, no API cost)
+        # Try Wan 2.2 video generation
         try:
-            assets = await self._generate_with_sd(
+            assets = await self._generate_with_wan(
                 prompt=prompt,
                 count=1,
                 orientation=orientation,
-            )
-            if assets and self._sd_generator is not None:
-                asset = assets[0]
-                if not asset.is_downloaded:
-                    asset = await self._sd_generator.download(asset, output_dir)
-                return asset
-        except Exception as e:
-            logger.warning(f"SD generation failed: {e}")
-
-        # Try DALL-E as fallback
-        try:
-            assets = await self._dalle_generator.generate(
-                prompt=prompt,
-                count=1,
-                orientation=orientation,
+                duration_needed=duration,
             )
             if assets:
                 asset = assets[0]
                 if not asset.is_downloaded:
-                    asset = await self._dalle_generator.download(asset, output_dir)
+                    asset = await self._wan_video.download(asset, output_dir)
                 return asset
         except Exception as e:
-            logger.warning(f"DALL-E generation failed: {e}")
+            logger.warning(f"Wan video generation failed: {e}")
 
         # All AI failed, use fallback
         return await self._create_fallback_for_scene(
             output_dir=output_dir,
             duration=duration,
             orientation=orientation,
-        )
-
-    async def _evaluate_with_clip(
-        self,
-        asset: VisualAsset,
-        keyword: str,
-    ) -> float | None:
-        """Evaluate asset-keyword similarity using CLIP.
-
-        Args:
-            asset: Asset to evaluate (must be downloaded)
-            keyword: Keyword to match
-
-        Returns:
-            CLIP score (0.0-1.0) or None if unavailable
-        """
-        if not asset.path or not asset.path.exists():
-            return None
-
-        sd_generator = self._sd_generator
-        return await sd_generator.evaluate(asset.path, keyword)
-
-    async def _transform_with_sd(
-        self,
-        asset: VisualAsset,
-        keyword: str,
-        output_dir: Path,
-    ) -> VisualAsset | None:
-        """Transform asset using SD img2img.
-
-        Args:
-            asset: Asset to transform (must be downloaded)
-            keyword: Prompt keyword
-            output_dir: Output directory
-
-        Returns:
-            Transformed asset or None if failed
-        """
-        if not asset.path or not asset.path.exists():
-            return None
-
-        # img2img only works with images, skip video files
-        if asset.is_video:
-            logger.debug(f"Skipping img2img for video file: {asset.path}")
-            return None
-
-        sd_generator = self._sd_generator
-        prompt = self._build_ai_prompt([keyword])
-        return await sd_generator.transform(
-            source_image=asset.path,
-            prompt=prompt,
-            output_dir=output_dir,
         )
 
     async def _create_fallback_for_scene(
@@ -865,7 +723,6 @@ class VisualSourcingManager:
         """Close all clients."""
         await self._pexels.close()
         await self._pixabay.close()
-        await self._dalle_generator.close()
 
 
 __all__ = ["VisualSourcingManager", "SceneVisualResult"]

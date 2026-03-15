@@ -425,7 +425,7 @@ class ServiceContainer(containers.DeclarativeContainer):
         "app.services.rag.classifier.ContentClassifier",
         llm_client=infrastructure.llm_client,
         prompt_manager=infrastructure.prompt_manager,
-        model="anthropic/claude-3-5-haiku-20241022",
+        model="anthropic/claude-haiku-4-5-20251001",
     )
 
     script_chunker = providers.Factory(
@@ -532,13 +532,8 @@ class ServiceContainer(containers.DeclarativeContainer):
         api_key=global_config.provided.pixabay_api_key,
     )
 
-    dalle_generator = providers.Singleton(
-        "app.services.generator.visual.dall_e.DALLEGenerator",
-        api_key=global_config.provided.openai_api_key,
-    )
-
-    sd_generator = providers.Singleton(
-        "app.services.generator.visual.stable_diffusion.StableDiffusionGenerator",
+    wan_video_source = providers.Singleton(
+        "app.services.generator.visual.wan_video_source.WanVideoSource",
         http_client=infrastructure.http_client,
     )
 
@@ -546,7 +541,6 @@ class ServiceContainer(containers.DeclarativeContainer):
         "app.services.generator.visual.tavily_image.TavilyImageClient",
         tavily_client=tavily_client,
         http_client=infrastructure.http_client,
-        sd_generator=sd_generator,
     )
 
     fallback_generator = providers.Factory(
@@ -560,8 +554,7 @@ class ServiceContainer(containers.DeclarativeContainer):
         pexels_client=pexels_client,
         pixabay_client=pixabay_client,
         tavily_image_client=tavily_image_client,
-        dalle_generator=dalle_generator,
-        sd_generator=sd_generator,
+        wan_video_source=wan_video_source,
         fallback_generator=fallback_generator,
     )
 
@@ -573,10 +566,9 @@ class ServiceContainer(containers.DeclarativeContainer):
         template_loader=ass_template_loader,
     )
 
-    # FFmpeg Compositor
-    ffmpeg_compositor = providers.Factory(
-        "app.services.generator.compositor.FFmpegCompositor",
-        ffmpeg_wrapper=infrastructure.ffmpeg_wrapper,
+    # Remotion Compositor (browser-quality video rendering)
+    remotion_compositor = providers.Factory(
+        "app.services.generator.remotion_compositor.RemotionCompositor",
         config=configs.composition_config,
     )
 
@@ -598,7 +590,7 @@ class ServiceContainer(containers.DeclarativeContainer):
         tts_factory=tts_factory,
         visual_manager=visual_manager,
         subtitle_generator=subtitle_generator,
-        compositor=ffmpeg_compositor,
+        compositor=remotion_compositor,
         ffmpeg_wrapper=infrastructure.ffmpeg_wrapper,
         db_session_factory=infrastructure.db_session_factory,
         config=configs.video_generation_config,

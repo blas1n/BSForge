@@ -17,9 +17,9 @@ class TestLLMConfig:
 
     def test_default_values(self) -> None:
         """Should have correct default values."""
-        config = LLMConfig(model="anthropic/claude-3-5-haiku-20241022")
+        config = LLMConfig(model="anthropic/claude-haiku-4-5-20251001")
 
-        assert config.model == "anthropic/claude-3-5-haiku-20241022"
+        assert config.model == "anthropic/claude-haiku-4-5-20251001"
         assert config.max_tokens == 1000
         assert config.temperature == 0.7
         assert config.timeout == 60
@@ -55,7 +55,7 @@ class TestLLMConfig:
     def test_from_prompt_settings_default_timeout(self) -> None:
         """Should use default timeout when not specified."""
         mock_settings = MagicMock()
-        mock_settings.model = "anthropic/claude-3-5-haiku-20241022"
+        mock_settings.model = "anthropic/claude-haiku-4-5-20251001"
         mock_settings.max_tokens = 500
         mock_settings.temperature = 0.3
 
@@ -71,12 +71,12 @@ class TestLLMResponse:
         """Should store response data correctly."""
         response = LLMResponse(
             content="Hello, world!",
-            model="anthropic/claude-3-5-haiku-20241022",
+            model="anthropic/claude-haiku-4-5-20251001",
             usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
         )
 
         assert response.content == "Hello, world!"
-        assert response.model == "anthropic/claude-3-5-haiku-20241022"
+        assert response.model == "anthropic/claude-haiku-4-5-20251001"
         assert response.usage["total_tokens"] == 15
         assert response.raw_response is None
 
@@ -102,7 +102,7 @@ class TestLLMClient:
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = "Generated response"
-        mock_response.model = "anthropic/claude-3-5-haiku-20241022"
+        mock_response.model = "anthropic/claude-haiku-4-5-20251001"
         mock_response.usage = MagicMock()
         mock_response.usage.prompt_tokens = 10
         mock_response.usage.completion_tokens = 20
@@ -130,13 +130,13 @@ class TestLLMClient:
             new_callable=AsyncMock,
             return_value=mock_acompletion,
         ):
-            config = LLMConfig(model="anthropic/claude-3-5-haiku-20241022")
+            config = LLMConfig(model="anthropic/claude-haiku-4-5-20251001")
             messages = [{"role": "user", "content": "Hello"}]
 
             response = await llm_client.complete(config, messages)
 
             assert response.content == "Generated response"
-            assert response.model == "anthropic/claude-3-5-haiku-20241022"
+            assert response.model == "anthropic/claude-haiku-4-5-20251001"
             assert response.usage["prompt_tokens"] == 10
             assert response.usage["completion_tokens"] == 20
             assert response.usage["total_tokens"] == 30
@@ -175,7 +175,7 @@ class TestLLMClient:
         mock_fn = AsyncMock(return_value=mock_acompletion)
 
         with patch("app.infrastructure.llm.acompletion", mock_fn):
-            config = LLMConfig(model="anthropic/claude-3-5-haiku-20241022")
+            config = LLMConfig(model="anthropic/claude-haiku-4-5-20251001")
             messages = [{"role": "user", "content": "Test"}]
 
             await llm_client.complete(config, messages, stop=["END"], top_p=0.9)
@@ -196,7 +196,7 @@ class TestLLMClient:
             new_callable=AsyncMock,
             return_value=mock_acompletion,
         ):
-            config = LLMConfig(model="anthropic/claude-3-5-haiku-20241022")
+            config = LLMConfig(model="anthropic/claude-haiku-4-5-20251001")
             response = await llm_client.complete(config, [{"role": "user", "content": "Hi"}])
 
             assert response.content == ""
@@ -213,7 +213,7 @@ class TestLLMClient:
             new_callable=AsyncMock,
             return_value=mock_acompletion,
         ):
-            config = LLMConfig(model="anthropic/claude-3-5-haiku-20241022")
+            config = LLMConfig(model="anthropic/claude-haiku-4-5-20251001")
             response = await llm_client.complete(config, [{"role": "user", "content": "Hi"}])
 
             assert response.usage == {}
@@ -226,7 +226,7 @@ class TestLLMClient:
             new_callable=AsyncMock,
             side_effect=Exception("API error"),
         ):
-            config = LLMConfig(model="anthropic/claude-3-5-haiku-20241022")
+            config = LLMConfig(model="anthropic/claude-haiku-4-5-20251001")
 
             with pytest.raises(LLMError) as exc_info:
                 await llm_client.complete(config, [{"role": "user", "content": "Hi"}])
@@ -244,7 +244,7 @@ class TestLLMClient:
             return_value=mock_acompletion,
         ):
             result = await llm_client.complete_simple(
-                model="anthropic/claude-3-5-haiku-20241022",
+                model="anthropic/claude-haiku-4-5-20251001",
                 prompt="Hello",
                 max_tokens=500,
                 temperature=0.3,

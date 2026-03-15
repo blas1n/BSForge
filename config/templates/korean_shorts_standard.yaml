@@ -53,11 +53,23 @@ layout:
   # 이미지 꽉 채움 (프레임 없이)
   fullscreen_image: true
 
+  # 플랫폼 UI 안전 영역 (크로스 플랫폼 기본값)
+  # YouTube: top=380, bottom=380, left=60, right=120
+  # TikTok:  top=160, bottom=480, left=120, right=120
+  # Cross:   top=380, bottom=480, left=120, right=120
+  safe_zone:
+    top_px: 380
+    bottom_px: 480
+    left_px: 120
+    right_px: 120
+    platform: cross_platform
+
   # 상단 헤드라인 (검은 배경 영역)
   # 가로로 꽉 차는 큰 폰트
+  # position_y_ratio는 safe zone 적용 시 Remotion에서 자동 계산
   headline:
     enabled: true
-    position_y_ratio: 0.06  # 상단 6% = 약 115px from top
+    position_y_ratio: 0.22  # safe zone 아래 = 약 422px from top
 
     # Line 1: 키워드 (컬러)
     line1:
@@ -159,6 +171,20 @@ audio:
   bgm_volume: 0.08
   tts_speed: 1.0
   normalize_audio: true
+
+# 채널별 테마 설정
+theme:
+  accent_color: "#FF69B4"    # Hot pink (페르소나 설정으로 오버라이드 가능)
+  secondary_color: "#FFFFFF"
+  font_family: "Pretendard"
+  headline_font_size_line1: 110
+  headline_font_size_line2: 80
+  subtitle_font_size: 100
+  headline_bg_color: "#000000"
+  headline_bg_opacity: 0.82
+  highlight_color: "#FFFF00"   # 카라오케 하이라이트
+  text_color: "#FFFFFF"
+  outline_color: "#000000"
 
 # 썸네일 설정 - 쇼츠 규격 (9:16 portrait)
 thumbnail:

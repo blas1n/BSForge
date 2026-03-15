@@ -27,7 +27,7 @@ def mock_prompt_manager() -> MagicMock:
     manager = MagicMock()
     manager.render.return_value = "Mocked prompt for cluster summary"
     manager.get_llm_settings.return_value = LLMSettings(
-        model="anthropic/claude-3-5-haiku-20241022",
+        model="anthropic/claude-haiku-4-5-20251001",
         max_tokens=500,
         temperature=0.3,
     )

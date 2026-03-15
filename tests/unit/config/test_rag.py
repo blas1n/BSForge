@@ -131,7 +131,7 @@ class TestQueryExpansionConfig:
         config = QueryExpansionConfig()
         assert config.enabled is True
         assert config.num_expansions == 2
-        assert config.model == "claude-3-5-haiku-20241022"
+        assert config.model == "claude-haiku-4-5-20251001"
         assert config.max_tokens == 100
 
     def test_num_expansions_range(self):

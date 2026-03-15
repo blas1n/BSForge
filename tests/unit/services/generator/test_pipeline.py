@@ -7,8 +7,8 @@ import pytest
 
 from app.config.video import VideoGenerationConfig
 from app.models.scene import Scene, SceneScript, SceneType
-from app.services.generator.compositor import CompositionResult
 from app.services.generator.pipeline import VideoGenerationPipeline, VideoGenerationResult
+from app.services.generator.remotion_compositor import CompositionResult
 from app.services.generator.subtitle import SubtitleFile
 from app.services.generator.tts.base import TTSResult, WordTimestamp
 from app.services.generator.visual.base import VisualAsset, VisualSourceType

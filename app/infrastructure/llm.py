@@ -33,7 +33,7 @@ class LLMConfig:
     """LLM configuration for a specific use case.
 
     Attributes:
-        model: Model identifier (e.g., "anthropic/claude-3-5-haiku-20241022")
+        model: Model identifier (e.g., "anthropic/claude-haiku-4-5-20251001")
         max_tokens: Maximum tokens in response
         temperature: Sampling temperature (0-1)
         timeout: Request timeout in seconds
@@ -97,7 +97,7 @@ class LLMClient:
         ...     openai_api_key="sk-..."
         ... )
         >>> response = await client.complete(
-        ...     config=LLMConfig(model="anthropic/claude-3-5-haiku-20241022"),
+        ...     config=LLMConfig(model="anthropic/claude-haiku-4-5-20251001"),
         ...     messages=[{"role": "user", "content": "Hello!"}]
         ... )
         >>> print(response.content)

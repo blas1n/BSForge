@@ -149,63 +149,42 @@ class PixabayConfig(BaseModel):
     )
 
 
-class StableDiffusionConfig(BaseModel):
-    """Stable Diffusion service configuration.
+class WanConfig(BaseModel):
+    """Wan 2.2 text-to-video generation configuration.
 
-    SD runs as a separate Docker service and communicates via HTTP API.
-    Supports CUDA (NVIDIA), MPS (Apple Silicon), and CPU (fallback).
-
-    Attributes:
-        service_url: SD service HTTP endpoint
-        enabled: Whether to use SD for image generation
-        timeout: Request timeout in seconds (longer for CPU mode)
-        base_width: Base generation width (before upscaling)
-        base_height: Base generation height (before upscaling)
-        output_width: Final output width
-        output_height: Final output height
-        num_inference_steps: Number of denoising steps (4 for Turbo)
-        guidance_scale: CFG scale (0.0 for Turbo)
-        negative_prompt: Default negative prompt
-        img2img_strength: Default img2img transformation strength (0.1-0.9)
-    """
-
-    service_url: str = Field(default="http://sd:7860", description="SD service URL")
-    enabled: bool = Field(default=True, description="Enable SD generation")
-    timeout: float = Field(default=120.0, ge=10.0, le=600.0, description="Request timeout")
-    base_width: int = Field(default=768, ge=256, le=1024, description="Base width")
-    base_height: int = Field(default=1024, ge=256, le=1024, description="Base height")
-    output_width: int = Field(default=1080, description="Output width")
-    output_height: int = Field(default=1920, description="Output height")
-    num_inference_steps: int = Field(default=8, ge=1, le=50, description="Inference steps")
-    guidance_scale: float = Field(default=2.0, ge=0.0, le=20.0, description="CFG scale")
-    negative_prompt: str = Field(
-        default="blurry, low quality, distorted, deformed, ugly, bad anatomy, "
-        "bad proportions, extra limbs, cloned face, disfigured, mutation",
-        description="Default negative prompt",
-    )
-    img2img_strength: float = Field(
-        default=0.5, ge=0.1, le=0.9, description="Default img2img strength"
-    )
-    ai_quality_suffix: str = Field(
-        default="high quality, professional, sharp focus, 4k",
-        description="Common quality suffix for AI image generation",
-    )
-
-
-class DALLEConfig(BaseModel):
-    """DALL-E image generation configuration.
+    Wan runs as a separate Docker service and communicates via HTTP API.
+    Supports CUDA (NVIDIA) and CPU fallback.
 
     Attributes:
-        model: DALL-E model version
-        size: Image dimensions
-        quality: Generation quality
-        style: Generation style
+        service_url: Wan service HTTP endpoint
+        enabled: Whether to use Wan for video generation
+        timeout: Request timeout in seconds (longer than SD, video takes more time)
+        model_id: HuggingFace model ID to load
+        default_duration_seconds: Default video clip duration
+        default_fps: Default frames per second
+        base_width: Generation width (portrait: width < height)
+        base_height: Generation height (portrait: height > width)
+        wan_version: Model version for future A/B testing (2.2=local, 2.6=API)
+        enable_lipsync: Enable Wan 2.6 lip-sync (requires wan_version="2.6")
     """
 
-    model: str = Field(default="dall-e-3", description="DALL-E model")
-    size: str = Field(default="1024x1792", description="Image size (portrait)")
-    quality: Literal["standard", "hd"] = Field(default="standard", description="Generation quality")
-    style: Literal["vivid", "natural"] = Field(default="natural", description="Generation style")
+    service_url: str = Field(default="http://wan:7861", description="Wan service URL")
+    enabled: bool = Field(default=True, description="Enable Wan generation")
+    timeout: float = Field(default=300.0, ge=30.0, le=900.0, description="Request timeout")
+    model_id: str = Field(default="Wan-AI/Wan2.2-T2V-1.3B", description="HuggingFace model ID")
+    default_duration_seconds: float = Field(
+        default=5.0, ge=2.0, le=10.0, description="Default clip duration"
+    )
+    default_fps: int = Field(default=16, ge=8, le=30, description="Default FPS")
+    base_width: int = Field(default=480, ge=256, le=1280, description="Generation width")
+    base_height: int = Field(default=832, ge=256, le=1280, description="Generation height")
+    # A/B testing flags (wan_version="2.6" uses fal.ai API instead of local service)
+    wan_version: Literal["2.2", "2.6"] = Field(
+        default="2.2", description="Wan version: 2.2=local, 2.6=fal.ai API"
+    )
+    enable_lipsync: bool = Field(
+        default=False, description="Enable Wan 2.6 lip-sync (wan_version=2.6 only)"
+    )
 
 
 class VisualConfig(BaseModel):
@@ -215,15 +194,12 @@ class VisualConfig(BaseModel):
         source_priority: Priority order for visual sources
         pexels: Pexels video/image configuration
         pixabay: Pixabay video/image configuration
-        stable_diffusion: Stable Diffusion configuration
-        dalle: DALL-E configuration
+        wan: Wan 2.2 video generation configuration
         fallback_color: Fallback solid color (hex)
         fallback_gradient: Fallback gradient colors
         cache_enabled: Enable visual caching
         cache_ttl_hours: Cache TTL in hours
-        metadata_score_threshold: Minimum metadata matching score (1st filter)
-        clip_score_threshold: CLIP similarity threshold (use image as-is)
-        clip_img2img_threshold: CLIP threshold for img2img transformation
+        metadata_score_threshold: Minimum metadata matching score
     """
 
     source_priority: list[str] = Field(
@@ -233,8 +209,7 @@ class VisualConfig(BaseModel):
             "pixabay_video",  # Pixabay videos
             "pexels_image",  # Pexels images
             "pixabay_image",  # Pixabay images
-            "stable_diffusion",  # Local SD image generation
-            "dalle",  # DALL-E image generation
+            "wan_video",  # Wan 2.2 AI video generation (local, free)
             "solid_color",  # Fallback
         ],
         description="Source priority order",
@@ -244,8 +219,7 @@ class VisualConfig(BaseModel):
     )
     pexels: VisualSourceConfig = Field(default_factory=VisualSourceConfig)
     pixabay: PixabayConfig = Field(default_factory=PixabayConfig)
-    stable_diffusion: StableDiffusionConfig = Field(default_factory=StableDiffusionConfig)
-    dalle: DALLEConfig = Field(default_factory=DALLEConfig)
+    wan: WanConfig = Field(default_factory=WanConfig)
     fallback_color: str = Field(default="#1a1a2e", description="Fallback solid color")
     fallback_gradient: list[str] = Field(
         default=["#1a1a2e", "#16213e"], description="Fallback gradient colors"
@@ -257,20 +231,6 @@ class VisualConfig(BaseModel):
         ge=0.0,
         le=1.0,
         description="Minimum metadata matching score (title/tags). Below this, skip asset.",
-    )
-    clip_score_threshold: float = Field(
-        default=0.5,
-        ge=0.0,
-        le=1.0,
-        description="CLIP score above this: use image as-is (good match). "
-        "Score is normalized so 0.5 = moderately relevant, 1.0 = highly relevant.",
-    )
-    clip_img2img_threshold: float = Field(
-        default=0.3,
-        ge=0.0,
-        le=1.0,
-        description="CLIP score above this but below clip_threshold: use img2img. "
-        "Below this: skip and try AI generation.",
     )
     reuse_previous_visual_types: list[str] = Field(
         default=["cta"],
@@ -405,8 +365,7 @@ __all__ = [
     "VisualConfig",
     "VisualSourceConfig",
     "PixabayConfig",
-    "StableDiffusionConfig",
-    "DALLEConfig",
+    "WanConfig",
     "CompositionConfig",
     "ThumbnailConfig",
 ]
