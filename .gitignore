@@ -290,6 +290,12 @@ kubeconfig
 *.kubeconfig
 
 # ============================================
+# Browser / Rendering Engines
+# ============================================
+chrome-headless-shell/
+remotion/public/
+
+# ============================================
 # Miscellaneous
 # ============================================
 # Temporary files

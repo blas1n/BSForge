@@ -94,13 +94,31 @@ services:
       start_period: 120s
     networks:
       - bsforge-network
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [ gpu ]
+
+  # Wan 2.2 Text-to-Video Service
+  # Generates short video clips from text prompts (replaces SD for video generation)
+  # NOTE: Mac GPU not supported in Docker; falls back to CPU (slow)
+  wan:
+    build:
+      context: ..
+      dockerfile: .devcontainer/wan.Dockerfile
+    restart: unless-stopped
+    environment:
+      - WAN_DEVICE=auto
+      - HF_HOME=/root/.cache/huggingface
+      - WAN_MODEL_ID=Wan-AI/Wan2.2-T2V-1.3B
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:7861/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 180s
+    ports:
+      - "${EXTERNAL_WAN_PORT:-7861}:7861"
+    networks:
+      - bsforge-network
 
 volumes:
   claude-code-bashhistory:

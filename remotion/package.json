@@ -1,0 +1,23 @@
+{
+  "name": "bsforge-remotion",
+  "version": "1.0.0",
+  "description": "BSForge video composition using Remotion",
+  "scripts": {
+    "build": "npx remotion bundle src/index.ts",
+    "render": "npx remotion render src/index.ts KoreanShorts",
+    "studio": "npx remotion studio src/index.ts"
+  },
+  "dependencies": {
+    "@remotion/captions": "4.0.290",
+    "@remotion/cli": "4.0.290",
+    "@remotion/transitions": "4.0.290",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "remotion": "4.0.290"
+  },
+  "devDependencies": {
+    "@types/react": "18.2.79",
+    "@types/react-dom": "18.2.25",
+    "typescript": "5.4.5"
+  }
+}
