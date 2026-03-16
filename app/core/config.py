@@ -68,29 +68,14 @@ class Config(BaseSettings):
     )
 
     # ============================================
-    # LLM & AI APIs
+    # LLM Gateway
     # ============================================
-    anthropic_api_key: str = Field(default="", description="Anthropic API key")
-    openai_api_key: str = Field(default="", description="OpenAI API key")
-    gemini_api_key: str = Field(default="", description="Google Gemini API key")
-
-    # LLM Model Settings (LiteLLM format: provider/model-name)
-    # Lightweight tasks (translation, classification, content classification)
-    llm_model_light: str = Field(
-        default="anthropic/claude-haiku-4-5-20251001",
-        description="LLM model for lightweight tasks (translation, classification)",
+    llm_base_url: str = Field(
+        default="https://api.anthropic.com/v1", description="LLM gateway base URL"
     )
-    llm_model_light_max_tokens: int = Field(
-        default=500, description="Max tokens for lightweight LLM tasks", ge=100, le=2000
-    )
-
-    # Heavy tasks (script generation)
-    llm_model_heavy: str = Field(
-        default="anthropic/claude-sonnet-4-20250514",
-        description="LLM model for heavy tasks (script generation)",
-    )
-    llm_model_heavy_max_tokens: int = Field(
-        default=2000, description="Max tokens for heavy LLM tasks", ge=500, le=8000
+    llm_api_key: str = Field(default="", description="LLM gateway API key")
+    llm_model: str = Field(
+        default="anthropic/claude-sonnet-4-20250514", description="Default LLM model name"
     )
 
     # ============================================

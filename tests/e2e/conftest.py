@@ -13,6 +13,7 @@ import pytest
 from app.config.video import CompositionConfig, SubtitleConfig
 from app.services.collector.base import NormalizedTopic, RawTopic, ScoredTopic
 from app.services.generator.ffmpeg import FFmpegWrapper
+from app.services.generator.remotion_compositor import RemotionCompositor
 from app.services.generator.subtitle import SubtitleGenerator
 from app.services.generator.templates import ASSTemplateLoader
 from app.services.generator.tts.edge import EdgeTTSEngine
@@ -229,6 +230,12 @@ def ffmpeg_wrapper() -> FFmpegWrapper:
 def edge_tts_engine(ffmpeg_wrapper: FFmpegWrapper) -> EdgeTTSEngine:
     """Create EdgeTTSEngine with DI-injected FFmpegWrapper."""
     return EdgeTTSEngine(ffmpeg_wrapper=ffmpeg_wrapper)
+
+
+@pytest.fixture
+def remotion_compositor(composition_config: CompositionConfig) -> RemotionCompositor:
+    """Create RemotionCompositor with default config."""
+    return RemotionCompositor(config=composition_config)
 
 
 # =============================================================================

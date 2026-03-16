@@ -7,7 +7,6 @@ version: "1.0.0"
 description: "Generates optimal web search queries for topic research"
 
 # LLM Settings
-model: "anthropic/claude-haiku-4-5-20251001"
 max_tokens: 200
 temperature: 0.3
 

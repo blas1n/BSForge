@@ -4,7 +4,7 @@ Loads and renders prompts from YAML files with Mako templating.
 Each template can specify its own LLM settings (model, max_tokens, temperature).
 """
 
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +17,7 @@ from app.core.logging import get_logger
 logger = get_logger(__name__)
 
 
-class PromptType(str, Enum):
+class PromptType(StrEnum):
     """Available prompt types."""
 
     TRANSLATION = "translation"
@@ -33,10 +33,11 @@ class LLMSettings(BaseModel):
     """LLM settings for a prompt template.
 
     These settings are specified in each prompt YAML file and determine
-    which model and parameters to use for that specific task.
+    parameters to use for that specific task. Model can optionally override
+    the global default from config.
     """
 
-    model: str = "anthropic/claude-haiku-4-5-20251001"
+    model: str = ""
     max_tokens: int = 500
     temperature: float = 0.3
 
@@ -124,7 +125,7 @@ class PromptManager:
 
             # Parse LLM settings from template
             llm_settings = LLMSettings(
-                model=data.get("model", "anthropic/claude-haiku-4-5-20251001"),
+                model=data.get("model", ""),
                 max_tokens=data.get("max_tokens", 500),
                 temperature=data.get("temperature", 0.3),
             )

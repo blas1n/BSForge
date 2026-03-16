@@ -146,6 +146,7 @@ tmp/
 # Subtitles
 *.srt
 *.ass
+!app/services/generator/templates/ass_base.ass
 *.vtt
 
 # ============================================

@@ -17,9 +17,9 @@ class TestLLMConfig:
 
     def test_default_values(self) -> None:
         """Should have correct default values."""
-        config = LLMConfig(model="anthropic/claude-haiku-4-5-20251001")
+        config = LLMConfig(model="test-model")
 
-        assert config.model == "anthropic/claude-haiku-4-5-20251001"
+        assert config.model == "test-model"
         assert config.max_tokens == 1000
         assert config.temperature == 0.7
         assert config.timeout == 60
@@ -27,13 +27,13 @@ class TestLLMConfig:
     def test_custom_values(self) -> None:
         """Should accept custom values."""
         config = LLMConfig(
-            model="openai/gpt-4o",
+            model="custom-model",
             max_tokens=2000,
             temperature=0.5,
             timeout=120,
         )
 
-        assert config.model == "openai/gpt-4o"
+        assert config.model == "custom-model"
         assert config.max_tokens == 2000
         assert config.temperature == 0.5
         assert config.timeout == 120
@@ -41,13 +41,13 @@ class TestLLMConfig:
     def test_from_prompt_settings(self) -> None:
         """Should create config from LLMSettings."""
         mock_settings = MagicMock()
-        mock_settings.model = "anthropic/claude-3-5-sonnet-20241022"
+        mock_settings.model = "override-model"
         mock_settings.max_tokens = 1500
         mock_settings.temperature = 0.8
 
         config = LLMConfig.from_prompt_settings(mock_settings, timeout=90)
 
-        assert config.model == "anthropic/claude-3-5-sonnet-20241022"
+        assert config.model == "override-model"
         assert config.max_tokens == 1500
         assert config.temperature == 0.8
         assert config.timeout == 90
@@ -55,13 +55,24 @@ class TestLLMConfig:
     def test_from_prompt_settings_default_timeout(self) -> None:
         """Should use default timeout when not specified."""
         mock_settings = MagicMock()
-        mock_settings.model = "anthropic/claude-haiku-4-5-20251001"
+        mock_settings.model = ""
         mock_settings.max_tokens = 500
         mock_settings.temperature = 0.3
 
         config = LLMConfig.from_prompt_settings(mock_settings)
 
         assert config.timeout == 60
+
+    def test_from_prompt_settings_empty_model(self) -> None:
+        """Should allow empty model from prompt settings."""
+        mock_settings = MagicMock()
+        mock_settings.model = ""
+        mock_settings.max_tokens = 500
+        mock_settings.temperature = 0.3
+
+        config = LLMConfig.from_prompt_settings(mock_settings)
+
+        assert config.model == ""
 
 
 class TestLLMResponse:
@@ -71,12 +82,12 @@ class TestLLMResponse:
         """Should store response data correctly."""
         response = LLMResponse(
             content="Hello, world!",
-            model="anthropic/claude-haiku-4-5-20251001",
+            model="test-model",
             usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
         )
 
         assert response.content == "Hello, world!"
-        assert response.model == "anthropic/claude-haiku-4-5-20251001"
+        assert response.model == "test-model"
         assert response.usage["total_tokens"] == 15
         assert response.raw_response is None
 
@@ -102,7 +113,7 @@ class TestLLMClient:
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = "Generated response"
-        mock_response.model = "anthropic/claude-haiku-4-5-20251001"
+        mock_response.model = "test-model"
         mock_response.usage = MagicMock()
         mock_response.usage.prompt_tokens = 10
         mock_response.usage.completion_tokens = 20
@@ -113,14 +124,29 @@ class TestLLMClient:
     @pytest.fixture
     def llm_client(self) -> LLMClient:
         """Create LLMClient instance."""
-        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}):
-            return LLMClient()
+        return LLMClient(
+            base_url="http://localhost:11434",
+            api_key="test-key",
+            default_model="test-model",
+        )
 
     def test_init(self) -> None:
-        """Should initialize without error."""
-        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}):
-            client = LLMClient()
-            assert client is not None
+        """Should initialize with gateway settings."""
+        client = LLMClient(
+            base_url="http://localhost:11434",
+            api_key="test-key",
+            default_model="test-model",
+        )
+        assert client.base_url == "http://localhost:11434"
+        assert client.api_key == "test-key"
+        assert client.default_model == "test-model"
+
+    def test_init_defaults(self) -> None:
+        """Should initialize with empty defaults."""
+        client = LLMClient()
+        assert client.base_url == ""
+        assert client.api_key == ""
+        assert client.default_model == ""
 
     @pytest.mark.asyncio
     async def test_complete_basic(self, llm_client: LLMClient, mock_acompletion: MagicMock) -> None:
@@ -130,13 +156,13 @@ class TestLLMClient:
             new_callable=AsyncMock,
             return_value=mock_acompletion,
         ):
-            config = LLMConfig(model="anthropic/claude-haiku-4-5-20251001")
+            config = LLMConfig(model="test-model")
             messages = [{"role": "user", "content": "Hello"}]
 
             response = await llm_client.complete(config, messages)
 
             assert response.content == "Generated response"
-            assert response.model == "anthropic/claude-haiku-4-5-20251001"
+            assert response.model == "test-model"
             assert response.usage["prompt_tokens"] == 10
             assert response.usage["completion_tokens"] == 20
             assert response.usage["total_tokens"] == 30
@@ -145,12 +171,12 @@ class TestLLMClient:
     async def test_complete_passes_config(
         self, llm_client: LLMClient, mock_acompletion: MagicMock
     ) -> None:
-        """Should pass config parameters to acompletion."""
+        """Should pass config parameters and gateway settings to acompletion."""
         mock_fn = AsyncMock(return_value=mock_acompletion)
 
         with patch("app.infrastructure.llm.acompletion", mock_fn):
             config = LLMConfig(
-                model="openai/gpt-4o",
+                model="custom-model",
                 max_tokens=2000,
                 temperature=0.5,
                 timeout=120,
@@ -160,12 +186,30 @@ class TestLLMClient:
             await llm_client.complete(config, messages)
 
             mock_fn.assert_called_once_with(
-                model="openai/gpt-4o",
+                model="custom-model",
                 messages=messages,
                 max_tokens=2000,
                 temperature=0.5,
                 timeout=120,
+                api_base="http://localhost:11434",
+                api_key="test-key",
             )
+
+    @pytest.mark.asyncio
+    async def test_complete_falls_back_to_default_model(
+        self, llm_client: LLMClient, mock_acompletion: MagicMock
+    ) -> None:
+        """Should use default_model when config.model is empty."""
+        mock_fn = AsyncMock(return_value=mock_acompletion)
+
+        with patch("app.infrastructure.llm.acompletion", mock_fn):
+            config = LLMConfig(model="", max_tokens=500, temperature=0.3)
+            messages = [{"role": "user", "content": "Test"}]
+
+            await llm_client.complete(config, messages)
+
+            call_kwargs = mock_fn.call_args[1]
+            assert call_kwargs["model"] == "test-model"
 
     @pytest.mark.asyncio
     async def test_complete_with_kwargs(
@@ -175,7 +219,7 @@ class TestLLMClient:
         mock_fn = AsyncMock(return_value=mock_acompletion)
 
         with patch("app.infrastructure.llm.acompletion", mock_fn):
-            config = LLMConfig(model="anthropic/claude-haiku-4-5-20251001")
+            config = LLMConfig(model="test-model")
             messages = [{"role": "user", "content": "Test"}]
 
             await llm_client.complete(config, messages, stop=["END"], top_p=0.9)
@@ -196,7 +240,7 @@ class TestLLMClient:
             new_callable=AsyncMock,
             return_value=mock_acompletion,
         ):
-            config = LLMConfig(model="anthropic/claude-haiku-4-5-20251001")
+            config = LLMConfig(model="test-model")
             response = await llm_client.complete(config, [{"role": "user", "content": "Hi"}])
 
             assert response.content == ""
@@ -213,7 +257,7 @@ class TestLLMClient:
             new_callable=AsyncMock,
             return_value=mock_acompletion,
         ):
-            config = LLMConfig(model="anthropic/claude-haiku-4-5-20251001")
+            config = LLMConfig(model="test-model")
             response = await llm_client.complete(config, [{"role": "user", "content": "Hi"}])
 
             assert response.usage == {}
@@ -226,7 +270,7 @@ class TestLLMClient:
             new_callable=AsyncMock,
             side_effect=Exception("API error"),
         ):
-            config = LLMConfig(model="anthropic/claude-haiku-4-5-20251001")
+            config = LLMConfig(model="test-model")
 
             with pytest.raises(LLMError) as exc_info:
                 await llm_client.complete(config, [{"role": "user", "content": "Hi"}])
@@ -244,7 +288,7 @@ class TestLLMClient:
             return_value=mock_acompletion,
         ):
             result = await llm_client.complete_simple(
-                model="anthropic/claude-haiku-4-5-20251001",
+                model="test-model",
                 prompt="Hello",
                 max_tokens=500,
                 temperature=0.3,
@@ -267,6 +311,20 @@ class TestLLMClient:
 
             call_kwargs = mock_fn.call_args[1]
             assert call_kwargs["messages"] == [{"role": "user", "content": "What is Python?"}]
+
+    @pytest.mark.asyncio
+    async def test_complete_empty_base_url_passes_none(self, mock_acompletion: MagicMock) -> None:
+        """Should pass None for api_base when base_url is empty."""
+        client = LLMClient(base_url="", api_key="", default_model="test-model")
+        mock_fn = AsyncMock(return_value=mock_acompletion)
+
+        with patch("app.infrastructure.llm.acompletion", mock_fn):
+            config = LLMConfig(model="test-model")
+            await client.complete(config, [{"role": "user", "content": "Hi"}])
+
+            call_kwargs = mock_fn.call_args[1]
+            assert call_kwargs["api_base"] is None
+            assert call_kwargs["api_key"] is None
 
 
 class TestLLMError:

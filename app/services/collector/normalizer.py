@@ -17,7 +17,6 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from app.core.config import get_config
 from app.core.logging import get_logger
 from app.infrastructure.llm import LLMClient, LLMConfig
 from app.prompts.manager import PromptManager, PromptType
@@ -181,12 +180,8 @@ class TopicNormalizer:
                 text=text,
             )
 
-            cfg = get_config()
-            config = LLMConfig(
-                model=cfg.llm_model_light,
-                max_tokens=cfg.llm_model_light_max_tokens,
-                temperature=0.3,
-            )
+            llm_settings = self.prompt_manager.get_llm_settings(PromptType.TRANSLATION)
+            config = LLMConfig.from_prompt_settings(llm_settings)
 
             response = await self.llm_client.complete(
                 config=config,
@@ -265,12 +260,8 @@ class TopicNormalizer:
                 text_to_analyze=text_to_analyze,
             )
 
-            cfg = get_config()
-            config = LLMConfig(
-                model=cfg.llm_model_light,
-                max_tokens=cfg.llm_model_light_max_tokens,
-                temperature=0.0,
-            )
+            llm_settings = self.prompt_manager.get_llm_settings(PromptType.CLASSIFICATION)
+            config = LLMConfig.from_prompt_settings(llm_settings)
 
             response = await self.llm_client.complete(
                 config=config,

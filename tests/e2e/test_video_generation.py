@@ -165,54 +165,98 @@ class TestFullVideoPipeline:
         temp_output_dir: Path,
         skip_without_ffmpeg: None,
         edge_tts_engine: EdgeTTSEngine,
+        ffmpeg_wrapper: FFmpegWrapper,
         remotion_compositor: RemotionCompositor,
     ) -> None:
         """Test complete video generation from script to final video."""
-        script_text = "안녕하세요. 이것은 E2E 테스트입니다."
+        scenes = [
+            Scene(
+                scene_type=SceneType.HOOK,
+                text="안녕하세요.",
+                visual_keyword="greeting hello",
+            ),
+            Scene(
+                scene_type=SceneType.CONTENT,
+                text="이것은 E2E 테스트입니다.",
+                visual_keyword="test verification",
+            ),
+        ]
 
-        # Step 1: Generate TTS
-        tts_config = TTSConfigDataclass(voice_id="ko-KR-SunHiNeural")
-
-        tts_result = await edge_tts_engine.synthesize(
-            text=script_text,
-            config=tts_config,
-            output_path=temp_output_dir / "audio",
+        scene_script = SceneScript(
+            scenes=scenes,
+            headline="E2E 테스트",
         )
 
-        assert tts_result.audio_path.exists()
+        # Step 1: Generate TTS for each scene
+        tts_config = TTSConfigDataclass(voice_id="ko-KR-SunHiNeural")
 
-        # Step 2: Generate subtitles
+        scene_tts_results = await edge_tts_engine.synthesize_scenes(
+            scenes=scenes,
+            config=tts_config,
+            output_dir=temp_output_dir / "audio_scenes",
+        )
+
+        assert len(scene_tts_results) == len(scenes)
+        for tts_result in scene_tts_results:
+            assert tts_result.audio_path.exists()
+
+        # Step 2: Concatenate audio
+        combined_tts = await concatenate_scene_audio(
+            scene_results=scene_tts_results,
+            output_path=temp_output_dir / "combined_audio",
+            ffmpeg_wrapper=ffmpeg_wrapper,
+        )
+
+        assert combined_tts.audio_path.exists()
+
+        # Step 3: Generate subtitles
         subtitle_gen = SubtitleGenerator(
             config=SubtitleConfig(),
             composition_config=CompositionConfig(),
             template_loader=ASSTemplateLoader(),
         )
 
-        if tts_result.word_timestamps:
-            subtitle_file = subtitle_gen.generate_from_timestamps(tts_result.word_timestamps)
-        else:
-            subtitle_file = subtitle_gen.generate_from_script(
-                script_text, tts_result.duration_seconds
-            )
+        subtitle_file = subtitle_gen.generate_from_scene_results(
+            scene_results=scene_tts_results,
+            scenes=scenes,
+        )
 
         subtitle_path = temp_output_dir / "subtitles.ass"
         subtitle_gen.to_ass(subtitle_file, subtitle_path)
 
         assert subtitle_path.exists()
 
-        # Step 3: Generate background visual (fallback solid color)
-        downloaded_visual = create_fallback_visual(temp_output_dir / "visuals")
+        # Step 4: Generate visuals (fallback solid color for each scene)
+        current_offset = 0.0
+        scene_visuals = []
+        for i, (scene, tts_result) in enumerate(zip(scenes, scene_tts_results, strict=False)):
+            visual = create_fallback_visual(
+                temp_output_dir / "visuals",
+                name=f"scene_{i}",
+                duration=tts_result.duration_seconds,
+            )
+            scene_visuals.append(
+                SceneVisualResult(
+                    scene_index=i,
+                    scene_type=scene.scene_type.value,
+                    asset=visual,
+                    duration=tts_result.duration_seconds,
+                    start_offset=current_offset,
+                )
+            )
+            current_offset += tts_result.duration_seconds
 
-        assert downloaded_visual.path is not None
-
-        # Step 4: Compose video
+        # Step 5: Compose video
         final_path = temp_output_dir / "final_video.mp4"
 
-        result = await remotion_compositor.compose(
-            audio=tts_result,
-            visuals=[downloaded_visual],
+        result = await remotion_compositor.compose_scenes(
+            scenes=scenes,
+            scene_tts_results=scene_tts_results,
+            scene_visuals=scene_visuals,
+            combined_audio_path=combined_tts.audio_path,
             subtitle_file=subtitle_path,
             output_path=final_path,
+            headline=scene_script.headline,
         )
 
         assert final_path.exists()
@@ -257,26 +301,59 @@ class TestVideoQuality:
         temp_output_dir: Path,
         skip_without_ffmpeg: None,
         edge_tts_engine: EdgeTTSEngine,
+        ffmpeg_wrapper: FFmpegWrapper,
         remotion_compositor: RemotionCompositor,
     ) -> None:
         """Test video meets YouTube Shorts specifications."""
-        config = TTSConfigDataclass(voice_id="ko-KR-SunHiNeural")
+        scenes = [
+            Scene(
+                scene_type=SceneType.HOOK,
+                text="품질 테스트",
+                visual_keyword="quality test",
+            ),
+        ]
 
-        tts_result = await edge_tts_engine.synthesize(
-            text="품질 테스트",
-            config=config,
-            output_path=temp_output_dir / "quality_audio",
+        scene_script = SceneScript(scenes=scenes, headline="품질 테스트")
+
+        tts_config = TTSConfigDataclass(voice_id="ko-KR-SunHiNeural")
+
+        scene_tts_results = await edge_tts_engine.synthesize_scenes(
+            scenes=scenes,
+            config=tts_config,
+            output_dir=temp_output_dir / "audio_scenes",
         )
 
-        visual = create_fallback_visual(temp_output_dir / "visuals")
+        combined_tts = await concatenate_scene_audio(
+            scene_results=scene_tts_results,
+            output_path=temp_output_dir / "combined_audio",
+            ffmpeg_wrapper=ffmpeg_wrapper,
+        )
+
+        visual = create_fallback_visual(
+            temp_output_dir / "visuals",
+            duration=scene_tts_results[0].duration_seconds,
+        )
+
+        scene_visuals = [
+            SceneVisualResult(
+                scene_index=0,
+                scene_type=scenes[0].scene_type.value,
+                asset=visual,
+                duration=scene_tts_results[0].duration_seconds,
+                start_offset=0.0,
+            )
+        ]
 
         final_path = temp_output_dir / "quality_test.mp4"
 
-        await remotion_compositor.compose(
-            audio=tts_result,
-            visuals=[visual],
+        await remotion_compositor.compose_scenes(
+            scenes=scenes,
+            scene_tts_results=scene_tts_results,
+            scene_visuals=scene_visuals,
+            combined_audio_path=combined_tts.audio_path,
             subtitle_file=None,
             output_path=final_path,
+            headline=scene_script.headline,
         )
 
         # Check video specs with ffprobe

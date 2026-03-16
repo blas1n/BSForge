@@ -1,21 +1,20 @@
 """LLM client abstraction using LiteLLM.
 
-This module provides a unified interface for LLM calls across different providers
-(Anthropic, OpenAI, etc.) using LiteLLM as the backend.
+This module provides a unified interface for LLM calls through a single
+LLM gateway (e.g., Ollama, OpenAI-compatible endpoint) using LiteLLM as the backend.
 
 Benefits:
-- Provider-agnostic interface
+- Single gateway configuration (base_url + api_key + model)
 - Easy model switching via config
 - Built-in retry and fallback support
 - Consistent response format
 """
 
-import os
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import litellm
-from litellm import acompletion
+from litellm import ModelResponse, acompletion
 
 from app.core.logging import get_logger
 
@@ -81,23 +80,18 @@ class LLMResponse:
 
 
 class LLMClient:
-    """Unified LLM client using LiteLLM.
+    """Unified LLM client using LiteLLM with a single gateway.
 
-    Provides a consistent interface for all LLM calls in the application.
-    Supports multiple providers through LiteLLM's unified API.
-
-    Model naming convention:
-        - Anthropic: "anthropic/claude-3-5-sonnet-20241022"
-        - OpenAI: "openai/gpt-4o"
-        - Gemini: "gemini/gemini-1.5-pro"
+    Routes all LLM calls through a configured base URL with a single API key.
 
     Example:
         >>> client = LLMClient(
-        ...     anthropic_api_key="sk-ant-...",
-        ...     openai_api_key="sk-..."
+        ...     base_url="https://api.anthropic.com/v1",
+        ...     api_key="sk-...",
+        ...     default_model="anthropic/claude-sonnet-4-20250514",
         ... )
         >>> response = await client.complete(
-        ...     config=LLMConfig(model="anthropic/claude-haiku-4-5-20251001"),
+        ...     config=LLMConfig(model="anthropic/claude-sonnet-4-20250514"),
         ...     messages=[{"role": "user", "content": "Hello!"}]
         ... )
         >>> print(response.content)
@@ -105,27 +99,22 @@ class LLMClient:
 
     def __init__(
         self,
-        anthropic_api_key: str | None = None,
-        openai_api_key: str | None = None,
+        base_url: str = "",
+        api_key: str = "",
+        default_model: str = "",
     ) -> None:
-        """Initialize LLM client with API keys.
-
-        API keys can be provided directly or will be read from environment variables.
-        LiteLLM reads API keys from environment variables by default:
-        - ANTHROPIC_API_KEY for Anthropic models
-        - OPENAI_API_KEY for OpenAI models
+        """Initialize LLM client with gateway settings.
 
         Args:
-            anthropic_api_key: Anthropic API key (optional, uses env if not provided)
-            openai_api_key: OpenAI API key (optional, uses env if not provided)
+            base_url: LLM gateway base URL
+            api_key: API key for the gateway
+            default_model: Default model to use when not specified in config
         """
-        # Set API keys in environment if provided
-        if anthropic_api_key and not os.environ.get("ANTHROPIC_API_KEY"):
-            os.environ["ANTHROPIC_API_KEY"] = anthropic_api_key
-        if openai_api_key and not os.environ.get("OPENAI_API_KEY"):
-            os.environ["OPENAI_API_KEY"] = openai_api_key
+        self.base_url = base_url
+        self.api_key = api_key
+        self.default_model = default_model
 
-        logger.info("LLMClient initialized")
+        logger.info("LLMClient initialized", base_url=base_url)
 
     async def complete(
         self,
@@ -147,32 +136,40 @@ class LLMClient:
             LLMError: If generation fails
         """
         try:
+            model = config.model or self.default_model
+
             logger.debug(
                 "LLM request",
-                model=config.model,
+                model=model,
                 max_tokens=config.max_tokens,
                 message_count=len(messages),
             )
 
-            response = await acompletion(
-                model=config.model,
-                messages=messages,
-                max_tokens=config.max_tokens,
-                temperature=config.temperature,
-                timeout=config.timeout,
-                **kwargs,
+            response = cast(
+                ModelResponse,
+                await acompletion(
+                    model=model,
+                    messages=messages,
+                    max_tokens=config.max_tokens,
+                    temperature=config.temperature,
+                    timeout=config.timeout,
+                    api_base=self.base_url or None,
+                    api_key=self.api_key or None,
+                    **kwargs,
+                ),
             )
 
             # Extract content from response
             content = response.choices[0].message.content or ""
 
-            # Build usage dict
+            # Build usage dict (usage is dynamically set, not a declared field)
             usage = {}
-            if response.usage:
+            response_usage = getattr(response, "usage", None)
+            if response_usage:
                 usage = {
-                    "prompt_tokens": response.usage.prompt_tokens or 0,
-                    "completion_tokens": response.usage.completion_tokens or 0,
-                    "total_tokens": response.usage.total_tokens or 0,
+                    "prompt_tokens": response_usage.prompt_tokens or 0,
+                    "completion_tokens": response_usage.completion_tokens or 0,
+                    "total_tokens": response_usage.total_tokens or 0,
                 }
 
             logger.debug(
@@ -192,7 +189,7 @@ class LLMClient:
         except Exception as e:
             logger.error(
                 "LLM request failed",
-                model=config.model,
+                model=model,
                 error=str(e),
                 exc_info=True,
             )

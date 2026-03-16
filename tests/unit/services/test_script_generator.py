@@ -43,7 +43,7 @@ def mock_prompt_manager() -> MagicMock:
     pm = MagicMock()
     pm.render.return_value = "rendered prompt"
     pm.get_llm_settings.return_value = MagicMock(
-        model="openai/gpt-4o-mini",
+        model="",
         max_tokens=2000,
         temperature=0.7,
     )
@@ -97,7 +97,7 @@ class TestScriptGenerator:
         """Test that generate returns a ScriptGenerationResult."""
         mock_llm_client.complete.return_value = LLMResponse(
             content=json.dumps(sample_llm_response),
-            model="openai/gpt-4o-mini",
+            model="test-model",
             usage={"prompt_tokens": 100, "completion_tokens": 200, "total_tokens": 300},
         )
 
@@ -110,7 +110,7 @@ class TestScriptGenerator:
         assert isinstance(result, ScriptGenerationResult)
         assert result.scene_script.headline == "AI가 바꾸는 미래"
         assert len(result.scene_script.scenes) == 3
-        assert result.model == "openai/gpt-4o-mini"
+        assert result.model == "test-model"
 
     @pytest.mark.asyncio
     async def test_generate_with_persona(
@@ -123,7 +123,7 @@ class TestScriptGenerator:
         """Test that persona config is passed to prompt variables."""
         mock_llm_client.complete.return_value = LLMResponse(
             content=json.dumps(sample_llm_response),
-            model="openai/gpt-4o-mini",
+            model="test-model",
             usage={},
         )
 

@@ -7,7 +7,6 @@ version: "1.1.0"
 description: "Translates text from source language to target language"
 
 # LLM Settings
-model: "anthropic/claude-haiku-4-5-20251001"
 max_tokens: 500
 temperature: 0.2
 

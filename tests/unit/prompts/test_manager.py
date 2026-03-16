@@ -25,8 +25,8 @@ class TestPromptManager:
         assert "${source_name}" in template.template
         assert "${target_name}" in template.template
         assert "${text}" in template.template
-        # Check LLM settings are loaded
-        assert template.llm_settings.model == "anthropic/claude-haiku-4-5-20251001"
+        # Check LLM settings are loaded (model defaults to empty, set via config)
+        assert template.llm_settings.model == ""
         assert template.llm_settings.max_tokens == 500
         assert template.llm_settings.temperature == 0.2
 
@@ -39,20 +39,20 @@ class TestPromptManager:
         assert template.name == "Classification Prompt"
         assert template.version == "1.2.0"
         assert "${text_to_analyze}" in template.template
-        # Check LLM settings are loaded
-        assert template.llm_settings.model == "anthropic/claude-haiku-4-5-20251001"
+        # Check LLM settings are loaded (model defaults to empty, set via config)
+        assert template.llm_settings.model == ""
         assert template.llm_settings.max_tokens == 500
         assert template.llm_settings.temperature == 0.3
 
-    def test_load_scene_script_prompt_openai(self):
-        """Should load scene script generation prompt with OpenAI model."""
+    def test_load_scene_script_prompt(self):
+        """Should load scene script generation prompt."""
         manager = PromptManager()
         template = manager.load(PromptType.SCRIPT_GENERATION)
 
         assert isinstance(template, PromptTemplate)
         assert template.name == "Scene Script Generation Prompt"
-        # Check OpenAI model is used for script generation
-        assert template.llm_settings.model == "openai/gpt-4o-mini"
+        # Model is now configured globally, not per-template
+        assert template.llm_settings.model == ""
         assert template.llm_settings.max_tokens == 2000
         assert template.llm_settings.temperature == 0.8
 
@@ -62,7 +62,7 @@ class TestPromptManager:
         settings = manager.get_llm_settings(PromptType.SCRIPT_GENERATION)
 
         assert isinstance(settings, LLMSettings)
-        assert settings.model == "openai/gpt-4o-mini"
+        assert settings.model == ""
         assert settings.max_tokens == 2000
         assert settings.temperature == 0.8
 
@@ -217,10 +217,10 @@ class TestLLMSettings:
         assert settings.temperature == 0.7
 
     def test_default_llm_settings(self):
-        """Should use default values."""
+        """Should use default values (model empty, set via config)."""
         settings = LLMSettings()
 
-        assert settings.model == "anthropic/claude-haiku-4-5-20251001"
+        assert settings.model == ""
         assert settings.max_tokens == 500
         assert settings.temperature == 0.3
 

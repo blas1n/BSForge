@@ -55,11 +55,12 @@ def create_http_client() -> HTTPClient:
 
 
 def create_llm_client() -> LLMClient:
-    """Create LLM client with API keys from config."""
+    """Create LLM client with gateway config."""
     config = get_config()
     return LLMClient(
-        anthropic_api_key=config.anthropic_api_key,
-        openai_api_key=config.openai_api_key,
+        base_url=config.llm_base_url,
+        api_key=config.llm_api_key,
+        default_model=config.llm_model,
     )
 
 
