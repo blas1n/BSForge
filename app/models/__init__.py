@@ -2,17 +2,13 @@
 
 Models are organized by feature and created incrementally:
 - Phase 3: Channel, Persona, Source, Topic
-- Phase 4: ContentChunk, Script
+- Phase 4: Script
 - Phase 5: Video
 - Phase 6: Upload, Performance, Series
-- Phase 7: Experiment
-- Phase 8: ReviewQueue
-- Phase 10: JobLog
 """
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
 from app.models.channel import Channel, ChannelStatus, Persona, TTSService
-from app.models.content_chunk import ChunkPosition, ContentChunk, ContentType
 from app.models.performance import Performance
 from app.models.script import Script, ScriptStatus
 from app.models.series import Series, SeriesStatus
@@ -39,9 +35,6 @@ __all__ = [
     # Phase 4 Models
     "Script",
     "ScriptStatus",
-    "ContentChunk",
-    "ChunkPosition",
-    "ContentType",
     # Phase 5 Models
     "Video",
     "VideoStatus",

@@ -14,7 +14,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
-    from app.models.content_chunk import ContentChunk
     from app.models.script import Script
     from app.models.series import Series
     from app.models.source import Source
@@ -92,9 +91,6 @@ class Channel(Base, UUIDMixin, TimestampMixin):
     )
     scripts: Mapped[list["Script"]] = relationship(
         "Script", back_populates="channel", cascade="all, delete-orphan"
-    )
-    content_chunks: Mapped[list["ContentChunk"]] = relationship(
-        "ContentChunk", back_populates="channel", cascade="all, delete-orphan"
     )
     videos: Mapped[list["Video"]] = relationship(
         "Video", back_populates="channel", cascade="all, delete-orphan"
