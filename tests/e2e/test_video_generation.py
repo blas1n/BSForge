@@ -21,8 +21,9 @@ from app.services.generator.templates import ASSTemplateLoader
 from app.services.generator.tts.base import TTSSynthesisConfig as TTSConfigDataclass
 from app.services.generator.tts.edge import EdgeTTSEngine
 from app.services.generator.tts.utils import concatenate_scene_audio
-from app.services.generator.visual.fallback import FallbackGenerator
 from app.services.generator.visual.manager import SceneVisualResult
+
+from .conftest import create_fallback_visual
 
 
 class TestTTSGeneration:
@@ -71,30 +72,20 @@ class TestTTSGeneration:
         temp_output_dir: Path,
         edge_tts_engine: EdgeTTSEngine,
     ) -> None:
-        """Test Edge TTS can provide word-level timestamps.
-
-        Note: Word timestamps availability depends on the Edge TTS service
-        and the text content. We test with a longer sentence to increase
-        the likelihood of getting timestamps.
-        """
+        """Test Edge TTS can provide word-level timestamps."""
         config = TTSConfigDataclass(voice_id="ko-KR-SunHiNeural")
 
-        # Use a longer sentence for better timestamp extraction
         result = await edge_tts_engine.synthesize(
             text="안녕하세요. 오늘 날씨가 정말 좋습니다. 모두 좋은 하루 되세요.",
             config=config,
             output_path=temp_output_dir / "test_timestamps",
         )
 
-        # Audio should always be generated
         assert result.audio_path.exists()
         assert result.duration_seconds > 0
 
-        # Word timestamps may or may not be available depending on Edge TTS service
-        # If they are available, verify they are properly ordered
         if result.word_timestamps:
             assert len(result.word_timestamps) > 0
-            # Verify timestamps are ordered
             for i in range(1, len(result.word_timestamps)):
                 assert result.word_timestamps[i].start >= result.word_timestamps[i - 1].start
 
@@ -140,7 +131,6 @@ class TestSubtitleGeneration:
             output_path=temp_output_dir / "tts_for_subs",
         )
 
-        # Generate subtitles from timestamps
         generator = SubtitleGenerator(
             config=SubtitleConfig(),
             composition_config=CompositionConfig(),
@@ -156,20 +146,14 @@ class TestVisualSourcing:
     """E2E tests for visual sourcing."""
 
     @pytest.mark.asyncio
-    async def test_fallback_generator(self, temp_output_dir: Path) -> None:
-        """Test fallback visual generator creates images."""
-        generator = FallbackGenerator()
+    async def test_fallback_visual_creation(self, temp_output_dir: Path) -> None:
+        """Test fallback visual creation generates images."""
+        visual = create_fallback_visual(temp_output_dir / "visuals")
 
-        # Search for assets
-        assets = await generator.search("test", max_results=2)
-        assert len(assets) == 2
-
-        # Download first asset
-        downloaded = await generator.download(assets[0], temp_output_dir)
-        assert downloaded.path is not None
-        assert downloaded.path.exists()
-        assert downloaded.width == 1080
-        assert downloaded.height == 1920
+        assert visual.path is not None
+        assert visual.path.exists()
+        assert visual.width == 1080
+        assert visual.height == 1920
 
 
 class TestFullVideoPipeline:
@@ -216,10 +200,8 @@ class TestFullVideoPipeline:
 
         assert subtitle_path.exists()
 
-        # Step 3: Generate background visual
-        fallback_gen = FallbackGenerator()
-        visuals = await fallback_gen.search("test", max_results=1)
-        downloaded_visual = await fallback_gen.download(visuals[0], temp_output_dir)
+        # Step 3: Generate background visual (fallback solid color)
+        downloaded_visual = create_fallback_visual(temp_output_dir / "visuals")
 
         assert downloaded_visual.path is not None
 
@@ -286,9 +268,7 @@ class TestVideoQuality:
             output_path=temp_output_dir / "quality_audio",
         )
 
-        fallback_gen = FallbackGenerator()
-        visuals = await fallback_gen.search("test", max_results=1)
-        visual = await fallback_gen.download(visuals[0], temp_output_dir)
+        visual = create_fallback_visual(temp_output_dir / "visuals")
 
         final_path = temp_output_dir / "quality_test.mp4"
 
@@ -341,7 +321,6 @@ class TestSceneBasedPipeline:
         remotion_compositor: RemotionCompositor,
     ) -> None:
         """Test complete scene-based video generation."""
-        # Create sample scenes
         scenes = [
             Scene(
                 scene_type=SceneType.HOOK,
@@ -404,14 +383,15 @@ class TestSceneBasedPipeline:
 
         assert subtitle_path.exists()
 
-        # Step 4: Generate visuals
-        fallback_gen = FallbackGenerator()
+        # Step 4: Generate visuals (fallback solid color for each scene)
         visuals = []
         for i, tts_result in enumerate(scene_tts_results):
-            assets = await fallback_gen.search(f"scene_{i}", max_results=1)
-            downloaded = await fallback_gen.download(assets[0], temp_output_dir / "visuals")
-            downloaded.duration = tts_result.duration_seconds
-            visuals.append(downloaded)
+            visual = create_fallback_visual(
+                temp_output_dir / "visuals",
+                name=f"scene_{i}",
+                duration=tts_result.duration_seconds,
+            )
+            visuals.append(visual)
 
         assert len(visuals) == len(scenes)
 

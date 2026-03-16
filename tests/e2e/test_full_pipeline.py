@@ -2,7 +2,7 @@
 
 These tests verify the complete workflow:
 1. Collect topics with persona context
-2. Generate script from topic using RAG
+2. Generate script from topic
 3. Generate video from script
 """
 
@@ -25,9 +25,8 @@ from app.services.generator.remotion_compositor import RemotionCompositor
 from app.services.generator.subtitle import SubtitleGenerator
 from app.services.generator.tts.base import TTSSynthesisConfig as TTSConfigDataclass
 from app.services.generator.tts.edge import EdgeTTSEngine
-from app.services.generator.visual.fallback import FallbackGenerator
 
-from .conftest import create_scored_topic
+from .conftest import create_fallback_visual, create_scored_topic
 
 
 class TestPersonaBasedGeneration:
@@ -71,7 +70,6 @@ class TestPersonaBasedGeneration:
         sample_topic: ScoredTopic,
     ) -> None:
         """Test script generation from topic with persona."""
-        # Mock LLM client for script generation
         llm_client = AsyncMock()
         llm_client.complete = AsyncMock(
             return_value=MagicMock(
@@ -85,8 +83,6 @@ OpenAI가 최근 발표한 새로운 기능들이 정말 대단한데요.
             )
         )
 
-        # In real implementation, this would use ScriptGenerator
-        # Here we simulate the script generation
         script_text = llm_client.complete.return_value.content
 
         assert len(script_text) > 50
@@ -105,7 +101,6 @@ OpenAI가 최근 발표한 새로운 기능들이 정말 대단한데요.
         subtitle_generator: SubtitleGenerator,
     ) -> None:
         """Test complete topic to video pipeline."""
-        # Simulate generated script
         script_text = """안녕하세요! 오늘은 ChatGPT 최신 업데이트를 살펴보겠습니다.
 새로운 기능들이 정말 놀라운데요, 특히 한국어 지원이 크게 개선되었습니다.
 여러분도 직접 사용해보시길 추천드립니다."""
@@ -135,10 +130,8 @@ OpenAI가 최근 발표한 새로운 기능들이 정말 대단한데요.
         subtitle_path = temp_output_dir / "topic_subs.ass"
         subtitle_generator.to_ass(subtitle_file, subtitle_path)
 
-        # Step 3: Generate visual
-        fallback_gen = FallbackGenerator()
-        visuals = await fallback_gen.search("technology", max_results=1)
-        visual = await fallback_gen.download(visuals[0], temp_output_dir)
+        # Step 3: Generate visual (fallback solid color)
+        visual = create_fallback_visual(temp_output_dir / "visuals")
 
         # Step 4: Compose video
         video_path = temp_output_dir / "topic_video.mp4"
@@ -185,8 +178,6 @@ class TestBatchVideoGeneration:
             ("프로그래밍 팁", "개발자를 위한 생산성 향상 방법"),
         ]
 
-        fallback_gen = FallbackGenerator()
-
         generated_videos = []
 
         for i, (title, script) in enumerate(topics):
@@ -212,9 +203,8 @@ class TestBatchVideoGeneration:
             sub_path = topic_dir / "subs.ass"
             subtitle_generator.to_ass(sub_file, sub_path)
 
-            # Visual
-            visuals = await fallback_gen.search("tech", max_results=1)
-            visual = await fallback_gen.download(visuals[0], topic_dir)
+            # Visual (fallback solid color)
+            visual = create_fallback_visual(topic_dir / "visuals", name=f"bg_{i}")
 
             # Compose
             video_path = topic_dir / "video.mp4"
@@ -260,7 +250,6 @@ class TestErrorHandling:
         subtitle_generator: SubtitleGenerator,
     ) -> None:
         """Test handling of empty script."""
-        # Empty script should return empty subtitle file
         subtitle_file = subtitle_generator.generate_from_script("", 5.0)
 
         assert len(subtitle_file.segments) == 0
@@ -273,8 +262,6 @@ class TestErrorHandling:
         edge_tts_engine: EdgeTTSEngine,
     ) -> None:
         """Test handling of very long script (beyond Shorts limit)."""
-        # YouTube Shorts max is 60 seconds
-        # This script should exceed that when spoken
         long_script = " ".join(["이것은 매우 긴 스크립트입니다."] * 50)
 
         tts_config = TTSConfigDataclass(voice_id="ko-KR-SunHiNeural")
@@ -285,35 +272,7 @@ class TestErrorHandling:
             output_path=temp_output_dir / "long_audio",
         )
 
-        # Should still generate, but warn about length
         assert tts_result.audio_path.exists()
-        # In production, we'd truncate or split the script
-
-
-class TestIntegrationWithRAG:
-    """E2E tests for RAG-based script generation."""
-
-    @pytest.mark.asyncio
-    async def test_rag_context_retrieval(self) -> None:
-        """Test RAG context retrieval for script generation."""
-        # This would test the full RAG pipeline:
-        # 1. Retrieve relevant content chunks
-        # 2. Build context with persona info
-        # 3. Generate script with LLM
-
-        # For now, we mock the RAG components
-        mock_retriever = AsyncMock()
-        mock_retriever.retrieve = AsyncMock(
-            return_value=[
-                MagicMock(text="AI 기술이 빠르게 발전하고 있습니다.", score=0.9),
-                MagicMock(text="ChatGPT는 OpenAI에서 개발했습니다.", score=0.85),
-            ]
-        )
-
-        # Verify retrieval works
-        results = await mock_retriever.retrieve("ChatGPT 최신 소식")
-        assert len(results) == 2
-        assert results[0].score > results[1].score
 
 
 class TestSceneBasedVideoGeneration:
@@ -356,22 +315,18 @@ class TestSceneBasedVideoGeneration:
         """Test SceneScript structure validation."""
         errors = sample_scene_script.validate_structure()
 
-        # Should have no critical errors (may have duration warnings)
         structural_errors = [e for e in errors if "HOOK" in e or "CONTENT" in e]
         assert len(structural_errors) == 0
 
-        # Should have commentary (BSForge differentiator)
         assert sample_scene_script.has_commentary
 
     def test_scene_script_transitions(self, sample_scene_script: SceneScript) -> None:
         """Test recommended transitions between scenes."""
         transitions = sample_scene_script.get_recommended_transitions()
 
-        # Should have n-1 transitions for n scenes
         assert len(transitions) == len(sample_scene_script.scenes) - 1
 
         # CONTENT -> COMMENTARY should be FLASH (key differentiator)
-        # Position 1 is CONTENT->COMMENTARY
         assert transitions[1] == TransitionType.FLASH
 
     def test_scene_types_classification(self, sample_scene_script: SceneScript) -> None:
@@ -423,10 +378,8 @@ class TestSceneBasedVideoGeneration:
             assert tts_result.audio_path.exists()
             assert tts_result.duration_seconds > 0
 
-        # Verify all scenes processed
         assert len(scene_audios) == 4
 
-        # Commentary scene should be marked as persona scene
         commentary_audio = next(a for a in scene_audios if a["scene_type"].value == "commentary")
         assert commentary_audio["is_persona"] is True
 
@@ -442,7 +395,6 @@ class TestSceneBasedVideoGeneration:
     ) -> None:
         """Test video composition with scene-based structure."""
         tts_config = TTSConfigDataclass(voice_id="ko-KR-SunHiNeural")
-        fallback_gen = FallbackGenerator()
 
         # Generate TTS for full script
         full_text = sample_scene_script.full_text
@@ -463,9 +415,8 @@ class TestSceneBasedVideoGeneration:
         subtitle_path = temp_output_dir / "scene_subs.ass"
         subtitle_generator.to_ass(subtitle_file, subtitle_path)
 
-        # Generate visuals
-        visuals = await fallback_gen.search("technology AI", max_results=1)
-        visual = await fallback_gen.download(visuals[0], temp_output_dir)
+        # Generate visual (fallback solid color)
+        visual = create_fallback_visual(temp_output_dir / "visuals")
 
         # Compose video
         video_path = temp_output_dir / "scene_video.mp4"
@@ -485,13 +436,10 @@ class TestSceneBasedVideoGeneration:
             style = scene.inferred_visual_style
 
             if scene.is_persona_scene:
-                # Commentary/Reaction should have PERSONA style
                 assert style == VisualStyle.PERSONA
             elif scene.scene_type.value in ("conclusion", "cta"):
-                # Conclusion/CTA should have EMPHASIS style
                 assert style == VisualStyle.EMPHASIS
             else:
-                # Others should have NEUTRAL style
                 assert style == VisualStyle.NEUTRAL
 
 
@@ -509,10 +457,6 @@ class TestFullPipelineIntegration:
         subtitle_generator: SubtitleGenerator,
     ) -> None:
         """Test complete pipeline: Topic -> SceneScript -> Video."""
-        # Keywords would be used by RAG in production: ["GPT-5", "OpenAI", "AI"]
-
-        # Step 1: Simulated RAG script generation (would use ScriptGenerator)
-        # In production, RAG retrieves relevant chunks and LLM generates script
         scene_script = SceneScript(
             scenes=[
                 Scene(
@@ -534,9 +478,8 @@ class TestFullPipelineIntegration:
             headline="GPT-5, 곧 출시",
         )
 
-        # Step 2: Video generation
+        # Video generation
         tts_config = TTSConfigDataclass(voice_id="ko-KR-InJoonNeural")
-        fallback_gen = FallbackGenerator()
 
         # TTS
         full_text = scene_script.full_text
@@ -557,9 +500,8 @@ class TestFullPipelineIntegration:
         subtitle_path = temp_output_dir / "pipeline_subs.ass"
         subtitle_generator.to_ass(subtitle_file, subtitle_path)
 
-        # Visual
-        visuals = await fallback_gen.search("AI technology", max_results=1)
-        visual = await fallback_gen.download(visuals[0], temp_output_dir)
+        # Visual (fallback solid color)
+        visual = create_fallback_visual(temp_output_dir / "visuals")
 
         # Compose
         video_path = temp_output_dir / "pipeline_video.mp4"
