@@ -59,27 +59,12 @@ class Config(BaseSettings):
         default=10, description="Max overflow connections", ge=0, le=50
     )
 
-    redis_url: str = Field(default="redis://localhost:6379/0", description="Redis connection URL")
-    celery_broker_url: str = Field(
-        default="redis://localhost:6379/1", description="Celery broker URL"
-    )
-    celery_result_backend: str = Field(
-        default="redis://localhost:6379/2", description="Celery result backend URL"
-    )
-
     # ============================================
     # Security Settings
     # ============================================
     secret_key: str = Field(
         default_factory=lambda: secrets.token_urlsafe(32),
         description="Application secret key",
-    )
-    jwt_secret_key: str = Field(
-        default_factory=lambda: secrets.token_urlsafe(32), description="JWT secret key"
-    )
-    jwt_algorithm: str = Field(default="HS256", description="JWT algorithm")
-    access_token_expire_minutes: int = Field(
-        default=30, description="Access token expiration time", ge=1, le=10080
     )
 
     # ============================================
@@ -107,16 +92,6 @@ class Config(BaseSettings):
     llm_model_heavy_max_tokens: int = Field(
         default=2000, description="Max tokens for heavy LLM tasks", ge=500, le=8000
     )
-
-    # ============================================
-    # Vector Database
-    # ============================================
-    chroma_persist_directory: str = Field(
-        default="./chroma_db", description="Chroma persist directory"
-    )
-    pinecone_api_key: str = Field(default="", description="Pinecone API key")
-    pinecone_environment: str = Field(default="us-east-1-aws", description="Pinecone environment")
-    pinecone_index_name: str = Field(default="bsforge", description="Pinecone index name")
 
     # ============================================
     # YouTube API
@@ -149,13 +124,6 @@ class Config(BaseSettings):
     reddit_client_secret: str = Field(default="", description="Reddit client secret")
     reddit_user_agent: str = Field(default="BSForge/1.0", description="Reddit user agent")
     pexels_api_key: str = Field(default="", description="Pexels API key")
-    pixabay_api_key: str = Field(default="", description="Pixabay API key")
-    brave_search_api_key: str = Field(default="", description="Brave Search API key")
-
-    # ============================================
-    # Web Research
-    # ============================================
-    tavily_api_key: str = Field(default="", description="Tavily API key for web research")
 
     # ============================================
     # File Storage
@@ -164,33 +132,16 @@ class Config(BaseSettings):
     local_storage_path: str = Field(default="./outputs", description="Local storage path")
 
     # ============================================
-    # Notifications
-    # ============================================
-    telegram_bot_token: str = Field(default="", description="Telegram bot token")
-    telegram_chat_id: str = Field(default="", description="Telegram chat ID")
-
-    # ============================================
-    # API Server
-    # ============================================
-    api_host: str = Field(default="0.0.0.0", description="API server host")
-    api_port: int = Field(default=8000, description="API server port", ge=1, le=65535)
-
-    # ============================================
-    # CORS Settings
-    # ============================================
-    cors_origins: list[str] = Field(
-        default=["http://localhost:3000", "http://localhost:8000"],
-        description="Allowed CORS origins",
-    )
-    cors_allow_credentials: bool = Field(default=True, description="Allow CORS credentials")
-
-    # ============================================
     # Feature Flags
     # ============================================
-    enable_ab_testing: bool = Field(default=True, description="Enable A/B testing")
     enable_auto_upload: bool = Field(default=False, description="Enable auto upload")
-    enable_series_detection: bool = Field(default=True, description="Enable series detection")
-    enable_trend_collection: bool = Field(default=True, description="Enable trend collection")
+
+    # ============================================
+    # Orchestrator
+    # ============================================
+    scheduler_interval_hours: int = Field(
+        default=6, description="Hours between orchestrator runs", ge=1, le=168
+    )
 
     @field_validator("database_url", mode="before")
     @classmethod

@@ -72,22 +72,6 @@ def test_config_pool_size_constraints():
 
 
 @pytest.mark.unit
-def test_config_port_constraints():
-    """Test API port constraints."""
-    # Valid port
-    config = Config(api_port=8000)
-    assert config.api_port == 8000
-
-    # Invalid port (too small)
-    with pytest.raises(ValidationError):
-        Config(api_port=0)
-
-    # Invalid port (too large)
-    with pytest.raises(ValidationError):
-        Config(api_port=70000)
-
-
-@pytest.mark.unit
 def test_config_env_literal():
     """Test that app_env only accepts valid values."""
     # Valid values
@@ -118,10 +102,7 @@ def test_config_feature_flags():
     """Test feature flag settings."""
     config = Config()
 
-    assert config.enable_ab_testing is True
     assert config.enable_auto_upload is False
-    assert config.enable_series_detection is True
-    assert config.enable_trend_collection is True
 
 
 @pytest.mark.unit
