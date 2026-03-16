@@ -10,7 +10,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_config
-from app.core.container import container
 from app.core.database import check_db_connection, close_db, init_db
 from app.core.logging import get_logger, setup_logging
 
@@ -22,8 +21,6 @@ logger = get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan events.
-
-    Handles startup and shutdown events for the FastAPI application.
 
     Args:
         app: FastAPI application instance
@@ -53,9 +50,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Shutdown
     logger.info("Shutting down BSForge application")
     await close_db()
-    # Close Redis connections from DI container
-    redis_client = container.redis()
-    await redis_client.close()
     logger.info("Cleanup complete")
 
 
@@ -83,11 +77,7 @@ app.add_middleware(
 # Health check endpoint
 @app.get("/health")
 async def health_check() -> dict[str, str]:
-    """Health check endpoint.
-
-    Returns:
-        Health status
-    """
+    """Health check endpoint."""
     cfg = get_config()
     return {
         "status": "healthy",
@@ -98,20 +88,9 @@ async def health_check() -> dict[str, str]:
 
 @app.get("/")
 async def root() -> dict[str, str]:
-    """Root endpoint.
-
-    Returns:
-        Welcome message
-    """
+    """Root endpoint."""
     return {
         "message": "BSForge API",
         "version": "0.1.0",
         "docs": "/docs" if get_config().is_development else "disabled",
     }
-
-
-# API routers will be added in later phases
-# from app.api.v1 import channels, review, stats
-# app.include_router(channels.router, prefix="/api/v1", tags=["channels"])
-# app.include_router(review.router, prefix="/api/v1", tags=["review"])
-# app.include_router(stats.router, prefix="/api/v1", tags=["stats"])

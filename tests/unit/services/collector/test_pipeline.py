@@ -10,8 +10,6 @@ class TestCollectionStats:
         """Test default values."""
         stats = CollectionStats()
 
-        assert stats.global_topics == 0
-        assert stats.scoped_topics == 0
         assert stats.total_collected == 0
         assert stats.normalized_count == 0
         assert stats.filtered_count == 0
@@ -22,8 +20,6 @@ class TestCollectionStats:
     def test_with_values(self):
         """Test with custom values."""
         stats = CollectionStats(
-            global_topics=10,
-            scoped_topics=20,
             total_collected=30,
             normalized_count=28,
             filtered_count=25,
@@ -32,9 +28,11 @@ class TestCollectionStats:
             errors=["Error 1", "Error 2"],
         )
 
-        assert stats.global_topics == 10
-        assert stats.scoped_topics == 20
         assert stats.total_collected == 30
+        assert stats.normalized_count == 28
+        assert stats.filtered_count == 25
+        assert stats.deduplicated_count == 20
+        assert stats.saved_count == 15
         assert len(stats.errors) == 2
 
 
@@ -44,22 +42,19 @@ class TestCollectionConfig:
     def test_minimal_config(self):
         """Test minimal configuration."""
         config = CollectionConfig(
-            global_sources=[],
-            scoped_sources=[],
+            sources=[],
             target_language="ko",
         )
 
         assert config.target_language == "ko"
-        assert config.global_sources == []
-        assert config.scoped_sources == []
+        assert config.sources == []
         assert config.include == []
         assert config.exclude == []
 
     def test_full_config(self):
         """Test full configuration."""
         config = CollectionConfig(
-            global_sources=["hackernews", "google_trends"],
-            scoped_sources=["reddit", "dcinside"],
+            sources=["reddit", "google_trends", "rss"],
             target_language="ko",
             source_overrides={
                 "reddit": {"subreddits": ["technology", "programming"]},
@@ -70,32 +65,29 @@ class TestCollectionConfig:
             save_to_db=True,
         )
 
-        assert "hackernews" in config.global_sources
-        assert "reddit" in config.scoped_sources
+        assert "reddit" in config.sources
+        assert "google_trends" in config.sources
         assert config.target_language == "ko"
         assert "reddit" in config.source_overrides
         assert config.max_topics == 100
         assert config.save_to_db is True
 
     def test_enabled_sources_property(self):
-        """Test enabled_sources combines global and scoped."""
+        """Test sources list."""
         config = CollectionConfig(
-            global_sources=["hackernews"],
-            scoped_sources=["reddit", "dcinside"],
+            sources=["reddit", "google_trends", "rss"],
             target_language="ko",
         )
 
-        enabled = config.enabled_sources
-        assert len(enabled) == 3
-        assert "hackernews" in enabled
-        assert "reddit" in enabled
-        assert "dcinside" in enabled
+        assert len(config.sources) == 3
+        assert "reddit" in config.sources
+        assert "google_trends" in config.sources
+        assert "rss" in config.sources
 
     def test_filtering_config(self):
         """Test include/exclude filtering configuration."""
         config = CollectionConfig(
-            global_sources=[],
-            scoped_sources=[],
+            sources=[],
             target_language="ko",
             include=["ai", "technology", "future"],
             exclude=["spam", "advertisement"],
@@ -110,8 +102,7 @@ class TestCollectionConfig:
         """Test creating config from channel YAML dict."""
         channel_config = {
             "topic_collection": {
-                "global_sources": ["hackernews"],
-                "scoped_sources": ["reddit"],
+                "sources": ["reddit", "google_trends"],
                 "target_language": "en",
             },
             "filtering": {
@@ -123,8 +114,8 @@ class TestCollectionConfig:
         config = CollectionConfig.from_channel_config(channel_config)
 
         assert config.target_language == "en"
-        assert "hackernews" in config.global_sources
-        assert "reddit" in config.scoped_sources
+        assert "reddit" in config.sources
+        assert "google_trends" in config.sources
 
     def test_from_channel_config_defaults(self):
         """Test from_channel_config with empty config uses defaults."""
@@ -133,5 +124,4 @@ class TestCollectionConfig:
         config = CollectionConfig.from_channel_config(channel_config)
 
         assert config.target_language == "ko"  # Default
-        assert config.global_sources == []
-        assert config.scoped_sources == []
+        assert config.sources == []

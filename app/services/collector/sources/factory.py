@@ -10,15 +10,9 @@ from typing import Any, Final
 from app.core.logging import get_logger
 from app.infrastructure.http_client import HTTPClient
 from app.services.collector.base import BaseSource, RawTopic
-from app.services.collector.sources.clien import ClienSource
-from app.services.collector.sources.dcinside import DCInsideSource
-from app.services.collector.sources.fmkorea import FmkoreaSource
 from app.services.collector.sources.google_trends import GoogleTrendsSource
-from app.services.collector.sources.hackernews import HackerNewsSource
 from app.services.collector.sources.reddit import RedditSource
 from app.services.collector.sources.rss import RSSSource
-from app.services.collector.sources.ruliweb import RuliwebSource
-from app.services.collector.sources.youtube_trending import YouTubeTrendingSource
 
 logger = get_logger(__name__)
 
@@ -28,14 +22,8 @@ DEFAULT_RSS_LIMIT: Final[int] = 20
 
 # Source name to class mapping
 SOURCE_CLASSES: dict[str, type[BaseSource[Any]]] = {
-    "hackernews": HackerNewsSource,
     "reddit": RedditSource,
-    "youtube_trending": YouTubeTrendingSource,
     "google_trends": GoogleTrendsSource,
-    "dcinside": DCInsideSource,
-    "clien": ClienSource,
-    "ruliweb": RuliwebSource,
-    "fmkorea": FmkoreaSource,
     "rss": RSSSource,
 }
 
