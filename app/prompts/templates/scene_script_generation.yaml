@@ -6,7 +6,7 @@ name: "Scene Script Generation Prompt"
 version: "2.0.0"
 description: "Generates scene-structured YouTube Shorts scripts with persona-driven commentary"
 
-max_tokens: 2000
+max_tokens: 8000
 temperature: 0.8
 
 template: |
@@ -72,6 +72,11 @@ template: |
   - ${hook['text']}
   % endfor
   % endif
+
+  ---
+
+  # Current Date
+  Today is ${current_date}. Generate content that reflects the LATEST trends and developments as of this date. Do NOT reference outdated events or products — focus on what is happening NOW.
 
   ---
 
@@ -223,6 +228,7 @@ template: |
   Output ONLY valid JSON (no markdown blocks):
 
 example_variables:
+  current_date: "2026-03-18"
   persona_name: "TechBro"
   persona_tagline: "No BS, just core insights"
   persona_description: "We cut through tech hype with a developer's perspective."

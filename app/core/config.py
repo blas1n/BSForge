@@ -70,7 +70,7 @@ class Config(BaseSettings):
     # ============================================
     # LLM Gateway
     # ============================================
-    llm_base_url: str = Field(
+    llm_api_base: str = Field(
         default="https://api.anthropic.com/v1", description="LLM gateway base URL"
     )
     llm_api_key: str = Field(default="", description="LLM gateway API key")

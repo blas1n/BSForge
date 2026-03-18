@@ -5,9 +5,10 @@ from pathlib import Path
 import pytest
 
 from app.config.video import CompositionConfig, SubtitleConfig
+from app.models.scene import Scene, SceneType
 from app.services.generator.subtitle import SubtitleFile, SubtitleGenerator
 from app.services.generator.templates import ASSTemplateLoader
-from app.services.generator.tts.base import WordTimestamp
+from app.services.generator.tts.base import SceneTTSResult, WordTimestamp
 
 
 class TestSubtitleGenerator:
@@ -138,3 +139,141 @@ class TestSubtitleSegmentation:
 
         assert len(segments) == 1
         assert segments[0] == short_text
+
+
+class TestGenerateFromSceneResults:
+    """Test scene-based subtitle generation with overlap prevention."""
+
+    @pytest.fixture
+    def generator(
+        self, subtitle_config: SubtitleConfig, composition_config: CompositionConfig
+    ) -> SubtitleGenerator:
+        """Create a SubtitleGenerator instance."""
+        return SubtitleGenerator(
+            config=subtitle_config,
+            composition_config=composition_config,
+            template_loader=ASSTemplateLoader(),
+        )
+
+    def _make_scene(self, text: str, tts_text: str | None = None) -> Scene:
+        """Helper to create a Scene object."""
+        return Scene(
+            scene_type=SceneType.CONTENT,
+            text=text,
+            visual_keyword="test keyword",
+            tts_text=tts_text,
+        )
+
+    def _make_tts_result(
+        self,
+        index: int,
+        duration: float,
+        start_offset: float,
+        words: list[WordTimestamp] | None = None,
+        tmp_path: Path = Path("/tmp"),
+    ) -> SceneTTSResult:
+        """Helper to create a SceneTTSResult."""
+        return SceneTTSResult(
+            scene_index=index,
+            scene_type="content",
+            audio_path=tmp_path / f"scene_{index}.mp3",
+            duration_seconds=duration,
+            word_timestamps=words,
+            start_offset=start_offset,
+        )
+
+    def test_no_overlap_between_segments(self, generator: SubtitleGenerator) -> None:
+        """Consecutive subtitle segments must not overlap in time."""
+        scenes = [
+            self._make_scene("여러분 AI가 코딩을 대체한다고요"),
+            self._make_scene("근데 솔직히 아직 멀었습니다"),
+        ]
+        tts_results = [
+            self._make_tts_result(
+                0,
+                3.0,
+                0.0,
+                words=[
+                    WordTimestamp(word="여러분", start=0.0, end=0.5),
+                    WordTimestamp(word="AI가", start=0.5, end=1.0),
+                    WordTimestamp(word="코딩을", start=1.0, end=1.5),
+                    WordTimestamp(word="대체한다고요", start=1.5, end=3.0),
+                ],
+            ),
+            self._make_tts_result(
+                1,
+                3.0,
+                3.0,
+                words=[
+                    WordTimestamp(word="근데", start=0.0, end=0.5),
+                    WordTimestamp(word="솔직히", start=0.5, end=1.0),
+                    WordTimestamp(word="아직", start=1.0, end=1.5),
+                    WordTimestamp(word="멀었습니다", start=1.5, end=3.0),
+                ],
+            ),
+        ]
+
+        result = generator.generate_from_scene_results(scene_results=tts_results, scenes=scenes)
+
+        assert len(result.segments) >= 2
+
+        for i in range(len(result.segments) - 1):
+            gap = result.segments[i + 1].start - result.segments[i].end
+            assert gap >= 0.05 - 1e-9, (
+                f"Segments {i} and {i + 1} overlap: "
+                f"seg[{i}].end={result.segments[i].end}, "
+                f"seg[{i + 1}].start={result.segments[i + 1].start}"
+            )
+
+    def test_segments_have_spaces_in_text(self, generator: SubtitleGenerator) -> None:
+        """Segment text must contain spaces between Korean words."""
+        scenes = [self._make_scene("여러분 AI가 코딩을 대체한다고요")]
+        tts_results = [
+            self._make_tts_result(
+                0,
+                3.0,
+                0.0,
+                words=[
+                    WordTimestamp(word="여러분", start=0.0, end=0.5),
+                    WordTimestamp(word="AI가", start=0.5, end=1.0),
+                    WordTimestamp(word="코딩을", start=1.0, end=1.5),
+                    WordTimestamp(word="대체한다고요", start=1.5, end=3.0),
+                ],
+            ),
+        ]
+
+        result = generator.generate_from_scene_results(scene_results=tts_results, scenes=scenes)
+
+        for seg in result.segments:
+            # Each multi-word segment should contain spaces
+            words_in_text = seg.text.split()
+            if len(words_in_text) > 1:
+                assert " " in seg.text, f"No spaces in segment text: '{seg.text}'"
+
+    def test_karaoke_words_preserved_when_no_tts_text(self, generator: SubtitleGenerator) -> None:
+        """When tts_text is None, word timestamps should be preserved for karaoke."""
+        scenes = [self._make_scene("여러분 AI가 대체한다고요", tts_text=None)]
+        tts_results = [
+            self._make_tts_result(
+                0,
+                3.0,
+                0.0,
+                words=[
+                    WordTimestamp(word="여러분", start=0.0, end=0.8),
+                    WordTimestamp(word="AI가", start=0.8, end=1.5),
+                    WordTimestamp(word="대체한다고요", start=1.5, end=3.0),
+                ],
+            ),
+        ]
+
+        result = generator.generate_from_scene_results(scene_results=tts_results, scenes=scenes)
+
+        # At least one segment should have karaoke word data
+        has_words = any(seg.words is not None for seg in result.segments)
+        assert has_words, "Expected karaoke word data when tts_text is None"
+
+    def test_empty_scene_results(self, generator: SubtitleGenerator) -> None:
+        """Empty input produces empty output."""
+        result = generator.generate_from_scene_results(scene_results=[], scenes=[])
+
+        assert len(result.segments) == 0

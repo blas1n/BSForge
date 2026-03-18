@@ -129,12 +129,15 @@ class ScriptGenerator:
         video_format: str,
     ) -> dict[str, object]:
         """Build template variables from inputs."""
+        from datetime import datetime, timezone
+
         variables: dict[str, object] = {
             "topic_title": topic_title,
             "topic_summary": topic_summary,
             "topic_terms": topic_terms,
             "target_duration": target_duration,
             "video_format": video_format,
+            "current_date": datetime.now(tz=timezone.utc).date().isoformat(),  # noqa: UP017
             # Defaults for optional template variables
             "persona_name": None,
             "persona_tagline": None,

@@ -163,20 +163,9 @@ class RemotionCompositor:
         )
 
         # Stage visual assets and rewrite paths to relative.
-        # Video files are re-encoded to h264 for Chromium compatibility.
+        # OffthreadVideo uses server-side FFmpeg, so no re-encoding needed.
         for v in visuals:
             src = Path(v["path"])
-            if v.get("type") == "video" and src.exists():
-                reencoded = await self._reencode_video(src)
-                if reencoded == src:
-                    # Re-encode failed; treat as image to avoid Chromium codec errors
-                    logger.warning(
-                        "Video re-encode failed, falling back to image type",
-                        src=str(src),
-                    )
-                    v["type"] = "image"
-                else:
-                    src = reencoded
             staged = self._stage_asset(src, public_dir, f"visual_{v['start_time']:.1f}", render_id)
             v["path"] = staged
 
@@ -196,6 +185,17 @@ class RemotionCompositor:
         # Build scene metadata for Remotion (scene types, transitions, emphasis)
         scene_metadata = self._build_scene_metadata(scenes, scene_tts_results)
 
+        # Build color grading dict from template VFX.
+        # brightness in config is an offset (-0.5 to 0.5); CSS brightness() is a multiplier.
+        color_grading = None
+        if vfx.color_grading_enabled:
+            color_grading = {
+                "brightness": 1.0 + vfx.brightness,
+                "contrast": vfx.contrast,
+                "saturation": vfx.saturation,
+                "warmth": vfx.warmth,
+            }
+
         props: dict = {
             "duration_seconds": total_duration,
             "fps": self.config.fps,
@@ -212,8 +212,10 @@ class RemotionCompositor:
             "subtitles": subtitles,
             "enable_ken_burns": vfx.ken_burns_enabled,
             "enable_karaoke": subtitle_data is not None,
+            "headline_exit_after_seconds": 3.0,
             "safe_zone": safe_zone_dict,
             "theme": theme_dict,
+            "color_grading": color_grading,
             "scenes": scene_metadata,
         }
 
@@ -255,59 +257,6 @@ class RemotionCompositor:
         # staticFile() resolves from remotion/public/, so include subdirectory
         return f"{render_id}/{dest_name}"
 
-    @staticmethod
-    async def _reencode_video(src: Path) -> Path:
-        """Re-encode a video to h264/aac mp4 for Chromium compatibility.
-
-        Chromium's media stack only supports a limited set of codecs.
-        Stock video downloads may use VP9, AV1, or other codecs that
-        cause DEMUXER_ERROR_NO_SUPPORTED_STREAMS in Remotion's renderer.
-
-        Args:
-            src: Source video path
-
-        Returns:
-            Path to re-encoded mp4 (same directory, ``_h264.mp4`` suffix).
-            Returns the original path if re-encoding fails.
-        """
-        out = src.with_name(f"{src.stem}_h264.mp4")
-        if out.exists():
-            return out
-
-        proc = await asyncio.create_subprocess_exec(
-            "ffmpeg",
-            "-y",
-            "-i",
-            str(src),
-            "-c:v",
-            "libx264",
-            "-preset",
-            "fast",
-            "-crf",
-            "23",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "128k",
-            "-movflags",
-            "+faststart",
-            "-an",  # stock visuals are muted anyway
-            str(out),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        _, stderr = await proc.communicate()
-
-        if proc.returncode != 0 or not out.exists():
-            logger.warning(
-                "Video re-encode failed, using original",
-                src=str(src),
-                stderr=stderr.decode()[-200:] if stderr else "",
-            )
-            return src
-
-        return out
-
     async def _render(
         self,
         props_path: Path,
@@ -339,6 +288,8 @@ class RemotionCompositor:
             str(props_path),
             "--log",
             "error",  # suppress verbose output
+            "--concurrency",
+            "1",  # limit parallelism to prevent OOM
         ]
 
         logger.info(

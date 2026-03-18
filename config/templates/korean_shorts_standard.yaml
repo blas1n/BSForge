@@ -143,7 +143,7 @@ subtitle:
   background_opacity: 0.0
   fade_in_ms: 100
   fade_out_ms: 80
-  karaoke_enabled: false
+  karaoke_enabled: true
   max_chars_per_line: 20
   max_lines: 2
 
@@ -152,6 +152,15 @@ visual_effects:
   ken_burns_enabled: true
   ken_burns_zoom_speed: 0.0003  # 느리게
   ken_burns_start_scale: 1.08
+
+  # 카메라 무브먼트 다양화
+  randomize_camera: true
+  camera_movement_options:
+    - ken_burns
+    - pan_left
+    - pan_right
+    - tilt_up
+    - zoom_out
 
   # 전환 효과
   transition_type: fade

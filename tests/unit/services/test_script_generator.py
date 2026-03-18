@@ -1,6 +1,7 @@
 """Unit tests for script generator service."""
 
 import json
+from datetime import UTC
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -243,6 +244,22 @@ class TestScriptGenerator:
         assert variables["topic_title"] == "Test"
         assert variables["persona_name"] is None
         assert variables["target_duration"] == 55
+
+    def test_build_variables_includes_current_date(self, generator: ScriptGenerator) -> None:
+        """Test _build_variables includes current_date for LLM context."""
+        from datetime import datetime
+
+        variables = generator._build_variables(
+            topic_title="Test",
+            topic_summary="Summary",
+            topic_terms=["AI"],
+            persona=None,
+            target_duration=55,
+            video_format="YouTube Shorts",
+        )
+
+        assert "current_date" in variables
+        assert variables["current_date"] == datetime.now(tz=UTC).date().isoformat()  # noqa: UP017
 
     def test_build_variables_with_persona(self, generator: ScriptGenerator) -> None:
         """Test _build_variables with persona."""

@@ -60,7 +60,7 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
   const resolvedTextColor = theme?.text_color ?? textColor;
   const resolvedFontSize = theme?.subtitle_font_size ?? 100;
   const resolvedOutlineColor = theme?.outline_color ?? "#000000";
-  const fontFamily = `'${theme?.font_family ?? "Pretendard"}', 'Noto Sans KR', sans-serif`;
+  const fontFamily = `'${theme?.font_family ?? "Pretendard"}', 'Noto Sans CJK KR', sans-serif`;
   const resolvedAccent = accentColor ?? theme?.accent_color ?? resolvedHighlight;
 
   // Position above bottom safe zone
@@ -147,10 +147,13 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
                 display: "inline-block",
                 transform: `scale(${wordScale})`,
                 transformOrigin: "bottom center",
+                marginRight:
+                  idx < activeSegment.words!.length - 1
+                    ? "0.25em"
+                    : undefined,
               }}
             >
               {wordObj.word}
-              {idx < activeSegment.words!.length - 1 ? " " : ""}
             </span>
           );
         })}
@@ -195,7 +198,7 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
             textAlign: "center",
             lineHeight: 1.25,
             textShadow,
-            letterSpacing: "-1px",
+            letterSpacing: "0px",
           }}
         >
           {renderText()}

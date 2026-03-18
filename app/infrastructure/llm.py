@@ -138,6 +138,11 @@ class LLMClient:
         try:
             model = config.model or self.default_model
 
+            # When using a proxy (api_base), LiteLLM needs openai/ prefix
+            # to route as OpenAI-compatible, but the proxy expects the raw name
+            if self.base_url and model and not model.count("/"):
+                model = f"openai/{model}"
+
             logger.debug(
                 "LLM request",
                 model=model,

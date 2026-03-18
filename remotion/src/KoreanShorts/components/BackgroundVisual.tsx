@@ -1,18 +1,20 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React from "react";
 import {
   AbsoluteFill,
   Easing,
   Img,
+  OffthreadVideo,
   interpolate,
   staticFile,
   useCurrentFrame,
   useVideoConfig,
 } from "remotion";
-import { CameraMovement, TransitionType, VisualAsset } from "../types";
+import { CameraMovement, ColorGrading, TransitionType, VisualAsset } from "../types";
 
 interface BackgroundVisualProps {
   visuals: VisualAsset[];
   enableKenBurns: boolean;
+  colorGrading?: ColorGrading;
 }
 
 interface SingleVisualProps {
@@ -188,38 +190,6 @@ function getTransitionTransform(
   }
 }
 
-/**
- * Native <video> element that syncs to the current frame without delayRender.
- * Remotion's <Video> component calls delayRender() internally which causes
- * 28s timeouts when Chromium can't decode the video codec (VP9, AV1, etc.).
- * This component silently fails on unsupported codecs.
- */
-const NativeVideo: React.FC<{
-  src: string;
-  style: React.CSSProperties;
-  onError: () => void;
-  currentTimeSec: number;
-}> = ({ src, style, onError, currentTimeSec }) => {
-  const ref = useRef<HTMLVideoElement>(null);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (el && el.readyState >= 1) {
-      el.currentTime = currentTimeSec;
-    }
-  }, [currentTimeSec]);
-
-  return (
-    <video
-      ref={ref}
-      src={src}
-      style={style}
-      muted
-      playsInline
-      onError={onError}
-    />
-  );
-};
 
 /**
  * Single image/video visual with camera movement and transitions.
@@ -231,14 +201,6 @@ const SingleVisual: React.FC<SingleVisualProps> = ({
   fps,
   totalFrames,
 }) => {
-  const [hasError, setHasError] = useState(false);
-  const handleError = useCallback(() => {
-    console.warn(
-      `[BackgroundVisual] Failed to decode video: ${asset.path} — falling back to black screen`,
-    );
-    setHasError(true);
-  }, [asset.path]);
-
   // Determine camera movement
   const movement: CameraMovement =
     asset.camera_movement ?? (enableKenBurns ? "ken_burns" : "static");
@@ -277,10 +239,6 @@ const SingleVisual: React.FC<SingleVisualProps> = ({
     ...cameraStyle,
   };
 
-  if (hasError) {
-    return <AbsoluteFill style={{ backgroundColor: "#111111" }} />;
-  }
-
   const containerStyle: React.CSSProperties = {
     opacity,
     transform: transitionTransform || undefined,
@@ -292,11 +250,11 @@ const SingleVisual: React.FC<SingleVisualProps> = ({
   return (
     <div style={containerStyle}>
       {asset.type === "video" ? (
-        <NativeVideo
+        <OffthreadVideo
           src={staticFile(asset.path)}
           style={mediaStyle}
-          onError={handleError}
-          currentTimeSec={frameOffset / fps}
+          muted
+          startFrom={0}
         />
       ) : (
         <Img src={staticFile(asset.path)} style={mediaStyle} />
@@ -312,6 +270,7 @@ const SingleVisual: React.FC<SingleVisualProps> = ({
 export const BackgroundVisual: React.FC<BackgroundVisualProps> = ({
   visuals,
   enableKenBurns,
+  colorGrading,
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -342,8 +301,18 @@ export const BackgroundVisual: React.FC<BackgroundVisualProps> = ({
       })
     : 0;
 
+  // Color grading via CSS filters
+  const filterParts: string[] = [];
+  if (colorGrading) {
+    if (colorGrading.brightness !== 1.0) filterParts.push(`brightness(${colorGrading.brightness})`);
+    if (colorGrading.contrast !== 1.0) filterParts.push(`contrast(${colorGrading.contrast})`);
+    if (colorGrading.saturation !== 1.0) filterParts.push(`saturate(${colorGrading.saturation})`);
+    if (colorGrading.warmth > 0) filterParts.push(`sepia(${colorGrading.warmth})`);
+  }
+  const cssFilter = filterParts.length > 0 ? filterParts.join(" ") : undefined;
+
   return (
-    <AbsoluteFill style={{ backgroundColor: "#000000", overflow: "hidden" }}>
+    <AbsoluteFill style={{ backgroundColor: "#000000", overflow: "hidden", filter: cssFilter }}>
       <SingleVisual
         asset={activeVisual}
         enableKenBurns={enableKenBurns}

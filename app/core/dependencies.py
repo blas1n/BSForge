@@ -58,7 +58,7 @@ def create_llm_client() -> LLMClient:
     """Create LLM client with gateway config."""
     config = get_config()
     return LLMClient(
-        base_url=config.llm_base_url,
+        base_url=config.llm_api_base,
         api_key=config.llm_api_key,
         default_model=config.llm_model,
     )

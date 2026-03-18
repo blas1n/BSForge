@@ -770,6 +770,99 @@ class SubtitleGenerator:
 
         return segments
 
+    def _split_words_with_timestamps(
+        self,
+        word_timestamps: list[WordTimestamp],
+        scene_result: "SceneTTSResult",
+        visual_style: "VisualStyle",
+        emphasis_words: list[str],
+        persona_style: "PersonaStyleConfig | None",
+        max_chars: int,
+        max_words: int,
+        start_index: int,
+    ) -> list[SubtitleSegment]:
+        """Split word timestamps into segments, preserving per-word timing for karaoke.
+
+        Used when scene.tts_text is None (display text == TTS text),
+        meaning word timestamps map directly to the display words.
+
+        Args:
+            word_timestamps: Word timing from TTS
+            scene_result: TTS result with timing info
+            visual_style: Visual style for this scene
+            emphasis_words: Words to emphasize
+            persona_style: Optional persona styling
+            max_chars: Maximum characters per line
+            max_words: Maximum words per segment
+            start_index: Starting segment index
+
+        Returns:
+            List of subtitle segments with word-level timing
+        """
+        segments: list[SubtitleSegment] = []
+        segment_index = start_index
+        current_words: list[WordTimestamp] = []
+        current_text = ""
+
+        for word_ts in word_timestamps:
+            word = word_ts.word.strip()
+            if not word:
+                continue
+
+            potential_text = f"{current_text} {word}".strip() if current_text else word
+            word_count = len(current_words) + 1
+
+            should_break = self._should_break_korean(
+                current_text=current_text,
+                next_word=word,
+                potential_text=potential_text,
+                word_count=word_count,
+                max_chars=max_chars,
+                max_words=max_words,
+            )
+
+            if should_break and current_words:
+                styled_text = self._apply_scene_styling(
+                    current_text,
+                    visual_style,
+                    emphasis_words,
+                    persona_style,
+                )
+                segments.append(
+                    SubtitleSegment(
+                        index=segment_index,
+                        start=current_words[0].start + scene_result.start_offset,
+                        end=current_words[-1].end + scene_result.start_offset,
+                        text=styled_text,
+                        words=current_words.copy(),
+                    )
+                )
+                segment_index += 1
+                current_words = []
+                current_text = ""
+
+            current_words.append(word_ts)
+            current_text = f"{current_text} {word}".strip() if current_text else word
+
+        if current_words:
+            styled_text = self._apply_scene_styling(
+                current_text,
+                visual_style,
+                emphasis_words,
+                persona_style,
+            )
+            segments.append(
+                SubtitleSegment(
+                    index=segment_index,
+                    start=current_words[0].start + scene_result.start_offset,
+                    end=current_words[-1].end + scene_result.start_offset,
+                    text=styled_text,
+                    words=current_words.copy(),
+                )
+            )
+
+        return segments
+
     def generate_from_scene_results(
         self,
         scene_results: list[SceneTTSResult],
@@ -840,11 +933,9 @@ class SubtitleGenerator:
                 segment_index += len(segments_from_manual)
                 continue
 
-            # Priority 2: Use scene.text (original notation) split by timing
-            # TTS word timestamps are based on tts_text (pronunciation text),
-            # but subtitles should show scene.text (original notation like GPT-4)
-            if scene:
-                # Split scene.text into segments based on timing from word_timestamps
+            # Priority 2: When tts_text differs from text, word timestamps
+            # can't be mapped to display text. Use proportional timing instead.
+            if scene and scene.tts_text is not None:
                 scene_segments = self._split_scene_text_with_timing(
                     scene_text=scene.text,
                     word_timestamps=word_timestamps,
@@ -860,74 +951,30 @@ class SubtitleGenerator:
                 segment_index += len(scene_segments)
                 continue
 
-            # Fallback for no scene: use word timestamps directly
+            # Priority 3: When tts_text is None (text == tts_content), word
+            # timestamps map directly to display text. Use them for karaoke.
             if not word_timestamps:
                 continue
 
-            # Group words into segments within this scene's boundaries
-            current_words: list[WordTimestamp] = []
-            current_text = ""
+            karaoke_segments = self._split_words_with_timestamps(
+                word_timestamps=word_timestamps,
+                scene_result=scene_result,
+                visual_style=visual_style,
+                emphasis_words=emphasis_words,
+                persona_style=persona_style,
+                max_chars=max_chars,
+                max_words=max_words_per_segment,
+                start_index=segment_index,
+            )
+            all_segments.extend(karaoke_segments)
+            segment_index += len(karaoke_segments)
 
-            for word_ts in word_timestamps:
-                word = word_ts.word.strip()
-                if not word:
-                    continue
-
-                potential_text = f"{current_text} {word}".strip() if current_text else word
-                word_count = len(current_words) + 1
-
-                # Korean-aware break detection
-                should_break = self._should_break_korean(
-                    current_text=current_text,
-                    next_word=word,
-                    potential_text=potential_text,
-                    word_count=word_count,
-                    max_chars=max_chars,
-                    max_words=max_words_per_segment,
-                )
-
-                if should_break:
-                    # Create segment from current words
-                    styled_text = self._apply_scene_styling(
-                        current_text,
-                        visual_style,
-                        emphasis_words,
-                        persona_style,
-                    )
-                    all_segments.append(
-                        SubtitleSegment(
-                            index=segment_index,
-                            start=current_words[0].start + scene_result.start_offset,
-                            end=current_words[-1].end + scene_result.start_offset,
-                            text=styled_text,
-                            words=current_words.copy(),
-                        )
-                    )
-                    segment_index += 1
-                    current_words = []
-                    current_text = ""
-
-                current_words.append(word_ts)
-                current_text = f"{current_text} {word}".strip() if current_text else word
-
-            # Add remaining words as final segment for this scene
-            if current_words:
-                styled_text = self._apply_scene_styling(
-                    current_text,
-                    visual_style,
-                    emphasis_words,
-                    persona_style,
-                )
-                all_segments.append(
-                    SubtitleSegment(
-                        index=segment_index,
-                        start=current_words[0].start + scene_result.start_offset,
-                        end=current_words[-1].end + scene_result.start_offset,
-                        text=styled_text,
-                        words=current_words.copy(),
-                    )
-                )
-                segment_index += 1
+        # Post-process: enforce minimum gap between consecutive segments
+        # to prevent subtitle overlap in the renderer.
+        min_gap = 0.05  # 50ms gap
+        for i in range(len(all_segments) - 1):
+            if all_segments[i].end > all_segments[i + 1].start - min_gap:
+                all_segments[i].end = all_segments[i + 1].start - min_gap
 
         logger.info(
             f"Generated {len(all_segments)} scene-aware subtitle segments "

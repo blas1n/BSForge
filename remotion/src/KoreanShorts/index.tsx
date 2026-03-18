@@ -5,6 +5,7 @@ import {
   staticFile,
   useVideoConfig,
 } from "remotion";
+import "../fonts"; // Register Pretendard font
 import { KoreanShortsProps } from "./types";
 import { useCurrentScene } from "./hooks/useCurrentScene";
 import { BackgroundVisual } from "./components/BackgroundVisual";
@@ -47,8 +48,10 @@ export const KoreanShorts: React.FC<KoreanShortsProps> = ({
   subtitles,
   enable_ken_burns,
   enable_karaoke,
+  headline_exit_after_seconds,
   safe_zone,
   theme,
+  color_grading,
   scenes,
 }) => {
   const { durationInFrames } = useVideoConfig();
@@ -56,8 +59,8 @@ export const KoreanShorts: React.FC<KoreanShortsProps> = ({
 
   return (
     <AbsoluteFill style={{ backgroundColor: "#000000" }}>
-      {/* Layer 1: Background visuals (camera movement + transitions) */}
-      <BackgroundVisual visuals={visuals} enableKenBurns={enable_ken_burns} />
+      {/* Layer 1: Background visuals (camera movement + transitions + color grading) */}
+      <BackgroundVisual visuals={visuals} enableKenBurns={enable_ken_burns} colorGrading={color_grading} />
 
       {/* Layer 2: Scene-type overlay (persona border, emphasis vignette, CTA pulse) */}
       <SceneOverlay
@@ -73,6 +76,7 @@ export const KoreanShorts: React.FC<KoreanShortsProps> = ({
         safeZone={safe_zone}
         theme={theme}
         currentSceneType={currentScene?.scene_type}
+        exitAfterSeconds={headline_exit_after_seconds}
       />
 
       {/* Layer 4: Subtitles (fade-in/out, smooth karaoke, emphasis words) */}

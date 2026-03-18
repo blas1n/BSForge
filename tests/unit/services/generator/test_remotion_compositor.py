@@ -296,59 +296,6 @@ class TestStageAsset:
         assert existing.read_bytes() == b"old data"
 
 
-class TestReencodeVideo:
-    """Tests for RemotionCompositor._reencode_video()."""
-
-    @pytest.mark.asyncio
-    async def test_returns_reencoded_path(self, compositor, tmp_path):
-        src = tmp_path / "clip.webm"
-        src.write_bytes(b"fake video")
-        out = tmp_path / "clip_h264.mp4"
-
-        async def mock_communicate():
-            out.write_bytes(b"reencoded")
-            return b"", b""
-
-        mock_proc = MagicMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = mock_communicate
-
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
-            result = await compositor._reencode_video(src)
-
-        assert result == out
-
-    @pytest.mark.asyncio
-    async def test_returns_original_on_failure(self, compositor, tmp_path):
-        src = tmp_path / "clip.webm"
-        src.write_bytes(b"fake video")
-
-        async def mock_communicate():
-            return b"", b"error"
-
-        mock_proc = MagicMock()
-        mock_proc.returncode = 1
-        mock_proc.communicate = mock_communicate
-
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
-            result = await compositor._reencode_video(src)
-
-        assert result == src
-
-    @pytest.mark.asyncio
-    async def test_skips_if_already_reencoded(self, compositor, tmp_path):
-        src = tmp_path / "clip.webm"
-        src.write_bytes(b"fake video")
-        out = tmp_path / "clip_h264.mp4"
-        out.write_bytes(b"already done")
-
-        with patch("asyncio.create_subprocess_exec") as mock_exec:
-            result = await compositor._reencode_video(src)
-
-        mock_exec.assert_not_called()
-        assert result == out
-
-
 class TestRender:
     """Tests for RemotionCompositor._render()."""
 
