@@ -622,6 +622,7 @@ class SubtitleGenerator:
         """Automatically highlight numbers, percentages, and key data.
 
         Korean Shorts style: important numbers should pop visually.
+        Protects existing ASS tags (e.g. karaoke \\k timing) from being altered.
 
         Args:
             text: Original text
@@ -635,6 +636,15 @@ class SubtitleGenerator:
         r, g, b = hex_color[0:2], hex_color[2:4], hex_color[4:6]
         ass_color = f"&H{b}{g}{r}&"
 
+        # Protect existing ASS tags from number matching (e.g. {\k101}, {\fad(100,50)})
+        protected_tags: list[str] = []
+
+        def protect_tag(m: re.Match[str]) -> str:
+            protected_tags.append(m.group())
+            return f"\x00TAG{len(protected_tags) - 1}\x00"
+
+        safe_text = re.sub(r"\{[^}]*\}", protect_tag, text)
+
         # Combined pattern to match all number formats in one pass
         # Priority: Korean expressions > units > percentages > plain numbers
         combined_pattern = (
@@ -644,7 +654,13 @@ class SubtitleGenerator:
         def replacer(match: re.Match[str]) -> str:
             return f"{{\\c{ass_color}}}{match.group(1)}{{\\c}}"
 
-        return re.sub(combined_pattern, replacer, text)
+        safe_text = re.sub(combined_pattern, replacer, safe_text)
+
+        # Restore protected ASS tags
+        for i, tag in enumerate(protected_tags):
+            safe_text = safe_text.replace(f"\x00TAG{i}\x00", tag)
+
+        return safe_text
 
     def _split_scene_text_with_timing(
         self,

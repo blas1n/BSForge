@@ -60,5 +60,5 @@ filtering:
 
 content:
   format: "shorts"
-  target_duration: 30
+  target_duration: 25
   video_template: "korean_shorts_standard"

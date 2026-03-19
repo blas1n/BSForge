@@ -232,7 +232,7 @@ class TestCompositionConfig:
         assert config.height == 1920
         assert config.fps == 30
         assert config.video_codec == "libx264"
-        assert config.crf == 23
+        assert config.crf == 18
         assert config.preset == "medium"
 
     def test_resolution_ranges(self):

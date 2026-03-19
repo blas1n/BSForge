@@ -62,7 +62,7 @@ class ScriptGenerator:
         topic_summary: str,
         topic_terms: list[str],
         persona: PersonaConfig | None = None,
-        target_duration: int = 55,
+        target_duration: int = 25,
         video_format: str = "YouTube Shorts",
     ) -> ScriptGenerationResult:
         """Generate a scene-based script from topic info.
