@@ -116,6 +116,8 @@ export interface KoreanShortsProps {
   audio_path: string;
   bgm_path: string | null;
   bgm_volume: number;
+  /** SFX file paths staged into public/: { whoosh, pop, ding } */
+  sfx_paths?: Record<string, string>;
 
   // Headline (top area)
   headline_line1: string;

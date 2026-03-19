@@ -10,7 +10,9 @@ import { KoreanShortsProps } from "./types";
 import { useCurrentScene } from "./hooks/useCurrentScene";
 import { BackgroundVisual } from "./components/BackgroundVisual";
 import { Headline } from "./components/Headline";
+import { KineticTypography } from "./components/KineticTypography";
 import { SceneOverlay } from "./components/SceneOverlay";
+import { SFXTrack } from "./components/SFXTrack";
 import { SubtitleTrack } from "./components/SubtitleTrack";
 
 /**
@@ -53,6 +55,7 @@ export const KoreanShorts: React.FC<KoreanShortsProps> = ({
   theme,
   color_grading,
   scenes,
+  sfx_paths,
 }) => {
   const { durationInFrames } = useVideoConfig();
   const currentScene = useCurrentScene(scenes);
@@ -79,6 +82,11 @@ export const KoreanShorts: React.FC<KoreanShortsProps> = ({
         exitAfterSeconds={headline_exit_after_seconds}
       />
 
+      {/* Layer 3.5: Kinetic typography — emphasis word pop-in at scene start */}
+      {scenes && scenes.length > 0 && (
+        <KineticTypography scenes={scenes} theme={theme} safeZone={safe_zone} />
+      )}
+
       {/* Layer 4: Subtitles (fade-in/out, smooth karaoke, emphasis words) */}
       <SubtitleTrack
         segments={subtitles}
@@ -90,6 +98,11 @@ export const KoreanShorts: React.FC<KoreanShortsProps> = ({
         emphasisWords={currentScene?.emphasis_words}
         accentColor={theme?.accent_color ?? accent_color}
       />
+
+      {/* Layer 5: SFX — per-scene sound effects at scene boundaries */}
+      {scenes && scenes.length > 0 && sfx_paths && Object.keys(sfx_paths).length > 0 && (
+        <SFXTrack scenes={scenes} sfxPaths={sfx_paths} />
+      )}
 
       {/* TTS narration audio */}
       {audio_path ? (

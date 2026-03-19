@@ -27,7 +27,7 @@ from typing import Any
 import yaml
 
 from app.config.persona import PersonaConfig
-from app.config.video import CompositionConfig, SubtitleConfig
+from app.config.video import CompositionConfig, SubtitleConfig, VisualConfig, WanConfig
 from app.core.config import get_config
 from app.core.dependencies import create_llm_client, create_prompt_manager
 from app.core.logging import get_logger, setup_logging
@@ -43,9 +43,9 @@ from app.services.generator.templates import ASSTemplateLoader
 from app.services.generator.tts.base import TTSSynthesisConfig
 from app.services.generator.tts.edge import EdgeTTSEngine
 from app.services.generator.tts.utils import concatenate_scene_audio
-from app.services.generator.visual.base import VisualAsset, VisualSourceType
-from app.services.generator.visual.manager import SceneVisualResult
+from app.services.generator.visual.manager import VisualSourcingManager
 from app.services.generator.visual.pexels import PexelsClient
+from app.services.generator.visual.wan_video_source import WanVideoSource
 from app.services.script_generator import ScriptGenerator
 
 setup_logging()
@@ -196,31 +196,16 @@ async def normalize_topic(
     }
 
 
-def create_fallback_visual(
-    output_dir: Path,
-    name: str = "fallback",
-    width: int = 1080,
-    height: int = 1920,
-    duration: float | None = None,
-) -> VisualAsset:
-    """Create a solid color fallback visual."""
-    from PIL import Image
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-    path = output_dir / f"{name}.png"
-    img = Image.new("RGB", (width, height), color=(20, 20, 30))
-    img.save(str(path))
-
-    return VisualAsset(
-        type=VisualSourceType.SOLID_COLOR,
-        url="",
-        path=path,
-        duration=duration,
-        width=width,
-        height=height,
-        source="fallback",
-        source_id="fallback",
-        license="generated",
+def _make_visual_manager(http_client: HTTPClient) -> VisualSourcingManager:
+    """Create VisualSourcingManager with Pexels → Wan → solid-color priority."""
+    pexels = PexelsClient()
+    wan = WanVideoSource(http_client=http_client, config=WanConfig())
+    visual_config = VisualConfig(metadata_score_threshold=0.1)
+    return VisualSourcingManager(
+        http_client=http_client,
+        config=visual_config,
+        pexels_client=pexels,
+        wan_video_source=wan,
     )
 
 
@@ -401,57 +386,25 @@ async def main() -> None:
     subtitle_gen.to_ass(subtitle_file, subtitle_path)
     print(f"   Subtitle segments: {len(subtitle_file.segments)}")
 
-    # Visuals
-    pexels = PexelsClient()
+    # Visuals — Pexels HD → Wan AI video → solid-color fallback
     visuals_dir = OUTPUT_DIR / "visuals"
-    scene_visuals = []
-    current_offset = 0.0
+    http_client = HTTPClient()
+    visual_manager = _make_visual_manager(http_client)
 
-    for i, tts_result in enumerate(scene_tts_results):
-        keyword = scenes[i].visual_keyword or scenes[i].text[:30]
-        print(f"   Visual {i + 1}: searching '{keyword}'...")
+    scene_visuals = await visual_manager.source_visuals_for_scenes(
+        scenes=scenes,
+        scene_results=scene_tts_results,
+        output_dir=visuals_dir,
+        orientation="portrait",
+    )
 
-        asset = None
-        try:
-            results = await pexels.search_videos(
-                query=keyword,
-                max_results=3,
-                orientation="portrait",
-            )
-            if not results:
-                results = await pexels.search_images(
-                    query=keyword,
-                    max_results=3,
-                    orientation="portrait",
-                )
-            if results:
-                pick = random.choice(results)
-                asset = await pexels.download(pick, visuals_dir)
-                asset.duration = tts_result.duration_seconds
-                print(f"   Visual {i + 1}: {asset.type.value} -> {asset.path.name}")
-        except Exception as e:
-            print(f"   Visual {i + 1}: Pexels failed ({e}), using fallback")
+    for i, sv in enumerate(scene_visuals):
+        src = sv.asset.source if sv.asset else "none"
+        name = sv.asset.path.name if sv.asset and sv.asset.path else "no-file"
+        print(f"   Visual {i + 1}: {src} -> {name}")
 
-        if asset is None or asset.path is None:
-            asset = create_fallback_visual(
-                visuals_dir,
-                name=f"scene_{i}",
-                duration=tts_result.duration_seconds,
-            )
-            print(f"   Visual {i + 1}: fallback solid color")
-
-        scene_visuals.append(
-            SceneVisualResult(
-                scene_index=i,
-                scene_type=scenes[i].scene_type.value,
-                asset=asset,
-                duration=tts_result.duration_seconds,
-                start_offset=current_offset,
-            )
-        )
-        current_offset += tts_result.duration_seconds
-
-    await pexels.close()
+    await visual_manager.close()
+    await http_client.close()
 
     # ========================================
     # Phase 6: Remotion Composition

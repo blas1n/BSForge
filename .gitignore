@@ -340,3 +340,7 @@ celerybeat.pid
 !architecture/
 !diagrams/
 !*.mermaid
+
+# Generated demo assets (regenerate with scripts/setup_demo_assets.py)
+data/bgm/*.mp3
+data/sfx/*.mp3

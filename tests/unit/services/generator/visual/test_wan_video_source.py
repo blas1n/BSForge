@@ -421,3 +421,25 @@ class TestGetDimensions:
     def test_square_uses_smaller_side(self, source):
         w, h = source._get_dimensions("square")
         assert w == h == 480  # min(480, 832)
+
+
+class TestEnhancePrompt:
+    """Tests for WanVideoSource._enhance_prompt()."""
+
+    def test_portrait_includes_vertical_hint(self, source: WanVideoSource) -> None:
+        result = source._enhance_prompt("city street", "portrait")
+        assert "vertical 9:16" in result
+        assert "city street" in result
+
+    def test_landscape_includes_horizontal_hint(self, source: WanVideoSource) -> None:
+        result = source._enhance_prompt("ocean sunset", "landscape")
+        assert "horizontal widescreen" in result
+
+    def test_includes_cinematic_keywords(self, source: WanVideoSource) -> None:
+        result = source._enhance_prompt("tech office", "portrait")
+        assert "cinematic lighting" in result
+        assert "professional film quality" in result
+
+    def test_original_prompt_preserved(self, source: WanVideoSource) -> None:
+        result = source._enhance_prompt("코딩하는 사람", "portrait")
+        assert "코딩하는 사람" in result

@@ -32,6 +32,26 @@ const KEN_BURNS_START_SCALE = 1.08;
 // Pan/tilt movement range (percentage of image dimension)
 const PAN_RANGE = 0.08; // 8% of width/height
 
+// Pattern interrupt: subtle micro-zoom pulse every N seconds to re-capture attention
+const INTERRUPT_INTERVAL_SEC = 2.5;
+const INTERRUPT_DURATION_FRAMES = 7; // ~0.23s at 30fps — snappy but not jarring
+
+/**
+ * Returns a scale multiplier (1.0–1.03) for the pattern-interrupt micro-zoom.
+ * Triggers every INTERRUPT_INTERVAL_SEC; smoothly ramps up then back down.
+ */
+function getPatternInterruptScale(frameOffset: number, fps: number): number {
+  const intervalFrames = Math.round(fps * INTERRUPT_INTERVAL_SEC);
+  const posInInterval = frameOffset % intervalFrames;
+  if (posInInterval >= INTERRUPT_DURATION_FRAMES) return 1.0;
+  return interpolate(
+    posInInterval,
+    [0, Math.floor(INTERRUPT_DURATION_FRAMES / 2), INTERRUPT_DURATION_FRAMES],
+    [1.0, 1.03, 1.0],
+    { easing: Easing.inOut(Easing.quad), extrapolateRight: "clamp" },
+  );
+}
+
 /**
  * Calculate camera transform based on movement type.
  */
@@ -232,11 +252,19 @@ const SingleVisual: React.FC<SingleVisualProps> = ({
         )}% 0 0)`
       : undefined;
 
+  // Combine camera movement transform with pattern-interrupt scale
+  const interruptScale = getPatternInterruptScale(frameOffset, fps);
+  const existingTransform = cameraStyle.transform ?? "";
+  const combinedTransform = existingTransform
+    ? `${existingTransform} scale(${interruptScale})`
+    : `scale(${interruptScale})`;
+
   const mediaStyle: React.CSSProperties = {
     width: "100%",
     height: "100%",
     objectFit: "cover" as const,
     ...cameraStyle,
+    transform: combinedTransform,
   };
 
   const containerStyle: React.CSSProperties = {

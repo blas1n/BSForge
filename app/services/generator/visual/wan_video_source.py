@@ -119,6 +119,25 @@ class WanVideoSource(BaseVisualSource):
             duration_seconds=duration,
         )
 
+    def _enhance_prompt(self, prompt: str, orientation: str = "portrait") -> str:
+        """Append cinematic quality cues to a generation prompt.
+
+        Args:
+            prompt: Raw scene keyword or description
+            orientation: Video orientation hint
+
+        Returns:
+            Enhanced prompt with cinematic modifiers
+        """
+        orientation_hint = (
+            "vertical 9:16 composition" if orientation == "portrait" else "horizontal widescreen"
+        )
+        return (
+            f"{prompt}, {orientation_hint}, cinematic lighting, "
+            "dramatic atmosphere, sharp focus, professional film quality, "
+            "social media short video aesthetic, high contrast"
+        )
+
     async def generate(
         self,
         prompt: str,
@@ -143,6 +162,7 @@ class WanVideoSource(BaseVisualSource):
             logger.warning("Wan service not available, skipping generation")
             return []
 
+        prompt = self._enhance_prompt(prompt, orientation)
         width, height = self._get_dimensions(orientation)
         duration = duration_seconds or self._config.default_duration_seconds
 

@@ -109,11 +109,13 @@ template: |
   Create a ${target_duration}-second ${video_format} script as JSON.
 
   ## Core Rules
-  1. **8-10 scenes** for 55 seconds
+  1. **${int(target_duration / 4)}-${int(target_duration / 3)} scenes** for ${target_duration} seconds
   2. **2+ commentary scenes** with YOUR analysis (not generic reactions)
   3. **Hook in 2 seconds** - shocking stat, bold claim, or provocative question
   4. **One idea per scene**, max 40 characters per text
-  5. **End with CTA** - "구독과 좋아요!" style
+  5. **End with CTA (loop design)** - CTA must end with a question that echoes the hook topic,
+     so the video loops naturally. Example: "그래서 [hook 핵심어]에 대해 어떻게 생각해? 댓글로 알려줘!"
+     Never end with generic "구독과 좋아요!" alone — pair it with a hook-callback question.
   6. **실제 인물/브랜드 씬은 requires_web_search: true 필수!** (아래 상세 규칙 참조)
 
   ## Scene Types

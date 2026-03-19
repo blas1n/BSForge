@@ -95,6 +95,7 @@ class RemotionCompositor:
         headline: str | None = None,
         subtitle_data: "SubtitleFile | None" = None,
         video_template: "VideoTemplateConfig | None" = None,
+        sfx_dir: Path | None = None,
     ) -> CompositionResult:
         """Compose video from scene-based components using Remotion.
 
@@ -162,6 +163,21 @@ class RemotionCompositor:
             else None
         )
 
+        # Stage SFX files (whoosh, pop, ding) from sfx_dir
+        sfx_paths_rel: dict[str, str] = {}
+        _default_sfx_dir = Path("data/sfx")
+        _sfx_source = (
+            sfx_dir
+            if sfx_dir and sfx_dir.exists()
+            else (_default_sfx_dir if _default_sfx_dir.exists() else None)
+        )
+        if _sfx_source:
+            for sfx_name in ("whoosh", "pop", "ding"):
+                sfx_file = _sfx_source / f"{sfx_name}.mp3"
+                if sfx_file.exists():
+                    rel = self._stage_asset(sfx_file, public_dir, f"sfx_{sfx_name}", render_id)
+                    sfx_paths_rel[sfx_name] = rel
+
         # Stage visual assets and rewrite paths to relative.
         # OffthreadVideo uses server-side FFmpeg, so no re-encoding needed.
         for v in visuals:
@@ -217,6 +233,7 @@ class RemotionCompositor:
             "theme": theme_dict,
             "color_grading": color_grading,
             "scenes": scene_metadata,
+            "sfx_paths": sfx_paths_rel if sfx_paths_rel else None,
         }
 
         # Save props to a temp JSON file (avoids shell escaping issues).
@@ -290,6 +307,8 @@ class RemotionCompositor:
             "error",  # suppress verbose output
             "--concurrency",
             "1",  # limit parallelism to prevent OOM
+            "--video-bitrate",
+            "8M",
         ]
 
         logger.info(
