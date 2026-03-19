@@ -272,6 +272,48 @@ class TestGenerateFromSceneResults:
         has_words = any(seg.words is not None for seg in result.segments)
         assert has_words, "Expected karaoke word data when tts_text is None"
 
+    def test_segments_clamped_to_scene_boundary(self, generator: SubtitleGenerator) -> None:
+        """Subtitle end times must not exceed their scene's boundary."""
+        scenes = [
+            self._make_scene("첫 번째 씬 텍스트입니다"),
+            self._make_scene("두 번째 씬 텍스트입니다"),
+        ]
+        # Scene 0: 0.0–3.0s, but last word ends at 3.15s (exceeds boundary)
+        tts_results = [
+            self._make_tts_result(
+                0,
+                3.0,
+                0.0,
+                words=[
+                    WordTimestamp(word="첫", start=0.0, end=0.5),
+                    WordTimestamp(word="번째", start=0.5, end=1.0),
+                    WordTimestamp(word="씬", start=1.0, end=1.5),
+                    WordTimestamp(word="텍스트입니다", start=1.5, end=3.15),
+                ],
+            ),
+            self._make_tts_result(
+                1,
+                3.0,
+                3.0,
+                words=[
+                    WordTimestamp(word="두", start=0.0, end=0.5),
+                    WordTimestamp(word="번째", start=0.5, end=1.0),
+                    WordTimestamp(word="씬", start=1.0, end=1.5),
+                    WordTimestamp(word="텍스트입니다", start=1.5, end=3.0),
+                ],
+            ),
+        ]
+
+        result = generator.generate_from_scene_results(scene_results=tts_results, scenes=scenes)
+
+        # All segments from scene 0 must end before 3.0s (the scene boundary)
+        scene_0_boundary = 3.0
+        for seg in result.segments:
+            if seg.start < scene_0_boundary:
+                assert (
+                    seg.end <= scene_0_boundary
+                ), f"Segment overflows scene boundary: end={seg.end} > {scene_0_boundary}"
+
     def test_empty_scene_results(self, generator: SubtitleGenerator) -> None:
         """Empty input produces empty output."""
         result = generator.generate_from_scene_results(scene_results=[], scenes=[])

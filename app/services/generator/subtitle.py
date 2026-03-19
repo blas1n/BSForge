@@ -985,7 +985,22 @@ class SubtitleGenerator:
             all_segments.extend(karaoke_segments)
             segment_index += len(karaoke_segments)
 
-        # Post-process: enforce minimum gap between consecutive segments
+        # Post-process 1: clamp each segment's end to its scene boundary.
+        # TTS word timestamps can slightly exceed scene duration, causing
+        # the last 2-4 characters to render in the next scene cut.
+        scene_boundaries: list[float] = []
+        for sr in scene_results:
+            scene_boundaries.append(sr.start_offset + sr.duration_seconds)
+
+        for seg in all_segments:
+            # Find which scene this segment belongs to (by start time)
+            for j, sr in enumerate(scene_results):
+                if sr.start_offset <= seg.start < scene_boundaries[j]:
+                    if seg.end > scene_boundaries[j]:
+                        seg.end = scene_boundaries[j] - 0.02  # 20ms safety margin
+                    break
+
+        # Post-process 2: enforce minimum gap between consecutive segments
         # to prevent subtitle overlap in the renderer.
         min_gap = 0.05  # 50ms gap
         for i in range(len(all_segments) - 1):
