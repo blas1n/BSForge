@@ -186,7 +186,7 @@ class TestLLMClient:
             await llm_client.complete(config, messages)
 
             mock_fn.assert_called_once_with(
-                model="custom-model",
+                model="openai/custom-model",
                 messages=messages,
                 max_tokens=2000,
                 temperature=0.5,
@@ -209,7 +209,7 @@ class TestLLMClient:
             await llm_client.complete(config, messages)
 
             call_kwargs = mock_fn.call_args[1]
-            assert call_kwargs["model"] == "test-model"
+            assert call_kwargs["model"] == "openai/test-model"
 
     @pytest.mark.asyncio
     async def test_complete_with_kwargs(

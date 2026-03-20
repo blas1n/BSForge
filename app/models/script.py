@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from app.models.video import Video
 
 
-class ScriptStatus(str, enum.Enum):
+class ScriptStatus(enum.StrEnum):
     """Script lifecycle status."""
 
     GENERATED = "generated"  # Generated, awaiting review

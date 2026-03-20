@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from app.models.topic import Topic
 
 
-class SourceType(str, enum.Enum):
+class SourceType(enum.StrEnum):
     """Source collection method type."""
 
     API = "api"  # REST API (Reddit, HackerNews)
@@ -41,7 +41,7 @@ class SourceType(str, enum.Enum):
     TREND = "trend"  # Google Trends, Naver DataLab
 
 
-class SourceRegion(str, enum.Enum):
+class SourceRegion(enum.StrEnum):
     """Source geographic region."""
 
     DOMESTIC = "domestic"  # Korean sources

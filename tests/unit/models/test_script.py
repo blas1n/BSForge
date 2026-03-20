@@ -1,5 +1,7 @@
 """Unit tests for Script model structure and methods."""
 
+# pyright: reportAttributeAccessIssue=false, reportAssignmentType=false
+
 import pytest
 
 from app.models.scene import SceneScript, SceneType
@@ -110,8 +112,8 @@ class TestScriptModel:
         repr_str = repr(script)
         assert "Script" in repr_str
         assert "test-id" in repr_str
-        # Status appears as enum name in repr
-        assert "GENERATED" in repr_str
+        # StrEnum uses value (lowercase) in repr
+        assert "generated" in repr_str
 
 
 class TestScriptMethods:

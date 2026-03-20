@@ -8,12 +8,12 @@ video generation system. Key features:
 - Scene and SceneScript Pydantic models
 """
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class SceneType(str, Enum):
+class SceneType(StrEnum):
     """Scene type classification.
 
     BSForge differentiator: COMMENTARY and REACTION types allow
@@ -35,7 +35,7 @@ class SceneType(str, Enum):
     CTA = "cta"  # 2-3초, 행동 유도 (선택적)
 
 
-class VisualStyle(str, Enum):
+class VisualStyle(StrEnum):
     """Visual style for scene rendering.
 
     Each style has different visual treatment:
@@ -49,7 +49,7 @@ class VisualStyle(str, Enum):
     EMPHASIS = "emphasis"  # 강조용 (CONCLUSION, CTA)
 
 
-class TransitionType(str, Enum):
+class TransitionType(StrEnum):
     """Transition effect between scenes."""
 
     NONE = "none"  # No transition

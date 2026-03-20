@@ -275,11 +275,17 @@ class TopicNormalizer:
             if "```json" in response_text:
                 json_start = response_text.find("```json") + 7
                 json_end = response_text.find("```", json_start)
-                response_text = response_text[json_start:json_end].strip()
+                if json_end != -1:
+                    response_text = response_text[json_start:json_end].strip()
+                else:
+                    response_text = response_text[json_start:].strip()
             elif "```" in response_text:
                 json_start = response_text.find("```") + 3
                 json_end = response_text.find("```", json_start)
-                response_text = response_text[json_start:json_end].strip()
+                if json_end != -1:
+                    response_text = response_text[json_start:json_end].strip()
+                else:
+                    response_text = response_text[json_start:].strip()
 
             # Extract first JSON object (handle extra text after JSON)
             result_dict = self._extract_first_json_object(response_text)

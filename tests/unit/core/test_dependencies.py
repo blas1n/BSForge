@@ -78,4 +78,5 @@ class TestCreateNormalizer:
         llm = MagicMock()
         pm = MagicMock()
         normalizer = create_normalizer(llm_client=llm, prompt_manager=pm)
-        assert normalizer is not None
+        assert normalizer.llm_client is llm
+        assert normalizer.prompt_manager is pm

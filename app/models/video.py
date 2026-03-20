@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from app.models.upload import Upload
 
 
-class VideoStatus(str, enum.Enum):
+class VideoStatus(enum.StrEnum):
     """Video lifecycle status."""
 
     GENERATING = "generating"  # Currently being generated

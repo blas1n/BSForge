@@ -83,7 +83,7 @@ async def concatenate_scene_audio(
             total_duration += gap_duration * (len(scene_results) - 1)
 
         logger.info(
-            f"Concatenated audio: {total_duration:.2f}s, " f"{len(all_timestamps)} word timestamps"
+            f"Concatenated audio: {total_duration:.2f}s, {len(all_timestamps)} word timestamps"
         )
 
         return TTSResult(

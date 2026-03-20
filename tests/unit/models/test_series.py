@@ -1,5 +1,7 @@
 """Unit tests for Series model structure."""
 
+# pyright: reportAttributeAccessIssue=false, reportAssignmentType=false
+
 import pytest
 
 from app.models.series import Series, SeriesStatus

@@ -1,5 +1,7 @@
 """Unit tests for Video model structure."""
 
+# pyright: reportAttributeAccessIssue=false, reportAssignmentType=false
+
 import pytest
 
 from app.models.video import Video, VideoStatus
@@ -152,8 +154,8 @@ class TestVideoModel:
         repr_str = repr(video)
         assert "Video" in repr_str
         assert "test-id" in repr_str
-        # Status appears as enum name in repr
-        assert "GENERATED" in repr_str
+        # StrEnum uses value (lowercase) in repr
+        assert "generated" in repr_str
 
 
 class TestVideoLifecycle:

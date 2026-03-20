@@ -53,7 +53,7 @@ class TestPromptManager:
         assert template.name == "Scene Script Generation Prompt"
         # Model is now configured globally, not per-template
         assert template.llm_settings.model == ""
-        assert template.llm_settings.max_tokens == 2000
+        assert template.llm_settings.max_tokens == 8000
         assert template.llm_settings.temperature == 0.8
 
     def test_get_llm_settings(self):
@@ -63,7 +63,7 @@ class TestPromptManager:
 
         assert isinstance(settings, LLMSettings)
         assert settings.model == ""
-        assert settings.max_tokens == 2000
+        assert settings.max_tokens == 8000
         assert settings.temperature == 0.8
 
     def test_render_translation_prompt(self):

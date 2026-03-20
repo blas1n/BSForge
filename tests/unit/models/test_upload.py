@@ -1,5 +1,7 @@
 """Unit tests for Upload model structure."""
 
+# pyright: reportAttributeAccessIssue=false, reportAssignmentType=false
+
 import pytest
 
 from app.models.upload import PrivacyStatus, Upload, UploadStatus
@@ -182,7 +184,7 @@ class TestUploadModel:
         repr_str = repr(upload)
         assert "Upload" in repr_str
         assert "test-id" in repr_str
-        assert "PENDING" in repr_str
+        assert "pending" in repr_str
 
 
 class TestUploadLifecycle:

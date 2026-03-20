@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from app.models.source import Source
 
 
-class TopicStatus(str, enum.Enum):
+class TopicStatus(enum.StrEnum):
     """Topic lifecycle status."""
 
     PENDING = "pending"  # Collected, awaiting review

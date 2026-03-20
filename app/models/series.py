@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from app.models.topic import Topic
 
 
-class SeriesStatus(str, enum.Enum):
+class SeriesStatus(enum.StrEnum):
     """Series lifecycle status."""
 
     ACTIVE = "active"  # Currently tracking

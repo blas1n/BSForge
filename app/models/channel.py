@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from app.models.video import Video
 
 
-class ChannelStatus(str, enum.Enum):
+class ChannelStatus(enum.StrEnum):
     """Channel operational status."""
 
     ACTIVE = "active"
@@ -104,7 +104,7 @@ class Channel(Base, UUIDMixin, TimestampMixin):
         return f"<Channel(id={self.id}, name={self.name}, status={self.status})>"
 
 
-class TTSService(str, enum.Enum):
+class TTSService(enum.StrEnum):
     """Text-to-Speech service provider."""
 
     EDGE_TTS = "edge-tts"

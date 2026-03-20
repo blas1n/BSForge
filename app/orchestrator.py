@@ -9,6 +9,7 @@ Each channel is processed independently. Each topic produces one video.
 import asyncio
 import uuid
 from datetime import UTC, datetime
+from typing import Literal, cast
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -98,7 +99,7 @@ async def process_channel(channel: Channel) -> int:
                 logger.exception(
                     "topic_processing_failed",
                     channel=channel.name,
-                    topic=topic.title,
+                    topic=topic.title_normalized,
                 )
                 continue
 
@@ -159,13 +160,13 @@ async def _process_topic(
 
     Returns True if a video was produced.
     """
-    logger.info("processing_topic", topic=topic.title, channel=channel.name)
+    logger.info("processing_topic", topic=topic.title_normalized, channel=channel.name)
 
     # Step 1: Generate script
     persona_config = _build_persona_config(channel)
 
     script_result = await script_generator.generate(
-        topic_title=topic.title,
+        topic_title=topic.title_normalized,
         topic_summary=topic.summary or "",
         topic_terms=topic.terms or [],
         persona=persona_config,
@@ -173,15 +174,18 @@ async def _process_topic(
 
     # Save script to DB
     async with async_session_maker() as session:
+        raw_text = script_result.raw_response
         script = Script(
             id=uuid.uuid4(),
             channel_id=channel.id,
             topic_id=topic.id,
-            script_text=script_result.raw_response,
+            script_text=raw_text,
             headline=script_result.scene_script.headline,
             scenes=[s.__dict__ for s in script_result.scene_script.scenes],
             generation_model=script_result.model,
             status=ScriptStatus.GENERATED,
+            estimated_duration=int(script_result.scene_script.total_estimated_duration),
+            word_count=len(raw_text.split()),
         )
         session.add(script)
         await session.commit()
@@ -191,7 +195,7 @@ async def _process_topic(
 
     logger.info(
         "script_generated",
-        topic=topic.title,
+        topic=topic.title_normalized,
         headline=script_result.scene_script.headline,
         scenes=len(script_result.scene_script.scenes),
     )
@@ -206,6 +210,10 @@ async def _process_topic(
             return False
 
         scene_script = script.get_scene_script()
+        if not scene_script:
+            logger.error("no_scene_script", script_id=str(script_id))
+            return False
+
         voice_id = _get_voice_id(channel)
         tts_provider = _get_tts_provider(channel)
 
@@ -218,7 +226,7 @@ async def _process_topic(
 
     logger.info(
         "video_generated",
-        topic=topic.title,
+        topic=topic.title_normalized,
         duration=video_result.duration_seconds,
         path=str(video_result.video_path),
     )
@@ -231,7 +239,7 @@ async def _process_topic(
             create_upload_pipeline()
             logger.info("auto_upload_skipped", reason="upload_pipeline_needs_video_id")
         except Exception:
-            logger.exception("upload_failed", topic=topic.title)
+            logger.exception("upload_failed", topic=topic.title_normalized)
 
     return True
 
@@ -246,9 +254,22 @@ def _build_persona_config(channel: Channel) -> PersonaConfig | None:
     persona = channel.persona
     try:
         # Build VoiceConfig from persona DB fields
+        # Validate against Literal values, fallback to defaults
+        valid_genders = ("male", "female", "neutral")
+        gender = cast(
+            Literal["male", "female", "neutral"],
+            persona.voice_gender if persona.voice_gender in valid_genders else "male",
+        )
+        valid_services = ("edge-tts", "elevenlabs")
+        raw_service = str(persona.tts_service) if persona.tts_service else "edge-tts"
+        service = cast(
+            Literal["edge-tts", "elevenlabs"],
+            raw_service if raw_service in valid_services else "edge-tts",
+        )
+
         voice = VoiceConfig(
-            gender=persona.voice_gender or "male",
-            service=persona.tts_service or "edge-tts",
+            gender=gender,
+            service=service,
             voice_id=persona.voice_id or "ko-KR-InJoonNeural",
         )
 

@@ -207,9 +207,11 @@ class ScriptGenerator:
         if not scenes_data:
             raise ValueError("LLM response contains no scenes")
 
-        scenes = [Scene(**scene_data) for scene_data in scenes_data]
-
-        return SceneScript(scenes=scenes, headline=headline)
+        try:
+            scenes = [Scene(**scene_data) for scene_data in scenes_data]
+            return SceneScript(scenes=scenes, headline=headline)
+        except Exception as e:
+            raise ValueError(f"Invalid scene data in LLM response: {e}") from e
 
 
 __all__ = [
