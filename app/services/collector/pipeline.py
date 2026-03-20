@@ -314,7 +314,7 @@ class TopicCollectionPipeline:
         return Topic(
             id=uuid.uuid4(),
             channel_id=channel.id,
-            source_id=None,
+            source_id=norm.source_id,
             title_original=raw.title,
             title_translated=norm.title_translated,
             title_normalized=norm.title_normalized,

@@ -6,7 +6,7 @@ import pytest
 
 from app.config.video import CompositionConfig, SubtitleConfig
 from app.models.scene import Scene, SceneType
-from app.services.generator.subtitle import SubtitleFile, SubtitleGenerator
+from app.services.generator.subtitle import SubtitleFile, SubtitleGenerator, SubtitleSegment
 from app.services.generator.templates import ASSTemplateLoader
 from app.services.generator.tts.base import SceneTTSResult, WordTimestamp
 
@@ -319,3 +319,316 @@ class TestGenerateFromSceneResults:
         result = generator.generate_from_scene_results(scene_results=[], scenes=[])
 
         assert len(result.segments) == 0
+
+    def test_tts_text_path_uses_proportional_timing(self, generator: SubtitleGenerator) -> None:
+        """When scene has tts_text, proportional timing is used for display text."""
+        scenes = [
+            self._make_scene(
+                text="여러분 AI가 코딩을 대체한다고요",
+                tts_text="여러분 에이아이가 코딩을 대체한다고요",
+            )
+        ]
+        tts_results = [
+            self._make_tts_result(
+                0,
+                3.0,
+                0.0,
+                words=[
+                    WordTimestamp(word="여러분", start=0.0, end=0.5),
+                    WordTimestamp(word="에이아이가", start=0.5, end=1.2),
+                    WordTimestamp(word="코딩을", start=1.2, end=1.8),
+                    WordTimestamp(word="대체한다고요", start=1.8, end=3.0),
+                ],
+            ),
+        ]
+
+        result = generator.generate_from_scene_results(scene_results=tts_results, scenes=scenes)
+
+        assert len(result.segments) >= 1
+        # Display text should use scene.text, not tts_text
+        full_text = " ".join(seg.text for seg in result.segments)
+        assert "AI가" in full_text
+        assert "에이아이가" not in full_text
+
+    def test_manual_subtitle_segments(self, generator: SubtitleGenerator) -> None:
+        """When scene has subtitle_segments, they are used directly."""
+        scene = self._make_scene(text="첫 번째 문장 두 번째 문장 세 번째 문장")
+        scene.subtitle_segments = ["첫 번째 문장", "두 번째 문장", "세 번째 문장"]
+        scenes = [scene]
+        tts_results = [
+            self._make_tts_result(
+                0,
+                4.0,
+                0.0,
+                words=[
+                    WordTimestamp(word="첫", start=0.0, end=0.3),
+                    WordTimestamp(word="번째", start=0.3, end=0.6),
+                    WordTimestamp(word="문장", start=0.6, end=1.0),
+                    WordTimestamp(word="두", start=1.0, end=1.3),
+                    WordTimestamp(word="번째", start=1.3, end=1.8),
+                    WordTimestamp(word="문장", start=1.8, end=2.5),
+                    WordTimestamp(word="세", start=2.5, end=2.8),
+                    WordTimestamp(word="번째", start=2.8, end=3.2),
+                    WordTimestamp(word="문장", start=3.2, end=4.0),
+                ],
+            ),
+        ]
+
+        result = generator.generate_from_scene_results(scene_results=tts_results, scenes=scenes)
+
+        assert len(result.segments) == 3
+        assert "첫 번째 문장" in result.segments[0].text
+        assert "두 번째 문장" in result.segments[1].text
+        assert "세 번째 문장" in result.segments[2].text
+
+    def test_manual_subtitle_segments_no_timestamps(self, generator: SubtitleGenerator) -> None:
+        """Manual segments without word timestamps use proportional timing."""
+        scene = self._make_scene(text="첫 번째 두 번째")
+        scene.subtitle_segments = ["첫 번째", "두 번째"]
+        scenes = [scene]
+        tts_results = [self._make_tts_result(0, 4.0, 1.0, words=None)]
+
+        result = generator.generate_from_scene_results(scene_results=tts_results, scenes=scenes)
+
+        assert len(result.segments) == 2
+        # First segment starts at scene offset
+        assert result.segments[0].start == pytest.approx(1.0, abs=0.01)
+        # Segments should be sequential
+        assert result.segments[1].start >= result.segments[0].end - 0.01
+
+    def test_tts_text_no_word_timestamps(self, generator: SubtitleGenerator) -> None:
+        """tts_text path with no word timestamps creates single segment."""
+        scenes = [self._make_scene(text="간단한 텍스트", tts_text="간단한 텍스트요")]
+        tts_results = [self._make_tts_result(0, 2.0, 0.0, words=None)]
+
+        result = generator.generate_from_scene_results(scene_results=tts_results, scenes=scenes)
+
+        assert len(result.segments) >= 1
+        assert "간단한" in result.segments[0].text
+
+    def test_scene_count_mismatch_logs_warning(self, generator: SubtitleGenerator) -> None:
+        """Mismatched scene/result counts still produce output."""
+        scenes = [self._make_scene("텍스트")]
+        tts_results = [
+            self._make_tts_result(
+                0,
+                2.0,
+                0.0,
+                words=[WordTimestamp(word="텍스트", start=0.0, end=2.0)],
+            ),
+            self._make_tts_result(
+                1,
+                2.0,
+                2.0,
+                words=[WordTimestamp(word="추가", start=0.0, end=2.0)],
+            ),
+        ]
+
+        result = generator.generate_from_scene_results(scene_results=tts_results, scenes=scenes)
+
+        # Should still produce segments despite mismatch
+        assert len(result.segments) >= 1
+
+
+class TestToSceneAss:
+    """Test scene-based ASS file generation."""
+
+    @pytest.fixture
+    def generator(
+        self, subtitle_config: SubtitleConfig, composition_config: CompositionConfig
+    ) -> SubtitleGenerator:
+        """Create a SubtitleGenerator instance."""
+        return SubtitleGenerator(
+            config=subtitle_config,
+            composition_config=composition_config,
+            template_loader=ASSTemplateLoader(),
+        )
+
+    def test_to_ass_with_scene_styles_generates_valid_file(
+        self,
+        generator: SubtitleGenerator,
+        tmp_path: Path,
+    ) -> None:
+        """to_ass_with_scene_styles produces a valid ASS file with scene styles."""
+
+        subtitle = SubtitleFile(
+            segments=[
+                SubtitleSegment(index=1, start=0.0, end=1.0, text="Hello world"),
+                SubtitleSegment(index=2, start=1.1, end=2.0, text="Second line"),
+            ],
+        )
+        scenes = [
+            Scene(
+                scene_type=SceneType.HOOK,
+                text="Hello world",
+                visual_keyword="test",
+            ),
+            Scene(
+                scene_type=SceneType.CONTENT,
+                text="Second line",
+                visual_keyword="test",
+            ),
+        ]
+        scene_results = [
+            SceneTTSResult(
+                scene_index=0,
+                scene_type="hook",
+                audio_path=tmp_path / "s0.mp3",
+                duration_seconds=1.0,
+                word_timestamps=None,
+                start_offset=0.0,
+            ),
+            SceneTTSResult(
+                scene_index=1,
+                scene_type="content",
+                audio_path=tmp_path / "s1.mp3",
+                duration_seconds=1.0,
+                word_timestamps=None,
+                start_offset=1.1,
+            ),
+        ]
+
+        output_path = tmp_path / "subtitle"
+        result_path = generator.to_ass_with_scene_styles(
+            subtitle=subtitle,
+            output_path=output_path,
+            scenes=scenes,
+            scene_results=scene_results,
+        )
+
+        assert result_path.exists()
+        assert result_path.suffix == ".ass"
+
+        content = result_path.read_text()
+        assert "[Script Info]" in content
+        assert "[V4+ Styles]" in content
+        assert "Neutral" in content
+        assert "Persona" in content
+        assert "Emphasis" in content
+        assert "[Events]" in content
+        assert "Hello world" in content
+
+    def test_to_ass_with_scene_styles_with_karaoke(
+        self,
+        generator: SubtitleGenerator,
+        tmp_path: Path,
+    ) -> None:
+        """to_ass_with_scene_styles renders karaoke tags when words are provided."""
+        words = [
+            WordTimestamp(word="Hello", start=0.0, end=0.5),
+            WordTimestamp(word="world", start=0.5, end=1.0),
+        ]
+        subtitle = SubtitleFile(
+            segments=[
+                SubtitleSegment(index=1, start=0.0, end=1.0, text="Hello world", words=words),
+            ],
+        )
+        scenes = [
+            Scene(
+                scene_type=SceneType.CONTENT,
+                text="Hello world",
+                visual_keyword="test",
+            ),
+        ]
+        scene_results = [
+            SceneTTSResult(
+                scene_index=0,
+                scene_type="content",
+                audio_path=tmp_path / "s0.mp3",
+                duration_seconds=1.0,
+                word_timestamps=words,
+                start_offset=0.0,
+            ),
+        ]
+
+        # Enable karaoke via config
+        generator.config.highlight_current_word = True
+
+        output_path = tmp_path / "sub_karaoke"
+        result_path = generator.to_ass_with_scene_styles(
+            subtitle=subtitle,
+            output_path=output_path,
+            scenes=scenes,
+            scene_results=scene_results,
+        )
+
+        content = result_path.read_text()
+        # Karaoke tags should be present
+        assert "\\k" in content
+
+
+class TestApplySceneStyling:
+    """Test scene-based text styling."""
+
+    @pytest.fixture
+    def generator(
+        self, subtitle_config: SubtitleConfig, composition_config: CompositionConfig
+    ) -> SubtitleGenerator:
+        return SubtitleGenerator(
+            config=subtitle_config,
+            composition_config=composition_config,
+            template_loader=ASSTemplateLoader(),
+        )
+
+    def test_emphasis_words_highlighted(self, generator: SubtitleGenerator) -> None:
+        """Emphasis words get ASS color tags when persona_style is provided."""
+        from unittest.mock import MagicMock
+
+        from app.models.scene import VisualStyle
+
+        persona_style = MagicMock()
+        persona_style.secondary_color = "#FF0000"
+
+        result = generator._apply_scene_styling(
+            text="이것은 중요한 포인트입니다",
+            visual_style=VisualStyle.PERSONA,
+            emphasis_words=["중요한"],
+            persona_style=persona_style,
+        )
+
+        assert "\\c&H" in result  # ASS color tag applied
+
+    def test_no_emphasis_without_persona_style(self, generator: SubtitleGenerator) -> None:
+        """Without persona_style, emphasis words are not highlighted."""
+        from app.models.scene import VisualStyle
+
+        result = generator._apply_scene_styling(
+            text="이것은 중요한 포인트입니다",
+            visual_style=VisualStyle.NEUTRAL,
+            emphasis_words=["중요한"],
+            persona_style=None,
+        )
+
+        assert result == "이것은 중요한 포인트입니다"
+
+
+class TestFindSceneIndex:
+    """Test scene index lookup."""
+
+    @pytest.fixture
+    def generator(
+        self, subtitle_config: SubtitleConfig, composition_config: CompositionConfig
+    ) -> SubtitleGenerator:
+        return SubtitleGenerator(
+            config=subtitle_config,
+            composition_config=composition_config,
+            template_loader=ASSTemplateLoader(),
+        )
+
+    def test_finds_correct_scene(self, generator: SubtitleGenerator) -> None:
+        timings = [(0.0, 3.0), (3.0, 6.0), (6.0, 9.0)]
+        assert generator._find_scene_index(1.5, timings) == 0
+        assert generator._find_scene_index(4.0, timings) == 1
+        assert generator._find_scene_index(7.0, timings) == 2
+
+    def test_end_of_last_scene(self, generator: SubtitleGenerator) -> None:
+        timings = [(0.0, 3.0), (3.0, 6.0)]
+        assert generator._find_scene_index(5.999, timings) == 1
+
+    def test_beyond_last_scene_returns_last(self, generator: SubtitleGenerator) -> None:
+        """Timestamps beyond last scene return last scene index (fallback)."""
+        timings = [(0.0, 3.0)]
+        assert generator._find_scene_index(10.0, timings) == 0
+
+    def test_empty_timings(self, generator: SubtitleGenerator) -> None:
+        assert generator._find_scene_index(1.0, []) == -1

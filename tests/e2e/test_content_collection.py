@@ -34,7 +34,7 @@ class TestTopicNormalization:
         """Test normalization of Korean topic."""
         llm_client = AsyncMock()
         mock_content = (
-            '{"terms": ["tech", "AI", "기술"], ' '"entities": {}, "summary": "AI 기술 관련 요약"}'
+            '{"terms": ["tech", "AI", "기술"], "entities": {}, "summary": "AI 기술 관련 요약"}'
         )
         llm_client.complete = AsyncMock(return_value=MagicMock(content=mock_content))
 
@@ -59,7 +59,7 @@ class TestTopicNormalization:
         """Test normalization of English topic."""
         llm_client = AsyncMock()
         mock_content = (
-            '{"terms": ["tech", "AI", "future"], ' '"entities": {}, "summary": "Summary about AI"}'
+            '{"terms": ["tech", "AI", "future"], "entities": {}, "summary": "Summary about AI"}'
         )
         llm_client.complete = AsyncMock(return_value=MagicMock(content=mock_content))
 

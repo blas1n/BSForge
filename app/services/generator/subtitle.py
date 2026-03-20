@@ -1162,7 +1162,7 @@ class SubtitleGenerator:
         word_ts_idx = 0
         total_words = len(word_timestamps)
 
-        for seg_text in subtitle_segments:
+        for seg_pos, seg_text in enumerate(subtitle_segments):
             # Find words in this segment
             seg_words = seg_text.split()
             matched_timestamps: list[WordTimestamp] = []
@@ -1195,9 +1195,8 @@ class SubtitleGenerator:
                 end_time = matched_timestamps[-1].end + scene_result.start_offset
             else:
                 # Fallback: estimate based on position in scene
-                seg_idx = subtitle_segments.index(seg_text)
                 seg_duration = scene_result.duration_seconds / len(subtitle_segments)
-                start_time = scene_result.start_offset + (seg_idx * seg_duration)
+                start_time = scene_result.start_offset + (seg_pos * seg_duration)
                 end_time = start_time + seg_duration
 
             styled_text = self._apply_scene_styling(

@@ -65,7 +65,7 @@ class TestSelectBestVideoFile:
         assert result is not None
         assert result["width"] < result["height"]  # portrait
 
-    def test_returns_none_when_all_landscape_and_no_hd_portrait(self, client: PexelsClient) -> None:
+    def test_returns_landscape_fallback_when_no_portrait(self, client: PexelsClient) -> None:
         # All files are landscape (width > height) — portrait filter falls back to all files.
         # The landscape file has height=1080 which passes min_height.
         files = [
