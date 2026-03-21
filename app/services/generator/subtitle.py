@@ -1028,27 +1028,20 @@ class SubtitleGenerator:
         # Post-process 1: clamp each segment's end to its scene boundary.
         # TTS word timestamps can slightly exceed scene duration, causing
         # the last 2-4 characters to render in the next scene cut.
-        scene_boundaries: list[float] = []
-        for sr in scene_results:
-            scene_boundaries.append(sr.start_offset + sr.duration_seconds)
+        # Uses bisect for O(N log M) instead of O(N*M) nested loops.
+        from bisect import bisect_right
+
+        scene_boundaries: list[float] = [
+            sr.start_offset + sr.duration_seconds for sr in scene_results
+        ]
 
         for seg in all_segments:
-            # Find which scene this segment belongs to (by start time)
-            clamped = False
-            for j, sr in enumerate(scene_results):
-                if sr.start_offset <= seg.start < scene_boundaries[j]:
-                    if seg.end > scene_boundaries[j]:
-                        seg.end = scene_boundaries[j] - _SCENE_BOUNDARY_MARGIN
-                    clamped = True
-                    break
-
-            # Fallback: segment at exact boundary — clamp to next scene end
-            if not clamped:
-                for _j, boundary in enumerate(scene_boundaries):
-                    if seg.start < boundary:
-                        if seg.end > boundary:
-                            seg.end = boundary - _SCENE_BOUNDARY_MARGIN
-                        break
+            # Find the scene boundary this segment falls under via binary search
+            idx = bisect_right(scene_boundaries, seg.start)
+            if idx < len(scene_boundaries):
+                boundary = scene_boundaries[idx]
+                if seg.end > boundary:
+                    seg.end = boundary - _SCENE_BOUNDARY_MARGIN
 
         # Post-process 2: enforce minimum gap between consecutive segments
         # to prevent subtitle overlap in the renderer.
