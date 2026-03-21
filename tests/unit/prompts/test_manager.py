@@ -128,6 +128,15 @@ class TestPromptManager:
 
         assert "not found" in str(exc_info.value).lower()
 
+    def test_empty_yaml_raises_value_error(self, tmp_path):
+        """Should raise ValueError for empty or non-mapping YAML file."""
+        yaml_file = tmp_path / "translation.yaml"
+        yaml_file.write_text("")
+        manager = PromptManager(prompts_dir=tmp_path)
+
+        with pytest.raises(ValueError, match="empty or not a YAML mapping"):
+            manager.load(PromptType.TRANSLATION)
+
     def test_multiple_instances_are_independent(self):
         """Should create independent instances."""
         manager1 = PromptManager()

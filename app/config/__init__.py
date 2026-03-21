@@ -6,13 +6,13 @@ from app.config.bgm import BGMConfig, BGMTrack
 from app.config.channel import ChannelInfo, YouTubeConfig
 from app.config.content import (
     ContentConfig,
+    ContentVisualConfig,
     DedupConfig,
     ScheduleConfig,
     SourceOverride,
     SubtitleConfig,
     TopicCollectionConfig,
     UploadConfig,
-    VisualConfig,
 )
 from app.config.filtering import FilteringConfig
 from app.config.operation import (
@@ -89,7 +89,7 @@ __all__ = [
     "SourceOverride",
     "DedupConfig",
     "ContentConfig",
-    "VisualConfig",
+    "ContentVisualConfig",
     "SubtitleConfig",
     "UploadConfig",
     "ScheduleConfig",

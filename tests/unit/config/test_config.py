@@ -10,6 +10,7 @@ from app.config import (
     ChannelInfo,
     CommunicationStyle,
     ContentConfig,
+    ContentVisualConfig,
     NotificationConfig,
     OperationConfig,
     PersonaConfig,
@@ -21,7 +22,6 @@ from app.config import (
     SubtitleConfig,
     TopicCollectionConfig,
     UploadConfig,
-    VisualConfig,
     VoiceConfig,
     VoiceSettings,
     YouTubeConfig,
@@ -115,7 +115,7 @@ def test_upload_config_max_less_than_target():
 @pytest.mark.unit
 def test_visual_config_valid():
     """Test valid visual configuration."""
-    visual = VisualConfig(
+    visual = ContentVisualConfig(
         source_priority=["stock_video", "ai_image", "solid_color"], fallback_color="#1a1a2e"
     )
     assert visual.source_priority == ["stock_video", "ai_image", "solid_color"]
@@ -126,7 +126,7 @@ def test_visual_config_valid():
 def test_visual_config_invalid_color():
     """Test visual config with invalid color."""
     with pytest.raises(ValidationError):
-        VisualConfig(source_priority=["stock_video"], fallback_color="invalid")
+        ContentVisualConfig(source_priority=["stock_video"], fallback_color="invalid")
 
 
 @pytest.mark.unit
@@ -304,7 +304,7 @@ def test_content_config_valid():
     content = ContentConfig(
         format="shorts",
         target_duration=55,
-        visual=VisualConfig(source_priority=["stock_video"], fallback_color="#1a1a2e"),
+        visual=ContentVisualConfig(source_priority=["stock_video"], fallback_color="#1a1a2e"),
         subtitle=SubtitleConfig(),
     )
     assert content.format == "shorts"

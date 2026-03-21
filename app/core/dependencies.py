@@ -289,9 +289,10 @@ def reset_singletons() -> None:
     may be open, otherwise the underlying connection will leak.
     """
     global _http_client, _llm_client, _prompt_manager
-    _http_client = None
-    _llm_client = None
-    _prompt_manager = None
+    with _singleton_lock:
+        _http_client = None
+        _llm_client = None
+        _prompt_manager = None
 
 
 __all__ = [

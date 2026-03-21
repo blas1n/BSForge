@@ -1044,7 +1044,7 @@ class SubtitleGenerator:
             if idx < len(scene_boundaries):
                 boundary = scene_boundaries[idx]
                 if seg.end > boundary:
-                    seg.end = boundary - _SCENE_BOUNDARY_MARGIN
+                    seg.end = max(boundary - _SCENE_BOUNDARY_MARGIN, seg.start)
 
         # Post-process 2: enforce minimum gap between consecutive segments
         # to prevent subtitle overlap in the renderer.

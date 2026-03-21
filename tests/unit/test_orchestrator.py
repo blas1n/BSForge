@@ -10,6 +10,7 @@ from app.orchestrator import (
     _build_persona_config,
     _get_tts_provider,
     _get_voice_id,
+    _process_topic,
     get_active_channels,
     process_channel,
     run_once,
@@ -339,3 +340,43 @@ class TestRunOnce:
 
         # Should not raise
         await run_once()
+
+
+class TestProcessTopicValidation:
+    """Tests for _process_topic input validation."""
+
+    @pytest.mark.asyncio
+    async def test_skip_topic_with_no_summary(self) -> None:
+        """Topics without a summary should be skipped early."""
+        channel = MagicMock()
+        channel.name = "test-channel"
+        topic = MagicMock()
+        topic.title_normalized = "No Summary"
+        topic.summary = None
+
+        result = await _process_topic(
+            channel=channel,
+            topic=topic,
+            script_generator=MagicMock(),
+            http_client=MagicMock(),
+            video_pipeline=MagicMock(),
+        )
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_skip_topic_with_empty_summary(self) -> None:
+        """Topics with whitespace-only summary should be skipped."""
+        channel = MagicMock()
+        channel.name = "test-channel"
+        topic = MagicMock()
+        topic.title_normalized = "Empty Summary"
+        topic.summary = "   "
+
+        result = await _process_topic(
+            channel=channel,
+            topic=topic,
+            script_generator=MagicMock(),
+            http_client=MagicMock(),
+            video_pipeline=MagicMock(),
+        )
+        assert result is False

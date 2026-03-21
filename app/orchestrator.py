@@ -175,6 +175,14 @@ async def _process_topic(
     logger.info("processing_topic", topic=topic.title_normalized, channel=channel.name)
 
     # Step 1: Generate script
+    if not (topic.summary or "").strip():
+        logger.warning(
+            "topic_skipped_no_summary",
+            topic=topic.title_normalized,
+            channel=channel.name,
+        )
+        return False
+
     persona_config = _build_persona_config(channel)
 
     script_result = await script_generator.generate(

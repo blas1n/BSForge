@@ -123,6 +123,9 @@ class PromptManager:
             with open(yaml_file, encoding="utf-8") as f:
                 data = yaml.safe_load(f)
 
+            if not isinstance(data, dict):
+                raise ValueError(f"Prompt template {yaml_file.name} is empty or not a YAML mapping")
+
             # Parse LLM settings from template
             llm_settings = LLMSettings(
                 model=data.get("model", ""),

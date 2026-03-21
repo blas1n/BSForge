@@ -54,8 +54,8 @@ class DedupConfig(BaseModel):
     )
 
 
-class VisualConfig(BaseModel):
-    """Visual content configuration.
+class ContentVisualConfig(BaseModel):
+    """Visual content configuration for channel YAML.
 
     Attributes:
         source_priority: Priority order for visual sources
@@ -95,7 +95,7 @@ class ContentConfig(BaseModel):
 
     format: Literal["shorts", "long"] = Field(default="shorts")
     target_duration: int = Field(..., ge=10, le=600, description="Duration in seconds")
-    visual: VisualConfig
+    visual: ContentVisualConfig
     subtitle: SubtitleConfig = Field(default_factory=SubtitleConfig)
     video_template: str = Field(
         default="minimal",

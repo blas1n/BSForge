@@ -463,6 +463,42 @@ class TestGenerateFromSceneResults:
         for seg in result.segments:
             assert seg.start <= seg.end, f"Invalid segment: start={seg.start} > end={seg.end}"
 
+    def test_segment_near_boundary_does_not_invert(self, generator: SubtitleGenerator) -> None:
+        """Segment starting very close to a scene boundary must not get start > end."""
+        scenes = [
+            self._make_scene("첫 번째 씬"),
+            self._make_scene("두 번째 씬"),
+        ]
+        # Scene boundaries: [3.0, 6.0]
+        # Word starts at 2.99 and ends at 3.15 — crosses the 3.0 boundary
+        tts_results = [
+            self._make_tts_result(
+                0,
+                3.0,
+                0.0,
+                words=[
+                    WordTimestamp(word="첫", start=0.0, end=1.5),
+                    WordTimestamp(word="번째", start=1.5, end=2.5),
+                    WordTimestamp(word="씬", start=2.99, end=3.15),
+                ],
+            ),
+            self._make_tts_result(
+                1,
+                3.0,
+                3.0,
+                words=[
+                    WordTimestamp(word="두", start=0.0, end=1.5),
+                    WordTimestamp(word="번째", start=1.5, end=2.5),
+                    WordTimestamp(word="씬", start=2.5, end=3.0),
+                ],
+            ),
+        ]
+
+        result = generator.generate_from_scene_results(scene_results=tts_results, scenes=scenes)
+
+        for seg in result.segments:
+            assert seg.start <= seg.end, f"Invalid segment: start={seg.start} > end={seg.end}"
+
     def test_segment_at_exact_scene_boundary_clamped_correctly(
         self, generator: SubtitleGenerator
     ) -> None:
