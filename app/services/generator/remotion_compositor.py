@@ -14,7 +14,7 @@ import shutil
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from app.config.video import CompositionConfig
 from app.config.video_template import SafeZoneConfig, ThemeConfig, VisualEffectsConfig
@@ -213,7 +213,7 @@ class RemotionCompositor:
                 "warmth": vfx.warmth,
             }
 
-        props: dict = {
+        props: dict[str, Any] = {
             "duration_seconds": total_duration,
             "fps": self.config.fps,
             "width": self.config.width,
@@ -264,6 +264,7 @@ class RemotionCompositor:
             Relative path usable by staticFile() (e.g. "_render_123/audio.wav")
         """
         if not src.exists():
+            logger.warning("staging_file_missing", path=str(src))
             return ""
 
         dest_name = f"{prefix}{src.suffix}"
@@ -369,7 +370,7 @@ class RemotionCompositor:
     @staticmethod
     def _build_safe_zone(
         video_template: "VideoTemplateConfig | None",
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Build safe zone dict for Remotion props.
 
         Args:
@@ -395,7 +396,7 @@ class RemotionCompositor:
     def _build_theme(
         video_template: "VideoTemplateConfig | None",
         persona_style: "PersonaStyleConfig | None",
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Build theme dict for Remotion props.
 
         Merges template theme with persona style overrides.
@@ -452,7 +453,7 @@ class RemotionCompositor:
         scene_visuals: list["SceneVisualResult"],
         vfx: VisualEffectsConfig,
         scenes: list["Scene"] | None = None,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Convert SceneVisualResult list to Remotion props format.
 
         Uses per-scene transition types from Scene metadata when available,
@@ -510,7 +511,7 @@ class RemotionCompositor:
         subtitle_data: "SubtitleFile | None",
         scene_tts_results: list["SceneTTSResult"],
         text_animation: str = "fade_in",
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Build subtitle segments list for Remotion props.
 
         Args:
@@ -547,7 +548,7 @@ class RemotionCompositor:
     def _build_scene_metadata(
         scenes: list["Scene"],
         scene_tts_results: list["SceneTTSResult"],
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Build per-scene metadata for Remotion props.
 
         Extracts scene_type, visual_style, transitions, and emphasis_words

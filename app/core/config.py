@@ -64,7 +64,7 @@ class Config(BaseSettings):
     # Security Settings
     # ============================================
     secret_key: str = Field(
-        default_factory=lambda: secrets.token_urlsafe(32),
+        default_factory=lambda: "auto:" + secrets.token_urlsafe(32),
         description="Application secret key",
     )
 
@@ -152,7 +152,7 @@ class Config(BaseSettings):
     @model_validator(mode="after")
     def _warn_default_secret_in_production(self) -> Any:
         """Warn if secret_key was auto-generated in production."""
-        if self.app_env == "production" and len(self.secret_key) == 43:
+        if self.app_env == "production" and self.secret_key.startswith("auto:"):
             warnings.warn(
                 "SECRET_KEY is auto-generated. Set it explicitly in production "
                 "to avoid session invalidation across restarts.",

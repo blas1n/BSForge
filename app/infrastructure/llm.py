@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, cast
 import litellm
 from litellm import ModelResponse, acompletion
 
+from app.core.exceptions import ServiceError
 from app.core.logging import get_logger
 
 if TYPE_CHECKING:
@@ -242,10 +243,11 @@ class LLMClient:
         return response.content
 
 
-class LLMError(Exception):
+class LLMError(ServiceError):
     """LLM operation failed."""
 
-    pass
+    def __init__(self, message: str, context: dict[str, Any] | None = None) -> None:
+        super().__init__(message, service_name="llm", context=context)
 
 
 __all__ = [

@@ -27,6 +27,8 @@ from app.services.generator.templates import (
 )
 from app.services.generator.tts.base import SceneTTSResult, WordTimestamp
 
+logger = logging.getLogger(__name__)
+
 
 def _hex_to_ass_bgr(hex_color: str) -> str:
     """Convert hex color to ASS BGR format (&HBBGGRR&) with validation.
@@ -49,8 +51,6 @@ if TYPE_CHECKING:
     from app.config.persona import PersonaStyleConfig
     from app.config.video_template import VideoTemplateConfig
     from app.models.scene import Scene, VisualStyle
-
-logger = logging.getLogger(__name__)
 
 
 @lru_cache(maxsize=1)
@@ -446,7 +446,7 @@ class SubtitleGenerator:
         self,
         style: SubtitleStyleConfig,
         template: "VideoTemplateConfig | None",
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Resolve styling variables from template or config defaults.
 
         Returns a dict with keys: font_name, font_size, outline_width, bold, italic,
@@ -515,7 +515,7 @@ class SubtitleGenerator:
             "highlight_color_hex": self.config.highlight_color,
         }
 
-    def _make_style_params(self, name: str, sv: dict) -> ASSStyleParams:
+    def _make_style_params(self, name: str, sv: dict[str, Any]) -> ASSStyleParams:
         """Create ASSStyleParams from resolved style variables."""
         return ASSStyleParams(
             name=name,
@@ -1210,7 +1210,7 @@ class SubtitleGenerator:
 
                     if seg_word_clean == ts_word_clean or (
                         seg_word_clean in ts_word_clean
-                        and len(seg_word_clean) >= len(ts_word_clean) * 0.5
+                        and len(seg_word_clean) >= len(ts_word_clean) * 0.7
                     ):
                         matched_timestamps.append(ts_word)
                         word_ts_idx += 1
@@ -1273,12 +1273,12 @@ class SubtitleGenerator:
         # Highlight emphasis words (wrap with secondary color tag)
         # Note: This creates inline ASS override tags
         if emphasis_words and persona_style:
+            ass_color = _hex_to_ass_bgr(persona_style.secondary_color)
             for word in emphasis_words:
                 if word in result:
                     # ASS inline color override: {\c&HBBGGRR&}text{\c}
-                    ass_color = _hex_to_ass_bgr(persona_style.secondary_color)
                     highlighted = f"{{\\c{ass_color}}}{word}{{\\c}}"
-                    result = result.replace(word, highlighted)
+                    result = result.replace(word, highlighted, 1)
 
         return result
 

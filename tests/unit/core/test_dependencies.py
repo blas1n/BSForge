@@ -9,7 +9,13 @@ from app.core.dependencies import (
     create_prompt_manager,
     create_script_generator,
     get_session_factory,
+    reset_singletons,
 )
+from app.infrastructure.http_client import HTTPClient
+from app.infrastructure.llm import LLMClient
+from app.prompts.manager import PromptManager
+from app.services.collector.normalizer import TopicNormalizer
+from app.services.script_generator import ScriptGenerator
 
 
 class TestSessionFactory:
@@ -25,27 +31,44 @@ class TestCreateHttpClient:
     """Tests for create_http_client."""
 
     def test_creates_http_client(self) -> None:
-        """Test HTTP client creation."""
+        """Test HTTP client creation returns correct type."""
+        reset_singletons()
         client = create_http_client()
-        assert client is not None
+        assert isinstance(client, HTTPClient)
+
+    def test_returns_singleton(self) -> None:
+        """Test HTTP client returns same instance."""
+        reset_singletons()
+        client1 = create_http_client()
+        client2 = create_http_client()
+        assert client1 is client2
 
 
 class TestCreateLLMClient:
     """Tests for create_llm_client."""
 
     def test_creates_llm_client(self) -> None:
-        """Test LLM client creation."""
+        """Test LLM client creation returns correct type."""
+        reset_singletons()
         client = create_llm_client()
-        assert client is not None
+        assert isinstance(client, LLMClient)
+
+    def test_returns_singleton(self) -> None:
+        """Test LLM client returns same instance."""
+        reset_singletons()
+        client1 = create_llm_client()
+        client2 = create_llm_client()
+        assert client1 is client2
 
 
 class TestCreatePromptManager:
     """Tests for create_prompt_manager."""
 
     def test_creates_prompt_manager(self) -> None:
-        """Test prompt manager creation."""
+        """Test prompt manager creation returns correct type."""
+        reset_singletons()
         pm = create_prompt_manager()
-        assert pm is not None
+        assert isinstance(pm, PromptManager)
 
 
 class TestCreateScriptGenerator:
@@ -54,7 +77,7 @@ class TestCreateScriptGenerator:
     def test_creates_with_defaults(self) -> None:
         """Test script generator creation with defaults."""
         generator = create_script_generator()
-        assert generator is not None
+        assert isinstance(generator, ScriptGenerator)
 
     def test_creates_with_injected_deps(self) -> None:
         """Test script generator creation with injected dependencies."""
@@ -71,7 +94,7 @@ class TestCreateNormalizer:
     def test_creates_with_defaults(self) -> None:
         """Test normalizer creation with defaults."""
         normalizer = create_normalizer()
-        assert normalizer is not None
+        assert isinstance(normalizer, TopicNormalizer)
 
     def test_creates_with_injected_deps(self) -> None:
         """Test normalizer creation with injected dependencies."""

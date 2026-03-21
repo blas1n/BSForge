@@ -100,7 +100,7 @@ class VisualSourcingManager:
         logger.info(f"Sourcing visuals for {len(scenes)} scenes")
 
         last_asset: VisualAsset | None = None
-        used_source_ids: set[tuple[str, str | None]] = set()
+        used_source_ids: set[tuple[str | None, str | None]] = set()
         reuse_types = self.config.reuse_previous_visual_types
 
         if len(scenes) != len(scene_results):
@@ -181,7 +181,7 @@ class VisualSourcingManager:
         duration: float,
         output_dir: Path,
         orientation: Literal["portrait", "landscape", "square"],
-        exclude_source_ids: set[tuple[str, str | None]] | None = None,
+        exclude_source_ids: set[tuple[str | None, str | None]] | None = None,
     ) -> VisualAsset:
         """Source a single visual asset for a scene.
 
