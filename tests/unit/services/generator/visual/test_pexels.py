@@ -106,8 +106,8 @@ class TestSearchVideos:
                     "user": {"name": "test"},
                     "video_files": [
                         {
-                            "width": 720,
-                            "height": 1280,
+                            "width": 480,
+                            "height": 854,
                             "quality": "sd",
                             "link": "http://x.com/sd.mp4",
                         }
@@ -118,8 +118,9 @@ class TestSearchVideos:
 
         mock_client = AsyncMock()
         mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.is_closed = False
         client._client = mock_client
 
         result = await client.search_videos("test", max_results=5)
-        # SD-only video should be excluded
+        # SD-only video (height=854 < 1080) should be excluded
         assert result == []

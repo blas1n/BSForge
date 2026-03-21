@@ -1005,7 +1005,9 @@ class SubtitleGenerator:
         min_gap = 0.05  # 50ms gap
         for i in range(len(all_segments) - 1):
             if all_segments[i].end > all_segments[i + 1].start - min_gap:
-                all_segments[i].end = all_segments[i + 1].start - min_gap
+                adjusted_end = all_segments[i + 1].start - min_gap
+                # Prevent invalid segment where start >= end
+                all_segments[i].end = max(adjusted_end, all_segments[i].start)
 
         logger.info(
             f"Generated {len(all_segments)} scene-aware subtitle segments "

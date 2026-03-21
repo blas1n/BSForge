@@ -406,8 +406,10 @@ class TestGenerateFromSceneResults:
         assert len(result.segments) >= 1
         assert "간단한" in result.segments[0].text
 
-    def test_scene_count_mismatch_logs_warning(self, generator: SubtitleGenerator) -> None:
-        """Mismatched scene/result counts still produce output."""
+    def test_scene_count_mismatch_logs_warning(
+        self, generator: SubtitleGenerator, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Mismatched scene/result counts still produce output and logs warning."""
         scenes = [self._make_scene("텍스트")]
         tts_results = [
             self._make_tts_result(
@@ -424,10 +426,35 @@ class TestGenerateFromSceneResults:
             ),
         ]
 
-        result = generator.generate_from_scene_results(scene_results=tts_results, scenes=scenes)
+        with caplog.at_level("WARNING"):
+            result = generator.generate_from_scene_results(scene_results=tts_results, scenes=scenes)
 
         # Should still produce segments despite mismatch
         assert len(result.segments) >= 1
+        assert any(
+            "mismatch" in r.message.lower() or "scene" in r.message.lower() for r in caplog.records
+        )
+
+    def test_gap_enforcement_does_not_invert_segment(self, generator: SubtitleGenerator) -> None:
+        """Gap enforcement must not create segments where start >= end."""
+        # Two very close segments: gap enforcement could invert the first
+        scenes = [self._make_scene("빠른 연속")]
+        tts_results = [
+            self._make_tts_result(
+                0,
+                0.15,
+                0.0,
+                words=[
+                    WordTimestamp(word="빠른", start=0.0, end=0.06),
+                    WordTimestamp(word="연속", start=0.06, end=0.12),
+                ],
+            ),
+        ]
+
+        result = generator.generate_from_scene_results(scene_results=tts_results, scenes=scenes)
+
+        for seg in result.segments:
+            assert seg.start <= seg.end, f"Invalid segment: start={seg.start} > end={seg.end}"
 
 
 class TestToSceneAss:

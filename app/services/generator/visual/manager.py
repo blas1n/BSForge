@@ -101,6 +101,13 @@ class VisualSourcingManager:
         used_source_ids: set[str] = set()
         reuse_types = self.config.reuse_previous_visual_types
 
+        if len(scenes) != len(scene_results):
+            logger.warning(
+                "Scene/TTS result count mismatch: %d scenes vs %d TTS results",
+                len(scenes),
+                len(scene_results),
+            )
+
         for i, (scene, tts_result) in enumerate(zip(scenes, scene_results, strict=False)):
             keyword = scene.visual_keyword or scene.text[:50]
             duration = tts_result.duration_seconds
