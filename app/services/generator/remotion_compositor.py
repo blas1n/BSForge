@@ -8,6 +8,7 @@ Supports karaoke subtitles, Ken Burns, and rich text animations.
 import asyncio
 import json
 import os
+import platform
 import re
 import shutil
 import time
@@ -319,7 +320,11 @@ class RemotionCompositor:
 
         # Chromium headless requires certain shared libraries; extend LD_LIBRARY_PATH
         env = os.environ.copy()
-        chromium_libs = Path.home() / ".local/lib/chromium-deps/usr/lib/aarch64-linux-gnu"
+        arch = platform.machine()
+        arch_dir = {"aarch64": "aarch64-linux-gnu", "x86_64": "x86_64-linux-gnu"}.get(
+            arch, f"{arch}-linux-gnu"
+        )
+        chromium_libs = Path.home() / ".local/lib/chromium-deps/usr/lib" / arch_dir
         if chromium_libs.exists():
             env["LD_LIBRARY_PATH"] = f"{chromium_libs}:{env.get('LD_LIBRARY_PATH', '')}"
 

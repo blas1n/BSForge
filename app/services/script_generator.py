@@ -48,13 +48,18 @@ class ScriptGenerator:
         ... )
     """
 
+    # Default LLM timeout for script generation (seconds)
+    DEFAULT_TIMEOUT: int = 90
+
     def __init__(
         self,
         llm_client: LLMClient,
         prompt_manager: PromptManager,
+        timeout: int | None = None,
     ) -> None:
         self.llm_client = llm_client
         self.prompt_manager = prompt_manager
+        self._timeout = timeout or self.DEFAULT_TIMEOUT
 
     async def generate(
         self,
@@ -93,7 +98,7 @@ class ScriptGenerator:
 
         # Get LLM settings from template
         llm_settings = self.prompt_manager.get_llm_settings(PromptType.SCRIPT_GENERATION)
-        llm_config = LLMConfig.from_prompt_settings(llm_settings, timeout=90)
+        llm_config = LLMConfig.from_prompt_settings(llm_settings, timeout=self._timeout)
 
         # Call LLM
         logger.info("generating_script", topic=topic_title, model=llm_config.model)

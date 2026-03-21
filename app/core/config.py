@@ -46,12 +46,12 @@ class Config(BaseSettings):
     # Database Settings
     # ============================================
     database_url: str = Field(
-        default="postgresql+asyncpg://bsforge:bsforge_password@localhost:5432/bsforge",
-        description="Async PostgreSQL connection URL",
+        default="",
+        description="Async PostgreSQL connection URL (postgresql+asyncpg://...)",
     )
     database_url_sync: str = Field(
-        default="postgresql://bsforge:bsforge_password@localhost:5432/bsforge",
-        description="Sync PostgreSQL connection URL (for Alembic)",
+        default="",
+        description="Sync PostgreSQL connection URL for Alembic (postgresql://...)",
     )
     database_echo: bool = Field(default=False, description="Echo SQL queries")
     database_pool_size: int = Field(default=5, description="Connection pool size", ge=1, le=50)
@@ -140,8 +140,10 @@ class Config(BaseSettings):
             Validated database URL
 
         Raises:
-            ValueError: If URL doesn't use asyncpg driver
+            ValueError: If URL doesn't use asyncpg driver or is empty
         """
+        if not v:
+            return v  # Allow empty for CLI/test contexts
         if isinstance(v, str) and not v.startswith("postgresql+asyncpg://"):
             raise ValueError("database_url must use asyncpg driver (postgresql+asyncpg://)")
         return v

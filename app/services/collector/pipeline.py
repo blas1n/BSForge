@@ -229,7 +229,11 @@ class TopicCollectionPipeline:
                 if source_id is None:
                     source_id = uuid.uuid4()
                 elif isinstance(source_id, str):
-                    source_id = uuid.UUID(source_id)
+                    try:
+                        source_id = uuid.UUID(source_id)
+                    except ValueError:
+                        logger.warning(f"Invalid UUID '{source_id}', generating new one")
+                        source_id = uuid.uuid4()
 
                 norm = await self.normalizer.normalize(
                     raw, source_id=source_id, target_language=target_language

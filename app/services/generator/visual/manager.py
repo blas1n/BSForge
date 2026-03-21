@@ -8,9 +8,11 @@ Source priority:
 3. Solid color fallback (generated locally)
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
+
+import httpx
 
 from app.config.video import VisualConfig
 from app.core.logging import get_logger
@@ -98,7 +100,7 @@ class VisualSourcingManager:
         logger.info(f"Sourcing visuals for {len(scenes)} scenes")
 
         last_asset: VisualAsset | None = None
-        used_source_ids: set[str] = set()
+        used_source_ids: set[tuple[str, str | None]] = set()
         reuse_types = self.config.reuse_previous_visual_types
 
         if len(scenes) != len(scene_results):
@@ -115,20 +117,7 @@ class VisualSourcingManager:
 
             # Reuse previous image for configured scene types (e.g., CTA)
             if scene.scene_type.value in reuse_types and last_asset is not None:
-                reused_asset = VisualAsset(
-                    type=last_asset.type,
-                    url=last_asset.url,
-                    path=last_asset.path,
-                    duration=duration,
-                    width=last_asset.width,
-                    height=last_asset.height,
-                    source=last_asset.source,
-                    source_id=last_asset.source_id,
-                    license=last_asset.license,
-                    keywords=last_asset.keywords,
-                    metadata=last_asset.metadata,
-                    metadata_score=last_asset.metadata_score,
-                )
+                reused_asset = replace(last_asset, duration=duration)
                 results.append(
                     SceneVisualResult(
                         scene_index=i,
@@ -151,8 +140,9 @@ class VisualSourcingManager:
                 asset.duration = duration
                 last_asset = asset
 
-                if asset.source_id:
-                    used_source_ids.add(asset.source_id)
+                # Track by (source, source_id) or (source, url) for deduplication
+                asset_key = (asset.source, asset.source_id or asset.url)
+                used_source_ids.add(asset_key)
 
                 results.append(
                     SceneVisualResult(
@@ -164,7 +154,7 @@ class VisualSourcingManager:
                     )
                 )
 
-            except Exception as e:
+            except (httpx.HTTPError, RuntimeError, ValueError, OSError) as e:
                 logger.warning(f"Failed to source visual for scene {i}: {e}")
                 fallback_asset = await self._create_fallback(
                     output_dir=output_dir / f"scene_{i:03d}",
@@ -191,7 +181,7 @@ class VisualSourcingManager:
         duration: float,
         output_dir: Path,
         orientation: Literal["portrait", "landscape", "square"],
-        exclude_source_ids: set[str] | None = None,
+        exclude_source_ids: set[tuple[str, str | None]] | None = None,
     ) -> VisualAsset:
         """Source a single visual asset for a scene.
 
@@ -221,7 +211,8 @@ class VisualSourcingManager:
                 assets = sorted(assets, key=lambda a: a.metadata_score or 0.0, reverse=True)
 
                 for asset in assets:
-                    if asset.source_id and asset.source_id in exclude_ids:
+                    asset_key = (asset.source, asset.source_id or asset.url)
+                    if asset_key in exclude_ids:
                         continue
                     if (asset.metadata_score or 0.0) < metadata_threshold:
                         continue

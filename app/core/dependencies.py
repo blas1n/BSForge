@@ -43,6 +43,11 @@ from app.services.uploader.youtube_uploader import YouTubeUploader
 
 logger = get_logger(__name__)
 
+# Singleton cache for shared resources
+_http_client: HTTPClient | None = None
+_llm_client: LLMClient | None = None
+_prompt_manager: PromptManager | None = None
+
 
 def get_session_factory() -> SessionFactory:
     """Get database session factory."""
@@ -50,23 +55,32 @@ def get_session_factory() -> SessionFactory:
 
 
 def create_http_client() -> HTTPClient:
-    """Create shared HTTP client."""
-    return HTTPClient()
+    """Get or create shared HTTP client (singleton)."""
+    global _http_client
+    if _http_client is None:
+        _http_client = HTTPClient()
+    return _http_client
 
 
 def create_llm_client() -> LLMClient:
-    """Create LLM client with gateway config."""
-    config = get_config()
-    return LLMClient(
-        base_url=config.llm_api_base,
-        api_key=config.llm_api_key,
-        default_model=config.llm_model,
-    )
+    """Get or create LLM client with gateway config (singleton)."""
+    global _llm_client
+    if _llm_client is None:
+        config = get_config()
+        _llm_client = LLMClient(
+            base_url=config.llm_api_base,
+            api_key=config.llm_api_key,
+            default_model=config.llm_model,
+        )
+    return _llm_client
 
 
 def create_prompt_manager() -> PromptManager:
-    """Create prompt manager."""
-    return PromptManager()
+    """Get or create prompt manager (singleton)."""
+    global _prompt_manager
+    if _prompt_manager is None:
+        _prompt_manager = PromptManager()
+    return _prompt_manager
 
 
 def create_script_generator(
@@ -246,6 +260,14 @@ def create_upload_pipeline(
     )
 
 
+def reset_singletons() -> None:
+    """Reset all singleton instances. For testing only."""
+    global _http_client, _llm_client, _prompt_manager
+    _http_client = None
+    _llm_client = None
+    _prompt_manager = None
+
+
 __all__ = [
     "create_bgm_manager",
     "create_collector_pipeline",
@@ -264,4 +286,5 @@ __all__ = [
     "create_youtube_auth",
     "create_youtube_uploader",
     "get_session_factory",
+    "reset_singletons",
 ]

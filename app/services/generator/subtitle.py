@@ -27,6 +27,24 @@ from app.services.generator.templates import (
 )
 from app.services.generator.tts.base import SceneTTSResult, WordTimestamp
 
+
+def _hex_to_ass_bgr(hex_color: str) -> str:
+    """Convert hex color to ASS BGR format (&HBBGGRR&) with validation.
+
+    Args:
+        hex_color: Hex color string (e.g., "#FF69B4" or "FF69B4")
+
+    Returns:
+        ASS BGR color string (e.g., "&HB469FF&")
+    """
+    hex_color = hex_color.lstrip("#")
+    if len(hex_color) != 6 or not all(c in "0123456789abcdefABCDEF" for c in hex_color):
+        logger.warning(f"Invalid hex color '{hex_color}', falling back to white")
+        hex_color = "FFFFFF"
+    r, g, b = hex_color[0:2], hex_color[2:4], hex_color[4:6]
+    return f"&H{b}{g}{r}&"
+
+
 if TYPE_CHECKING:
     from app.config.persona import PersonaStyleConfig
     from app.config.video_template import VideoTemplateConfig
@@ -299,108 +317,18 @@ class SubtitleGenerator:
 
         style = subtitle.style
 
-        # Get styling from template or fall back to config defaults
-        if template and template.subtitle:
-            tmpl_sub = template.subtitle
-            tmpl_layout = template.layout
-
-            font_name = tmpl_sub.font_name
-            font_size = tmpl_sub.font_size
-            outline_width = tmpl_sub.outline_width
-            bold = 1 if tmpl_sub.bold else 0
-            italic = 1 if getattr(tmpl_sub, "italic", False) else 0
-            primary_color = self._hex_to_ass_color(tmpl_sub.primary_color)
-            outline_color = self._hex_to_ass_color(tmpl_sub.outline_color)
-            highlight_color = self._hex_to_ass_color(tmpl_sub.highlight_color)
-            highlight_color_hex = tmpl_sub.highlight_color  # Keep hex for inline tags
-
-            # Background
-            if tmpl_sub.background_enabled:
-                bg_color = self._hex_to_ass_color(
-                    tmpl_sub.background_color,
-                    opacity=tmpl_sub.background_opacity,
-                )
-                border_style = 3  # Background box
-            else:
-                bg_color = "&H00000000"  # Transparent
-                border_style = 1  # Outline only
-
-            # Position from layout
-            position = tmpl_layout.subtitle_position if tmpl_layout else "center"
-            margin_ratio = tmpl_layout.subtitle_margin_ratio if tmpl_layout else 0.5
-
-            # Calculate margin_v based on position and ratio
-            # For height H: 0.15 = near bottom, 0.5 = center, 0.85 = near top
-            video_height = self.composition_config.height
-            if position == "bottom":
-                alignment = 2  # Bottom center
-                margin_v = int(video_height * margin_ratio)
-            elif position == "top":
-                alignment = 8  # Top center
-                margin_v = int(video_height * (1 - margin_ratio))
-            else:  # center
-                alignment = 5  # Middle center
-                margin_v = int(video_height * (0.5 - margin_ratio / 2))
-
-            # Animation settings
-            fade_in_ms = tmpl_sub.fade_in_ms
-            fade_out_ms = tmpl_sub.fade_out_ms
-            karaoke_enabled = tmpl_sub.karaoke_enabled
-        else:
-            # Fall back to default config (no template)
-            font_name = style.font_name
-            font_size = style.font_size
-            outline_width = style.outline_width
-            alignment = self._get_ass_alignment()
-            margin_v = self.config.margin_bottom
-            primary_color = self._hex_to_ass_color(style.primary_color)
-            outline_color = self._hex_to_ass_color(style.outline_color)
-            highlight_color = self._hex_to_ass_color(self.config.highlight_color)
-            highlight_color_hex = self.config.highlight_color  # Keep hex for inline tags
-            bg_color = self._hex_to_ass_color(
-                style.background_color,
-                opacity=style.background_opacity if style.background_enabled else 0.0,
-            )
-            border_style = 3 if style.background_enabled else 1
-            bold = 0
-            italic = 0
-            fade_in_ms = 100
-            fade_out_ms = 50
-            karaoke_enabled = self.config.highlight_current_word
+        # Resolve styling from template or config defaults
+        sv = self._resolve_style_vars(style, template)
+        highlight_color_hex = sv["highlight_color_hex"]
+        fade_in_ms = sv["fade_in_ms"]
+        fade_out_ms = sv["fade_out_ms"]
+        karaoke_enabled = sv["karaoke_enabled"]
 
         # Build styles using template loader
-        default_style = ASSStyleParams(
-            name="Default",
-            font_name=font_name,
-            font_size=font_size,
-            primary_color=primary_color,
-            outline_color=outline_color,
-            back_color=bg_color,
-            bold=bold,
-            italic=italic,
-            border_style=border_style,
-            outline=outline_width,
-            alignment=alignment,
-            margin_l=self.config.margin_horizontal,
-            margin_r=self.config.margin_horizontal,
-            margin_v=margin_v,
-        )
-        highlight_style = ASSStyleParams(
-            name="Highlight",
-            font_name=font_name,
-            font_size=font_size,
-            primary_color=highlight_color,
-            outline_color=outline_color,
-            back_color=bg_color,
-            bold=1,
-            italic=italic,
-            border_style=border_style,
-            outline=outline_width,
-            alignment=alignment,
-            margin_l=self.config.margin_horizontal,
-            margin_r=self.config.margin_horizontal,
-            margin_v=margin_v,
-        )
+        default_style = self._make_style_params("Default", sv)
+        highlight_color_ass = self._hex_to_ass_color(highlight_color_hex)
+        highlight_sv = {**sv, "primary_color": highlight_color_ass, "bold": 1}
+        highlight_style = self._make_style_params("Highlight", highlight_sv)
 
         # Render header with styles
         ass_content = self.template_loader.render_header(
@@ -514,6 +442,98 @@ class SubtitleGenerator:
 
         return chunks
 
+    def _resolve_style_vars(
+        self,
+        style: SubtitleStyleConfig,
+        template: "VideoTemplateConfig | None",
+    ) -> dict:
+        """Resolve styling variables from template or config defaults.
+
+        Returns a dict with keys: font_name, font_size, outline_width, bold, italic,
+        primary_color, outline_color, bg_color, border_style, alignment, margin_v,
+        fade_in_ms, fade_out_ms, karaoke_enabled, highlight_color_hex.
+        """
+        if template and template.subtitle:
+            tmpl_sub = template.subtitle
+            tmpl_layout = template.layout
+
+            if tmpl_sub.background_enabled:
+                bg_color = self._hex_to_ass_color(
+                    tmpl_sub.background_color, opacity=tmpl_sub.background_opacity
+                )
+                border_style = 3
+            else:
+                bg_color = "&H00000000"
+                border_style = 1
+
+            position = tmpl_layout.subtitle_position if tmpl_layout else "center"
+            margin_ratio = tmpl_layout.subtitle_margin_ratio if tmpl_layout else 0.5
+            video_height = self.composition_config.height
+            if position == "bottom":
+                alignment, margin_v = 2, int(video_height * margin_ratio)
+            elif position == "top":
+                alignment, margin_v = 8, int(video_height * (1 - margin_ratio))
+            else:
+                alignment, margin_v = 5, int(video_height * (0.5 - margin_ratio / 2))
+
+            return {
+                "font_name": tmpl_sub.font_name,
+                "font_size": tmpl_sub.font_size,
+                "outline_width": tmpl_sub.outline_width,
+                "bold": 1 if tmpl_sub.bold else 0,
+                "italic": 1 if getattr(tmpl_sub, "italic", False) else 0,
+                "primary_color": self._hex_to_ass_color(tmpl_sub.primary_color),
+                "outline_color": self._hex_to_ass_color(tmpl_sub.outline_color),
+                "bg_color": bg_color,
+                "border_style": border_style,
+                "alignment": alignment,
+                "margin_v": margin_v,
+                "fade_in_ms": tmpl_sub.fade_in_ms,
+                "fade_out_ms": tmpl_sub.fade_out_ms,
+                "karaoke_enabled": tmpl_sub.karaoke_enabled,
+                "highlight_color_hex": tmpl_sub.highlight_color,
+            }
+
+        return {
+            "font_name": style.font_name,
+            "font_size": style.font_size,
+            "outline_width": style.outline_width,
+            "bold": 0,
+            "italic": 0,
+            "primary_color": self._hex_to_ass_color(style.primary_color),
+            "outline_color": self._hex_to_ass_color(style.outline_color),
+            "bg_color": self._hex_to_ass_color(
+                style.background_color,
+                opacity=style.background_opacity if style.background_enabled else 0.0,
+            ),
+            "border_style": 3 if style.background_enabled else 1,
+            "alignment": self._get_ass_alignment(),
+            "margin_v": self.config.margin_bottom,
+            "fade_in_ms": 100,
+            "fade_out_ms": 50,
+            "karaoke_enabled": self.config.highlight_current_word,
+            "highlight_color_hex": self.config.highlight_color,
+        }
+
+    def _make_style_params(self, name: str, sv: dict) -> ASSStyleParams:
+        """Create ASSStyleParams from resolved style variables."""
+        return ASSStyleParams(
+            name=name,
+            font_name=sv["font_name"],
+            font_size=sv["font_size"],
+            primary_color=sv["primary_color"],
+            outline_color=sv["outline_color"],
+            back_color=sv["bg_color"],
+            bold=sv["bold"],
+            italic=sv["italic"],
+            border_style=sv["border_style"],
+            outline=sv["outline_width"],
+            alignment=sv["alignment"],
+            margin_l=self.config.margin_horizontal,
+            margin_r=self.config.margin_horizontal,
+            margin_v=sv["margin_v"],
+        )
+
     def _hex_to_ass_color(
         self,
         hex_color: str,
@@ -528,8 +548,11 @@ class SubtitleGenerator:
         Returns:
             ASS color string
         """
-        # Remove # prefix
+        # Remove # prefix and validate
         hex_color = hex_color.lstrip("#")
+        if len(hex_color) != 6 or not all(c in "0123456789abcdefABCDEF" for c in hex_color):
+            logger.warning(f"Invalid hex color '{hex_color}', falling back to white")
+            hex_color = "FFFFFF"
 
         # Parse RGB
         r = int(hex_color[0:2], 16)
@@ -631,10 +654,7 @@ class SubtitleGenerator:
         Returns:
             Text with ASS color tags for numbers/percentages
         """
-        # Convert hex to ASS BGR format
-        hex_color = highlight_color.lstrip("#")
-        r, g, b = hex_color[0:2], hex_color[2:4], hex_color[4:6]
-        ass_color = f"&H{b}{g}{r}&"
+        ass_color = _hex_to_ass_bgr(highlight_color)
 
         # Protect existing ASS tags from number matching (e.g. {\k101}, {\fad(100,50)})
         protected_tags: list[str] = []
@@ -994,11 +1014,21 @@ class SubtitleGenerator:
 
         for seg in all_segments:
             # Find which scene this segment belongs to (by start time)
+            clamped = False
             for j, sr in enumerate(scene_results):
                 if sr.start_offset <= seg.start < scene_boundaries[j]:
                     if seg.end > scene_boundaries[j]:
                         seg.end = scene_boundaries[j] - 0.02  # 20ms safety margin
+                    clamped = True
                     break
+
+            # Fallback: segment at exact boundary — clamp to nearest scene end
+            if not clamped:
+                for j in range(len(scene_boundaries)):
+                    if seg.start < scene_boundaries[j]:
+                        if seg.end > scene_boundaries[j]:
+                            seg.end = scene_boundaries[j] - 0.02
+                        break
 
         # Post-process 2: enforce minimum gap between consecutive segments
         # to prevent subtitle overlap in the renderer.
@@ -1243,10 +1273,7 @@ class SubtitleGenerator:
             for word in emphasis_words:
                 if word in result:
                     # ASS inline color override: {\c&HBBGGRR&}text{\c}
-                    hex_color = persona_style.secondary_color.lstrip("#")
-                    # Convert RGB to BGR for ASS
-                    r, g, b = hex_color[0:2], hex_color[2:4], hex_color[4:6]
-                    ass_color = f"&H{b}{g}{r}&"
+                    ass_color = _hex_to_ass_bgr(persona_style.secondary_color)
                     highlighted = f"{{\\c{ass_color}}}{word}{{\\c}}"
                     result = result.replace(word, highlighted, 1)
 
@@ -1284,118 +1311,17 @@ class SubtitleGenerator:
 
         style = subtitle.style
 
-        # Base styling from template or config
-        if template and template.subtitle:
-            tmpl_sub = template.subtitle
-            tmpl_layout = template.layout
+        # Resolve styling from template or config defaults (shared with to_ass)
+        sv = self._resolve_style_vars(style, template)
+        highlight_color_hex = sv["highlight_color_hex"]
+        fade_in_ms = sv["fade_in_ms"]
+        fade_out_ms = sv["fade_out_ms"]
+        karaoke_enabled = sv["karaoke_enabled"]
 
-            font_name = tmpl_sub.font_name
-            font_size = tmpl_sub.font_size
-            outline_width = tmpl_sub.outline_width
-            bold = 1 if tmpl_sub.bold else 0
-            italic = 1 if getattr(tmpl_sub, "italic", False) else 0
-            primary_color = self._hex_to_ass_color(tmpl_sub.primary_color)
-            outline_color = self._hex_to_ass_color(tmpl_sub.outline_color)
-
-            position = tmpl_layout.subtitle_position if tmpl_layout else "center"
-            margin_ratio = tmpl_layout.subtitle_margin_ratio if tmpl_layout else 0.5
-
-            video_height = self.composition_config.height
-            if position == "bottom":
-                alignment = 2
-                margin_v = int(video_height * margin_ratio)
-            elif position == "top":
-                alignment = 8
-                margin_v = int(video_height * (1 - margin_ratio))
-            else:
-                alignment = 5
-                margin_v = int(video_height * (0.5 - margin_ratio / 2))
-
-            fade_in_ms = tmpl_sub.fade_in_ms
-            fade_out_ms = tmpl_sub.fade_out_ms
-            karaoke_enabled = tmpl_sub.karaoke_enabled
-            bg_color = (
-                self._hex_to_ass_color(
-                    tmpl_sub.background_color, opacity=tmpl_sub.background_opacity
-                )
-                if tmpl_sub.background_enabled
-                else "&H00000000"
-            )
-            border_style = 3 if tmpl_sub.background_enabled else 1
-        else:
-            font_name = style.font_name
-            font_size = style.font_size
-            outline_width = style.outline_width
-            alignment = self._get_ass_alignment()
-            margin_v = self.config.margin_bottom
-            primary_color = self._hex_to_ass_color(style.primary_color)
-            outline_color = self._hex_to_ass_color(style.outline_color)
-            bg_color = self._hex_to_ass_color(
-                style.background_color,
-                opacity=style.background_opacity if style.background_enabled else 0.0,
-            )
-            border_style = 3 if style.background_enabled else 1
-            bold = 0
-            italic = 0
-            fade_in_ms = 100
-            fade_out_ms = 50
-            karaoke_enabled = self.config.highlight_current_word
-
-        # Get highlight color for auto-highlighting numbers
-        if template and template.subtitle:
-            highlight_color_hex = template.subtitle.highlight_color
-        else:
-            highlight_color_hex = self.config.highlight_color
-
-        # Create style params for each visual style
-        neutral_style_params = ASSStyleParams(
-            name="Neutral",
-            font_name=font_name,
-            font_size=font_size,
-            primary_color=primary_color,
-            outline_color=outline_color,
-            back_color=bg_color,
-            bold=bold,
-            italic=italic,
-            border_style=border_style,
-            outline=outline_width,
-            alignment=alignment,
-            margin_l=self.config.margin_horizontal,
-            margin_r=self.config.margin_horizontal,
-            margin_v=margin_v,
-        )
-        persona_style_params = ASSStyleParams(
-            name="Persona",
-            font_name=font_name,
-            font_size=font_size,
-            primary_color=primary_color,
-            outline_color=outline_color,
-            back_color=bg_color,
-            bold=bold,
-            italic=italic,
-            border_style=border_style,
-            outline=outline_width,
-            alignment=alignment,
-            margin_l=self.config.margin_horizontal,
-            margin_r=self.config.margin_horizontal,
-            margin_v=margin_v,
-        )
-        emphasis_style_params = ASSStyleParams(
-            name="Emphasis",
-            font_name=font_name,
-            font_size=font_size,
-            primary_color=primary_color,
-            outline_color=outline_color,
-            back_color=bg_color,
-            bold=bold,
-            italic=italic,
-            border_style=border_style,
-            outline=outline_width,
-            alignment=alignment,
-            margin_l=self.config.margin_horizontal,
-            margin_r=self.config.margin_horizontal,
-            margin_v=margin_v,
-        )
+        # Create style params for each visual style (same base, different names)
+        neutral_style_params = self._make_style_params("Neutral", sv)
+        persona_style_params = self._make_style_params("Persona", sv)
+        emphasis_style_params = self._make_style_params("Emphasis", sv)
 
         # Render header with styles
         ass_content = self.template_loader.render_header(

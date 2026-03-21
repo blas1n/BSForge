@@ -6,10 +6,17 @@ collect topics → generate script → generate video → upload
 Each channel is processed independently. Each topic produces one video.
 """
 
+from __future__ import annotations
+
 import asyncio
+import contextlib
+import signal
 import uuid
 from datetime import UTC, datetime
-from typing import Literal, cast
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.services.generator.pipeline import VideoGenerationPipeline
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,7 +31,6 @@ from app.core.dependencies import (
     create_llm_client,
     create_prompt_manager,
     create_script_generator,
-    create_upload_pipeline,
     create_video_pipeline,
 )
 from app.core.logging import get_logger
@@ -72,39 +78,35 @@ async def process_channel(channel: Channel) -> int:
 
     videos_produced = 0
 
-    try:
-        # Step 1: Collect topics
-        topics = await _collect_topics(channel, http_client, llm_client, prompt_manager)
+    # Step 1: Collect topics
+    topics = await _collect_topics(channel, http_client, llm_client, prompt_manager)
 
-        if not topics:
-            logger.info("no_new_topics", channel=channel.name)
-            return 0
+    if not topics:
+        logger.info("no_new_topics", channel=channel.name)
+        return 0
 
-        # Step 2: Process each topic individually (1 topic = 1 video)
-        script_generator = create_script_generator(
-            llm_client=llm_client, prompt_manager=prompt_manager
-        )
+    # Step 2: Process each topic individually (1 topic = 1 video)
+    script_generator = create_script_generator(llm_client=llm_client, prompt_manager=prompt_manager)
+    video_pipeline = create_video_pipeline(http_client=http_client)
 
-        for topic in topics:
-            try:
-                produced = await _process_topic(
-                    channel=channel,
-                    topic=topic,
-                    script_generator=script_generator,
-                    http_client=http_client,
-                )
-                if produced:
-                    videos_produced += 1
-            except Exception:
-                logger.exception(
-                    "topic_processing_failed",
-                    channel=channel.name,
-                    topic=topic.title_normalized,
-                )
-                continue
-
-    finally:
-        await http_client.close()
+    for topic in topics:
+        try:
+            produced = await _process_topic(
+                channel=channel,
+                topic=topic,
+                script_generator=script_generator,
+                http_client=http_client,
+                video_pipeline=video_pipeline,
+            )
+            if produced:
+                videos_produced += 1
+        except Exception:
+            logger.exception(
+                "topic_processing_failed",
+                channel=channel.name,
+                topic=topic.title_normalized,
+            )
+            continue
 
     logger.info(
         "channel_processing_complete",
@@ -118,7 +120,7 @@ async def _collect_topics(
     channel: Channel,
     http_client: HTTPClient,
     llm_client: LLMClient,
-    prompt_manager: "PromptManager",
+    prompt_manager: PromptManager,
 ) -> list[Topic]:
     """Collect topics for a channel."""
     # Build collection config from channel settings
@@ -155,6 +157,7 @@ async def _process_topic(
     topic: Topic,
     script_generator: ScriptGenerator,
     http_client: HTTPClient,
+    video_pipeline: VideoGenerationPipeline | None = None,
 ) -> bool:
     """Process a single topic: script → video → upload.
 
@@ -181,7 +184,7 @@ async def _process_topic(
             topic_id=topic.id,
             script_text=raw_text,
             headline=script_result.scene_script.headline,
-            scenes=[s.__dict__ for s in script_result.scene_script.scenes],
+            scenes=[s.model_dump(mode="python") for s in script_result.scene_script.scenes],
             generation_model=script_result.model,
             status=ScriptStatus.GENERATED,
             estimated_duration=int(script_result.scene_script.total_estimated_duration),
@@ -191,8 +194,6 @@ async def _process_topic(
         await session.commit()
         await session.refresh(script)
 
-        script_id = script.id
-
     logger.info(
         "script_generated",
         topic=topic.title_normalized,
@@ -200,29 +201,19 @@ async def _process_topic(
         scenes=len(script_result.scene_script.scenes),
     )
 
-    # Step 2: Generate video
-    video_pipeline = create_video_pipeline(http_client=http_client)
+    # Step 2: Generate video — reuse script object and scene_script from Step 1
+    if video_pipeline is None:
+        video_pipeline = create_video_pipeline(http_client=http_client)
 
-    async with async_session_maker() as session:
-        script = await session.get(Script, script_id)
-        if not script:
-            logger.error("script_not_found", script_id=str(script_id))
-            return False
+    voice_id = _get_voice_id(channel)
+    tts_provider = _get_tts_provider(channel)
 
-        scene_script = script.get_scene_script()
-        if not scene_script:
-            logger.error("no_scene_script", script_id=str(script_id))
-            return False
-
-        voice_id = _get_voice_id(channel)
-        tts_provider = _get_tts_provider(channel)
-
-        video_result = await video_pipeline.generate(
-            script=script,
-            scene_script=scene_script,
-            voice_id=voice_id,
-            tts_provider=tts_provider,
-        )
+    video_result = await video_pipeline.generate(
+        script=script,
+        scene_script=script_result.scene_script,
+        voice_id=voice_id,
+        tts_provider=tts_provider,
+    )
 
     logger.info(
         "video_generated",
@@ -231,16 +222,7 @@ async def _process_topic(
         path=str(video_result.video_path),
     )
 
-    # Step 3: Upload (if auto-upload enabled)
-    config = get_config()
-    if config.enable_auto_upload:
-        try:
-            # TODO: Wire up upload pipeline with video_id once video DB record is created
-            create_upload_pipeline()
-            logger.info("auto_upload_skipped", reason="upload_pipeline_needs_video_id")
-        except Exception:
-            logger.exception("upload_failed", topic=topic.title_normalized)
-
+    # TODO: Step 3 — Wire up upload pipeline once video DB record is created
     return True
 
 
@@ -253,25 +235,15 @@ def _build_persona_config(channel: Channel) -> PersonaConfig | None:
 
     persona = channel.persona
     try:
-        # Build VoiceConfig from persona DB fields
-        # Validate against Literal values, fallback to defaults
-        valid_genders = ("male", "female", "neutral")
-        gender = cast(
-            Literal["male", "female", "neutral"],
-            persona.voice_gender if persona.voice_gender in valid_genders else "male",
-        )
-        valid_services = ("edge-tts", "elevenlabs")
-        raw_service = str(persona.tts_service) if persona.tts_service else "edge-tts"
-        service = cast(
-            Literal["edge-tts", "elevenlabs"],
-            raw_service if raw_service in valid_services else "edge-tts",
-        )
-
-        voice = VoiceConfig(
-            gender=gender,
-            service=service,
-            voice_id=persona.voice_id or "ko-KR-InJoonNeural",
-        )
+        # Build VoiceConfig — let Pydantic validate Literal fields, fallback on error
+        try:
+            voice = VoiceConfig(
+                gender=persona.voice_gender or "male",
+                service=str(persona.tts_service) if persona.tts_service else "edge-tts",
+                voice_id=persona.voice_id or "ko-KR-InJoonNeural",
+            )
+        except (ValueError, TypeError):
+            voice = VoiceConfig(gender="male", service="edge-tts", voice_id="ko-KR-InJoonNeural")
 
         # Build CommunicationStyle from persona JSONB
         comm_data = persona.communication_style or {}
@@ -345,24 +317,47 @@ async def run_once() -> None:
     )
 
 
+_shutdown_event: asyncio.Event | None = None
+
+
+def _handle_shutdown_signal() -> None:
+    """Signal handler for graceful shutdown."""
+    logger.info("shutdown_signal_received")
+    if _shutdown_event:
+        _shutdown_event.set()
+
+
 async def run_scheduler(interval_hours: int = 6) -> None:
     """Run the pipeline on a schedule.
 
-    Simple loop-based scheduler. For production, consider APScheduler.
+    Simple loop-based scheduler with graceful shutdown on SIGTERM/SIGINT.
 
     Args:
         interval_hours: Hours between runs
     """
+    global _shutdown_event
+    _shutdown_event = asyncio.Event()
+
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, _handle_shutdown_signal)
+
     logger.info("scheduler_started", interval_hours=interval_hours)
 
-    while True:
+    while not _shutdown_event.is_set():
         try:
             await run_once()
         except Exception:
             logger.exception("scheduler_run_failed")
 
+        if _shutdown_event.is_set():
+            break
+
         logger.info("scheduler_sleeping", hours=interval_hours)
-        await asyncio.sleep(interval_hours * 3600)
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(_shutdown_event.wait(), timeout=interval_hours * 3600)
+
+    logger.info("scheduler_stopped")
 
 
 async def main() -> None:
@@ -376,6 +371,9 @@ async def main() -> None:
     try:
         await run_scheduler()
     finally:
+        # Cleanup shared singletons
+        http_client = create_http_client()
+        await http_client.close()
         await close_db()
 
 

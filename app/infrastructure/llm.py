@@ -26,6 +26,9 @@ logger = get_logger(__name__)
 # Configure LiteLLM
 litellm.drop_params = True  # Drop unsupported params for each provider
 
+# Known LiteLLM provider prefixes — models with these don't need re-prefixing
+_KNOWN_PROVIDER_PREFIXES = ("openai/", "anthropic/", "azure/", "bedrock/", "ollama/")
+
 
 @dataclass
 class LLMConfig:
@@ -138,9 +141,9 @@ class LLMClient:
         try:
             model = config.model or self.default_model
 
-            # When using a proxy (api_base), LiteLLM needs openai/ prefix
-            # to route as OpenAI-compatible, but the proxy expects the raw name
-            if self.base_url and model and not model.count("/"):
+            # When using a proxy (api_base), LiteLLM needs a provider prefix
+            # to route correctly. Only add if model has no provider prefix yet.
+            if self.base_url and model and not model.startswith(_KNOWN_PROVIDER_PREFIXES):
                 model = f"openai/{model}"
 
             logger.debug(
@@ -165,6 +168,8 @@ class LLMClient:
             )
 
             # Extract content from response
+            if not response.choices:
+                raise LLMError("LLM response contains no choices")
             content = response.choices[0].message.content or ""
 
             # Build usage dict (usage is dynamically set, not a declared field)
@@ -191,6 +196,13 @@ class LLMClient:
                 raw_response=response,
             )
 
+        except (litellm.exceptions.APIError, litellm.exceptions.Timeout) as e:
+            logger.error(
+                "LLM API error",
+                model=model,
+                error=str(e),
+            )
+            raise LLMError(f"LLM API error: {e}") from e
         except Exception as e:
             logger.error(
                 "LLM request failed",
