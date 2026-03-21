@@ -418,6 +418,7 @@ class TestSourceForScene:
 
         # Falls through to fallback because low score asset was skipped
         assert result.type == VisualSourceType.SOLID_COLOR
+        assert result.source == "fallback"
 
     @pytest.mark.asyncio
     async def test_exclude_source_ids_skips_duplicates(
@@ -691,4 +692,5 @@ class TestEdgeCases:
         )
 
         # None metadata_score skips threshold check — search relevance is trusted
-        assert result.type != VisualSourceType.SOLID_COLOR
+        assert result.type == VisualSourceType.STOCK_IMAGE
+        assert result.source == "pexels"

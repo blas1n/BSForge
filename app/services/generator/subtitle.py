@@ -49,7 +49,7 @@ def _hex_to_inline_bgr(hex_color: str) -> str:
     """
     hex_color = hex_color.lstrip("#")
     if len(hex_color) != 6 or not all(c in "0123456789abcdefABCDEF" for c in hex_color):
-        logger.warning(f"Invalid hex color '{hex_color}', falling back to white")
+        logger.warning("invalid_hex_color", hex_color=hex_color)
         hex_color = "FFFFFF"
     r, g, b = hex_color[0:2], hex_color[2:4], hex_color[4:6]
     return f"&H{b}{g}{r}&"
@@ -231,7 +231,7 @@ class SubtitleGenerator:
                 )
             )
 
-        logger.info(f"Generated {len(segments)} subtitle segments from timestamps")
+        logger.info("subtitle_segments_from_timestamps", count=len(segments))
 
         return SubtitleFile(
             segments=segments,
@@ -290,7 +290,7 @@ class SubtitleGenerator:
                 )
                 current_time += sub_duration
 
-        logger.info(f"Generated {len(segments)} subtitle segments from script")
+        logger.info("subtitle_segments_from_script", count=len(segments))
 
         return SubtitleFile(
             segments=segments,
@@ -374,7 +374,7 @@ class SubtitleGenerator:
             logger.error("ass_write_failed", path=str(output_path), error=str(e))
             raise
 
-        logger.info(f"Generated ASS subtitle: {output_path}")
+        logger.info("ass_subtitle_generated", path=str(output_path))
         return output_path
 
     def to_srt(
@@ -414,7 +414,7 @@ class SubtitleGenerator:
             logger.error("srt_write_failed", path=str(output_path), error=str(e))
             raise
 
-        logger.info(f"Generated SRT subtitle: {output_path}")
+        logger.info("srt_subtitle_generated", path=str(output_path))
         return output_path
 
     def _split_into_sentences(self, text: str) -> list[str]:
@@ -567,7 +567,7 @@ class SubtitleGenerator:
         # Remove # prefix and validate
         hex_color = hex_color.lstrip("#")
         if len(hex_color) != 6 or not all(c in "0123456789abcdefABCDEF" for c in hex_color):
-            logger.warning(f"Invalid hex color '{hex_color}', falling back to white")
+            logger.warning("invalid_hex_color", hex_color=hex_color)
             hex_color = "FFFFFF"
 
         # Parse RGB
@@ -948,7 +948,11 @@ class SubtitleGenerator:
             return SubtitleFile(segments=[], style=self.config.style)
 
         if len(scene_results) != len(scenes):
-            logger.warning(f"Mismatch: {len(scene_results)} TTS results, {len(scenes)} scenes")
+            logger.warning(
+                "scene_tts_count_mismatch",
+                tts_results=len(scene_results),
+                scenes=len(scenes),
+            )
 
         all_segments: list[SubtitleSegment] = []
         segment_index = 1
@@ -1038,10 +1042,10 @@ class SubtitleGenerator:
                     clamped = True
                     break
 
-            # Fallback: segment at exact boundary — clamp to nearest scene end
+            # Fallback: segment at exact boundary — clamp to next scene end
             if not clamped:
                 for _j, boundary in enumerate(scene_boundaries):
-                    if seg.start <= boundary:
+                    if seg.start < boundary:
                         if seg.end > boundary:
                             seg.end = boundary - _SCENE_BOUNDARY_MARGIN
                         break
@@ -1393,7 +1397,7 @@ class SubtitleGenerator:
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(ass_content)
 
-        logger.info(f"Generated scene-styled ASS subtitle: {output_path}")
+        logger.info("scene_styled_ass_generated", path=str(output_path))
         return output_path
 
     def _find_scene_index(self, timestamp: float, scene_timings: list[tuple[float, float]]) -> int:

@@ -359,3 +359,4 @@ class TestCollectRawTopics:
 
         assert result == []
         assert len(stats.errors) == 1
+        assert "nonexistent_source" in stats.errors[0]

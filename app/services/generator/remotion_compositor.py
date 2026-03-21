@@ -317,8 +317,10 @@ class RemotionCompositor:
         ]
 
         logger.info(
-            f"Starting Remotion render: {_COMPOSITION_ID}, "
-            f"duration={total_duration:.1f}s, output={output_path.name}"
+            "remotion_render_start",
+            composition=_COMPOSITION_ID,
+            duration=round(total_duration, 1),
+            output=output_path.name,
         )
         start_time = time.time()
 
@@ -354,7 +356,11 @@ class RemotionCompositor:
 
         if proc.returncode != 0:
             stderr_text = stderr.decode("utf-8", errors="replace")
-            logger.error(f"Remotion render failed (rc={proc.returncode}):\n{stderr_text}")
+            logger.error(
+                "remotion_render_failed",
+                returncode=proc.returncode,
+                stderr=stderr_text[:500],
+            )
             raise RuntimeError(
                 f"Remotion render failed with exit code {proc.returncode}: {stderr_text[:500]}"
             )
@@ -366,9 +372,11 @@ class RemotionCompositor:
 
         file_size = output_path.stat().st_size
         logger.info(
-            f"Remotion render complete: {output_path.name}, "
-            f"duration={total_duration:.1f}s, size={file_size / 1024 / 1024:.1f}MB, "
-            f"render_time={elapsed:.1f}s"
+            "remotion_render_complete",
+            output=output_path.name,
+            duration=round(total_duration, 1),
+            size_mb=round(file_size / 1024 / 1024, 1),
+            render_time=round(elapsed, 1),
         )
 
         return CompositionResult(

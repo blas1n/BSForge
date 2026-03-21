@@ -39,7 +39,11 @@ class TestSubtitleGenerator:
         result = generator.generate_from_timestamps(timestamps)
 
         assert isinstance(result, SubtitleFile)
-        assert len(result.segments) > 0
+        assert len(result.segments) >= 1
+        # All 6 words should appear across segments
+        all_text = " ".join(seg.text for seg in result.segments)
+        for ts in timestamps:
+            assert ts.word in all_text
 
     def test_generate_from_timestamps_empty(self, generator: SubtitleGenerator) -> None:
         """Test generating subtitles from empty timestamps."""
@@ -126,10 +130,13 @@ class TestSubtitleSegmentation:
         # Access private method for testing
         segments = generator._split_long_text(long_text)
 
-        assert len(segments) > 1
+        assert len(segments) >= 2, f"Expected 2+ segments for long text, got {len(segments)}"
         # Each segment should be reasonably sized
         for segment in segments:
             assert len(segment) <= 100  # Reasonable max length
+        # Joined segments should reconstruct the original words
+        reconstructed = " ".join(segments)
+        assert "very long sentence" in reconstructed
 
     def test_short_text_not_split(self, generator: SubtitleGenerator) -> None:
         """Test that short text is not split."""
