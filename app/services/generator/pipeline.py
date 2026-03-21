@@ -195,7 +195,7 @@ class VideoGenerationPipeline:
             )
 
             # Step 2: Per-scene TTS generation
-            logger.info(f"Generating audio for {len(scene_script.scenes)} scenes")
+            logger.info("generating_audio", scene_count=len(scene_script.scenes))
 
             scene_tts_results = await engine.synthesize_scenes(
                 scenes=scene_script.scenes,
@@ -204,7 +204,7 @@ class VideoGenerationPipeline:
             )
 
             total_duration = sum(r.duration_seconds for r in scene_tts_results)
-            logger.info(f"Scene audio generated: {total_duration:.1f}s total")
+            logger.info("scene_audio_generated", total_duration_s=round(total_duration, 1))
 
             # Step 3: Concatenate audio
             logger.info("Concatenating scene audio")
@@ -215,7 +215,7 @@ class VideoGenerationPipeline:
                 ffmpeg_wrapper=self.ffmpeg,
             )
 
-            logger.info(f"Combined audio: {combined_tts.duration_seconds:.1f}s")
+            logger.info("audio_combined", duration_s=round(combined_tts.duration_seconds, 1))
 
             # Step 4: Generate scene-aware subtitles
             subtitle_path = None
@@ -244,7 +244,7 @@ class VideoGenerationPipeline:
                         output_dir / "subtitle",
                     )
 
-                logger.info(f"Subtitles generated: {len(subtitle_file.segments)} segments")
+                logger.info("subtitles_generated", segment_count=len(subtitle_file.segments))
 
             # Step 5: Per-scene visual sourcing
             logger.info("Sourcing visuals for each scene")
@@ -256,21 +256,21 @@ class VideoGenerationPipeline:
             )
 
             visual_sources = list({v.asset.source or "unknown" for v in scene_visuals})
-            logger.info(f"Sourced {len(scene_visuals)} scene visuals from: {visual_sources}")
+            logger.info("visuals_sourced", count=len(scene_visuals), sources=visual_sources)
 
             # Step 6: Scene-based composition
             logger.info("Composing scene-based video")
 
             # Get headline
             headline = scene_script.headline
-            logger.info(f"Headline: '{headline}'")
+            logger.info("headline_set", headline=headline)
 
             # Get BGM path if available
             background_music_path = None
             if self.bgm_manager and self.bgm_manager.is_enabled:
                 background_music_path = await self.bgm_manager.get_bgm_for_video()
                 if background_music_path:
-                    logger.info(f"Using BGM: {background_music_path.name}")
+                    logger.info("bgm_selected", name=background_music_path.name)
 
             composition_result = await self.compositor.compose_scenes(
                 scenes=scene_script.scenes,
@@ -286,7 +286,7 @@ class VideoGenerationPipeline:
                 video_template=template,
             )
 
-            logger.info(f"Video composed: {composition_result.duration_seconds:.1f}s")
+            logger.info("video_composed", duration_s=round(composition_result.duration_seconds, 1))
 
             # Step 7: Extract thumbnail from first frame
             logger.info("Extracting thumbnail from video")
@@ -296,7 +296,7 @@ class VideoGenerationPipeline:
                 output_path=output_dir / "thumbnail",
             )
 
-            logger.info(f"Thumbnail extracted: {thumbnail_path}")
+            logger.info("thumbnail_extracted", path=str(thumbnail_path))
 
             # Calculate generation time
             generation_time = int(time.time() - start_time)

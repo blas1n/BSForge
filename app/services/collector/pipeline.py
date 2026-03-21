@@ -235,7 +235,7 @@ class TopicCollectionPipeline:
                     try:
                         source_id = uuid.UUID(source_id)
                     except ValueError:
-                        logger.warning(f"Invalid UUID '{source_id}', generating new one")
+                        logger.warning("invalid_uuid_generating_new", source_id=source_id)
                         source_id = uuid.uuid4()
 
                 norm = await self.normalizer.normalize(
