@@ -124,7 +124,7 @@ class RemotionCompositor:
 
         # Build accent color from persona style
         accent_color = "#FF69B4"  # default hot pink
-        if persona_style and hasattr(persona_style, "accent_color"):
+        if persona_style:
             accent_color = persona_style.accent_color
 
         # Parse headline into two lines
@@ -149,7 +149,7 @@ class RemotionCompositor:
         subtitles = self._build_subtitles(subtitle_data, scene_tts_results, subtitle_anim)
 
         # BGM volume from config
-        bgm_volume = getattr(self.config, "background_music_volume", 0.08)
+        bgm_volume = self.config.background_music_volume
 
         # Stage assets into Remotion's public/ directory for staticFile() resolution.
         # Use a unique subdirectory per render to avoid collisions.
@@ -426,7 +426,7 @@ class RemotionCompositor:
         }
 
         # Persona accent_color overrides template theme
-        if persona_style and hasattr(persona_style, "accent_color"):
+        if persona_style:
             theme["accent_color"] = persona_style.accent_color
 
         return theme

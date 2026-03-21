@@ -11,7 +11,6 @@ Scene-based generation:
 - Different visual styles for NEUTRAL vs PERSONA scenes
 """
 
-import logging
 import re
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -20,6 +19,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from app.config.video import CompositionConfig, SubtitleConfig, SubtitleStyleConfig
 from app.core.config_loader import load_language_config
+from app.core.logging import get_logger
 from app.services.generator.templates import (
     ASSDialogueParams,
     ASSStyleParams,
@@ -27,7 +27,7 @@ from app.services.generator.templates import (
 )
 from app.services.generator.tts.base import SceneTTSResult, WordTimestamp
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def _hex_to_ass_bgr(hex_color: str) -> str:
@@ -359,8 +359,12 @@ class SubtitleGenerator:
             )
             ass_content += dialogue + "\n"
 
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(ass_content)
+        try:
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write(ass_content)
+        except OSError as e:
+            logger.error("ass_write_failed", path=str(output_path), error=str(e))
+            raise
 
         logger.info(f"Generated ASS subtitle: {output_path}")
         return output_path
@@ -395,8 +399,12 @@ class SubtitleGenerator:
             srt_content += f"{start_time} --> {end_time}\n"
             srt_content += f"{segment.text}\n\n"
 
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(srt_content)
+        try:
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write(srt_content)
+        except OSError as e:
+            logger.error("srt_write_failed", path=str(output_path), error=str(e))
+            raise
 
         logger.info(f"Generated SRT subtitle: {output_path}")
         return output_path
@@ -1275,10 +1283,13 @@ class SubtitleGenerator:
         if emphasis_words and persona_style:
             ass_color = _hex_to_ass_bgr(persona_style.secondary_color)
             for word in emphasis_words:
-                if word in result:
-                    # ASS inline color override: {\c&HBBGGRR&}text{\c}
+                # Match whole word only, replace first occurrence to avoid
+                # corrupting already-inserted ASS tags
+                pattern = re.compile(re.escape(word))
+                if pattern.search(result):
                     highlighted = f"{{\\c{ass_color}}}{word}{{\\c}}"
-                    result = result.replace(word, highlighted, 1)
+                    repl = highlighted  # bind for lambda closure
+                    result = pattern.sub(lambda _, r=repl: r, result, count=1)
 
         return result
 

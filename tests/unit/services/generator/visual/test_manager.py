@@ -80,6 +80,7 @@ def mock_wan() -> MagicMock:
     wan.is_available = AsyncMock(return_value=False)
     wan.generate = AsyncMock(return_value=[])
     wan.download = AsyncMock(side_effect=lambda asset, _dir: asset)
+    wan.close = AsyncMock()
     wan.default_duration = 5.0
     return wan
 
@@ -221,7 +222,7 @@ class TestSourceVisualsForScenes:
         assert results[1].duration == 2.0
         assert results[1].start_offset == 5.0
         # search_images called only once (for the content scene)
-        assert mock_pexels.search_images.await_count == 1
+        assert mock_pexels.search_images.call_count == 1
 
     @pytest.mark.asyncio
     async def test_cta_as_first_scene_sources_normally(
@@ -567,12 +568,13 @@ class TestClose:
     """Tests for close() delegation."""
 
     @pytest.mark.asyncio
-    async def test_close_delegates_to_pexels(
-        self, manager: VisualSourcingManager, mock_pexels: MagicMock
+    async def test_close_delegates_to_clients(
+        self, manager: VisualSourcingManager, mock_pexels: MagicMock, mock_wan: MagicMock
     ) -> None:
-        """close() calls pexels.close()."""
+        """close() calls pexels.close() and wan.close()."""
         await manager.close()
         mock_pexels.close.assert_awaited_once()
+        mock_wan.close.assert_awaited_once()
 
 
 class TestEdgeCases:
@@ -654,7 +656,7 @@ class TestEdgeCases:
         assert len(results) == 2
         # CONCLUSION reused previous asset
         assert results[1].asset.source == results[0].asset.source
-        assert mock_pexels.search_images.await_count == 1
+        assert mock_pexels.search_images.call_count == 1
 
     @pytest.mark.asyncio
     async def test_metadata_score_none_passes_threshold(

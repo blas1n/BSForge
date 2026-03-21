@@ -97,7 +97,7 @@ class VisualSourcingManager:
         output_dir.mkdir(parents=True, exist_ok=True)
         results: list[SceneVisualResult] = []
 
-        logger.info(f"Sourcing visuals for {len(scenes)} scenes")
+        logger.info("sourcing_visuals", scene_count=len(scenes))
 
         last_asset: VisualAsset | None = None
         used_source_ids: set[tuple[str | None, str | None]] = set()
@@ -155,7 +155,7 @@ class VisualSourcingManager:
                 )
 
             except (httpx.HTTPError, RuntimeError, ValueError, OSError) as e:
-                logger.warning(f"Failed to source visual for scene {i}: {e}")
+                logger.warning("scene_visual_failed", scene=i, error=str(e))
                 fallback_asset = await self._create_fallback(
                     output_dir=output_dir / f"scene_{i:03d}",
                     duration=duration,
@@ -172,7 +172,7 @@ class VisualSourcingManager:
                     )
                 )
 
-        logger.info(f"Sourced {len(results)} scene visuals")
+        logger.info("sourced_visuals", count=len(results))
         return results
 
     async def _source_for_scene(
@@ -225,7 +225,12 @@ class VisualSourcingManager:
                     return asset
 
             except Exception as e:
-                logger.warning(f"Pexels {source_type} failed for '{keyword}': {e}")
+                logger.warning(
+                    "pexels_search_failed",
+                    source_type=source_type,
+                    keyword=keyword,
+                    error=str(e),
+                )
 
         # Try Wan AI video
         try:
@@ -243,7 +248,7 @@ class VisualSourcingManager:
                         asset = await self._wan_video.download(asset, output_dir)
                     return asset
         except Exception as e:
-            logger.warning(f"Wan generation failed: {e}")
+            logger.warning("wan_generation_failed", error=str(e))
 
         # Fallback
         return await self._create_fallback(output_dir, duration, orientation)
@@ -291,6 +296,7 @@ class VisualSourcingManager:
     async def close(self) -> None:
         """Close all clients."""
         await self._pexels.close()
+        await self._wan_video.close()
 
 
 __all__ = ["VisualSourcingManager", "SceneVisualResult"]

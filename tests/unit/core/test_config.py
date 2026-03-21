@@ -117,3 +117,35 @@ def test_config_from_env(monkeypatch):
     assert config.app_name == "TestApp"
     assert config.app_env == "production"
     assert config.debug is True
+
+
+@pytest.mark.unit
+def test_production_warns_empty_api_key():
+    """Production with empty LLM API key emits warning."""
+    import warnings
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        Config(app_env="production", llm_api_key="", secret_key="explicit-key")
+        api_warnings = [x for x in w if "LLM_API_KEY" in str(x.message)]
+        assert len(api_warnings) == 1
+
+
+@pytest.mark.unit
+def test_production_no_warning_with_api_key():
+    """Production with LLM API key set does not warn."""
+    import warnings
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        Config(app_env="production", llm_api_key="sk-test-key", secret_key="explicit-key")
+        api_warnings = [x for x in w if "LLM_API_KEY" in str(x.message)]
+        assert len(api_warnings) == 0
+
+
+@pytest.mark.unit
+def test_auto_secret_key_prefix_stripped():
+    """Auto-generated secret key has 'auto:' prefix stripped."""
+    config = Config(_env_file=None)
+    assert not config.secret_key.startswith("auto:")
+    assert len(config.secret_key) > 20  # random token is sufficiently long

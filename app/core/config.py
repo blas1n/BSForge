@@ -150,15 +150,26 @@ class Config(BaseSettings):
         return v
 
     @model_validator(mode="after")
-    def _warn_default_secret_in_production(self) -> Any:
-        """Warn if secret_key was auto-generated in production."""
-        if self.app_env == "production" and self.secret_key.startswith("auto:"):
-            warnings.warn(
-                "SECRET_KEY is auto-generated. Set it explicitly in production "
-                "to avoid session invalidation across restarts.",
-                UserWarning,
-                stacklevel=2,
-            )
+    def _warn_production_defaults(self) -> Any:
+        """Warn about insecure defaults in production."""
+        if self.app_env == "production":
+            if self.secret_key.startswith("auto:"):
+                warnings.warn(
+                    "SECRET_KEY is auto-generated. Set it explicitly in production "
+                    "to avoid session invalidation across restarts.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            if not self.llm_api_key:
+                warnings.warn(
+                    "LLM_API_KEY is empty in production. "
+                    "LLM calls will fail unless the key is set via environment.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+        # Strip "auto:" prefix from secret_key (keep the random part only)
+        if self.secret_key.startswith("auto:"):
+            self.secret_key = self.secret_key[5:]
         return self
 
     @property

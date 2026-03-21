@@ -278,3 +278,37 @@ class TestScriptGenerator:
 
         assert variables["persona_name"] == "테크브로"
         assert variables["persona_tagline"] == "뻔한 소리 없이 핵심만"
+
+
+class TestInputValidation:
+    """Tests for input validation in generate()."""
+
+    @pytest.mark.asyncio
+    async def test_empty_title_raises(self, generator: ScriptGenerator) -> None:
+        """Empty topic_title raises ValueError."""
+        with pytest.raises(ValueError, match="topic_title cannot be empty"):
+            await generator.generate(
+                topic_title="",
+                topic_summary="Some summary",
+                topic_terms=["test"],
+            )
+
+    @pytest.mark.asyncio
+    async def test_whitespace_title_raises(self, generator: ScriptGenerator) -> None:
+        """Whitespace-only topic_title raises ValueError."""
+        with pytest.raises(ValueError, match="topic_title cannot be empty"):
+            await generator.generate(
+                topic_title="   ",
+                topic_summary="Some summary",
+                topic_terms=["test"],
+            )
+
+    @pytest.mark.asyncio
+    async def test_empty_summary_raises(self, generator: ScriptGenerator) -> None:
+        """Empty topic_summary raises ValueError."""
+        with pytest.raises(ValueError, match="topic_summary cannot be empty"):
+            await generator.generate(
+                topic_title="Valid title",
+                topic_summary="",
+                topic_terms=["test"],
+            )

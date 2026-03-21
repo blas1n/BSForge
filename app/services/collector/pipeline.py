@@ -263,29 +263,42 @@ class TopicCollectionPipeline:
 
         return [(raw, norm) for raw, norm in normalized if topic_filter.filter(norm).passed]
 
+    @staticmethod
+    def _compute_content_hash(norm: NormalizedTopic) -> str:
+        """Compute content hash for deduplication.
+
+        Args:
+            norm: Normalized topic
+
+        Returns:
+            SHA-256 hex digest
+        """
+        return hashlib.sha256((norm.title_normalized + str(norm.source_url)).encode()).hexdigest()
+
     async def _deduplicate_topics(
         self,
         topics: list[tuple[RawTopic, NormalizedTopic]],
         channel_id: uuid.UUID,
     ) -> list[tuple[RawTopic, NormalizedTopic]]:
-        """Remove duplicate topics using DB hash check."""
-        deduplicated: list[tuple[RawTopic, NormalizedTopic]] = []
+        """Remove duplicate topics using batch DB hash check."""
+        if not topics:
+            return []
 
+        # Compute hashes once and batch-query existing ones
+        hash_map: dict[str, tuple[RawTopic, NormalizedTopic]] = {}
         for raw, norm in topics:
-            content_hash = hashlib.sha256(
-                (norm.title_normalized + str(norm.source_url)).encode()
-            ).hexdigest()
+            content_hash = self._compute_content_hash(norm)
+            hash_map[content_hash] = (raw, norm)
 
-            result = await self.session.execute(
-                select(Topic).where(
-                    Topic.channel_id == channel_id,
-                    Topic.content_hash == content_hash,
-                )
+        result = await self.session.execute(
+            select(Topic.content_hash).where(
+                Topic.channel_id == channel_id,
+                Topic.content_hash.in_(hash_map.keys()),
             )
-            if result.scalar_one_or_none() is None:
-                deduplicated.append((raw, norm))
+        )
+        existing_hashes = {row[0] for row in result}
 
-        return deduplicated
+        return [pair for h, pair in hash_map.items() if h not in existing_hashes]
 
     async def _save_topics(
         self,
@@ -301,7 +314,13 @@ class TopicCollectionPipeline:
             self.session.add(topic)
             saved.append(topic)
 
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except Exception as e:
+            await self.session.rollback()
+            logger.error("topic_commit_failed", error=str(e), count=len(saved))
+            raise
+
         return saved
 
     def _create_topic_model(
@@ -309,11 +328,13 @@ class TopicCollectionPipeline:
         channel: Channel,
         raw: RawTopic,
         norm: NormalizedTopic,
+        content_hash: str | None = None,
     ) -> Topic:
         """Create Topic model from processed data."""
-        content_hash = hashlib.sha256(
-            (norm.title_normalized + str(norm.source_url)).encode()
-        ).hexdigest()
+        if content_hash is None:
+            content_hash = self._compute_content_hash(norm)
+        published_at = norm.published_at
+        expires_at = (published_at or datetime.now(UTC)) + timedelta(days=7)
 
         return Topic(
             id=uuid.uuid4(),
@@ -333,8 +354,8 @@ class TopicCollectionPipeline:
             score_relevance=0.0,
             score_total=0.0,
             status=TopicStatus.APPROVED,
-            published_at=norm.published_at,
-            expires_at=datetime.now(UTC) + timedelta(days=7),
+            published_at=published_at,
+            expires_at=expires_at,
             content_hash=content_hash,
         )
 

@@ -82,7 +82,15 @@ class ScriptGenerator:
 
         Returns:
             ScriptGenerationResult with parsed SceneScript
+
+        Raises:
+            ValueError: If topic_title or topic_summary is empty
         """
+        if not topic_title.strip():
+            raise ValueError("topic_title cannot be empty")
+        if not topic_summary.strip():
+            raise ValueError("topic_summary cannot be empty")
+
         # Build template variables
         variables = self._build_variables(
             topic_title=topic_title,
