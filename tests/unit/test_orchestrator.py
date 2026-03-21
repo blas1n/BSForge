@@ -203,6 +203,7 @@ class TestProcessChannel:
         video_result.duration_seconds = 30
         video_result.video_path = "/tmp/test.mp4"
         mock_video_pipe.return_value.generate = AsyncMock(return_value=video_result)
+        mock_video_pipe.return_value.close = AsyncMock()
 
         # Mock DB session for script save
         with patch("app.orchestrator.async_session_maker") as mock_session_maker:
@@ -260,6 +261,7 @@ class TestProcessChannel:
 
         # First topic fails, second succeeds
         mock_process.side_effect = [RuntimeError("boom"), True]
+        mock_video_pipe.return_value.close = AsyncMock()
 
         count = await process_channel(channel)
 

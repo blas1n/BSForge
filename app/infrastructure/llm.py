@@ -172,7 +172,11 @@ class LLMClient:
             # Extract content from response
             if not response.choices:
                 raise LLMError("LLM response contains no choices")
-            content = response.choices[0].message.content or ""
+            choice = response.choices[0]
+            message = getattr(choice, "message", None)
+            if message is None:
+                raise LLMError("LLM response choice has no message")
+            content = message.content or ""
 
             # Build usage dict (usage is dynamically set, not a declared field)
             usage = {}

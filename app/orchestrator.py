@@ -90,24 +90,27 @@ async def process_channel(channel: Channel) -> int:
     script_generator = create_script_generator(llm_client=llm_client, prompt_manager=prompt_manager)
     video_pipeline = create_video_pipeline(http_client=http_client)
 
-    for topic in topics:
-        try:
-            produced = await _process_topic(
-                channel=channel,
-                topic=topic,
-                script_generator=script_generator,
-                http_client=http_client,
-                video_pipeline=video_pipeline,
-            )
-            if produced:
-                videos_produced += 1
-        except Exception:
-            logger.exception(
-                "topic_processing_failed",
-                channel=channel.name,
-                topic=topic.title_normalized,
-            )
-            continue
+    try:
+        for topic in topics:
+            try:
+                produced = await _process_topic(
+                    channel=channel,
+                    topic=topic,
+                    script_generator=script_generator,
+                    http_client=http_client,
+                    video_pipeline=video_pipeline,
+                )
+                if produced:
+                    videos_produced += 1
+            except Exception:
+                logger.exception(
+                    "topic_processing_failed",
+                    channel=channel.name,
+                    topic=topic.title_normalized,
+                )
+                continue
+    finally:
+        await video_pipeline.close()
 
     logger.info(
         "channel_processing_complete",
@@ -158,7 +161,7 @@ async def _process_topic(
     topic: Topic,
     script_generator: ScriptGenerator,
     http_client: HTTPClient,
-    video_pipeline: VideoGenerationPipeline | None = None,
+    video_pipeline: VideoGenerationPipeline,
 ) -> bool:
     """Process a single topic: script → video → upload.
 
@@ -202,10 +205,6 @@ async def _process_topic(
         scenes=len(script_result.scene_script.scenes),
     )
 
-    # Step 2: Generate video — reuse script object and scene_script from Step 1
-    if video_pipeline is None:
-        video_pipeline = create_video_pipeline(http_client=http_client)
-
     voice_id = _get_voice_id(channel)
     tts_provider = _get_tts_provider(channel)
 
@@ -243,7 +242,12 @@ def _build_persona_config(channel: Channel) -> PersonaConfig | None:
                 service=str(persona.tts_service) if persona.tts_service else "edge-tts",
                 voice_id=persona.voice_id or "ko-KR-InJoonNeural",
             )
-        except (ValueError, TypeError):
+        except (ValueError, TypeError) as voice_err:
+            logger.warning(
+                "persona_voice_config_failed",
+                channel=channel.name,
+                error=str(voice_err),
+            )
             voice = VoiceConfig(gender="male", service="edge-tts", voice_id="ko-KR-InJoonNeural")
 
         # Build CommunicationStyle from persona JSONB

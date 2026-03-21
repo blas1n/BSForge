@@ -463,6 +463,61 @@ class TestGenerateFromSceneResults:
         for seg in result.segments:
             assert seg.start <= seg.end, f"Invalid segment: start={seg.start} > end={seg.end}"
 
+    def test_segment_at_exact_scene_boundary_clamped_correctly(
+        self, generator: SubtitleGenerator
+    ) -> None:
+        """Segment starting exactly at a scene boundary belongs to the next scene."""
+        scenes = [
+            self._make_scene("첫 번째 씬"),
+            self._make_scene("두 번째 씬"),
+            self._make_scene("세 번째 씬"),
+        ]
+        # Scene boundaries: [5.0, 10.0, 15.0]
+        tts_results = [
+            self._make_tts_result(
+                0,
+                5.0,
+                0.0,
+                words=[
+                    WordTimestamp(word="첫", start=0.0, end=2.0),
+                    WordTimestamp(word="번째", start=2.0, end=3.5),
+                    WordTimestamp(word="씬", start=3.5, end=5.0),
+                ],
+            ),
+            self._make_tts_result(
+                1,
+                5.0,
+                5.0,
+                words=[
+                    WordTimestamp(word="두", start=0.0, end=2.0),
+                    WordTimestamp(word="번째", start=2.0, end=3.5),
+                    # This word ends past the scene boundary (10.0)
+                    WordTimestamp(word="씬", start=3.5, end=5.5),
+                ],
+            ),
+            self._make_tts_result(
+                2,
+                5.0,
+                10.0,
+                words=[
+                    WordTimestamp(word="세", start=0.0, end=2.0),
+                    WordTimestamp(word="번째", start=2.0, end=3.5),
+                    WordTimestamp(word="씬", start=3.5, end=5.0),
+                ],
+            ),
+        ]
+
+        result = generator.generate_from_scene_results(scene_results=tts_results, scenes=scenes)
+
+        # Verify segments respect their scene boundaries
+        for seg in result.segments:
+            if seg.start < 5.0:
+                assert seg.end <= 5.0, f"Scene 0 segment overflows: end={seg.end}"
+            elif seg.start < 10.0:
+                assert seg.end <= 10.0, f"Scene 1 segment overflows: end={seg.end}"
+            elif seg.start < 15.0:
+                assert seg.end <= 15.0, f"Scene 2 segment overflows: end={seg.end}"
+
 
 class TestToSceneAss:
     """Test scene-based ASS file generation."""

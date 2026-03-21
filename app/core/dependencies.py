@@ -267,11 +267,13 @@ async def close_singletons() -> None:
     Use this for production shutdown to avoid resource leaks.
     """
     global _http_client, _llm_client, _prompt_manager
-    if _http_client is not None:
-        await _http_client.close()
-    _http_client = None
-    _llm_client = None
-    _prompt_manager = None
+    try:
+        if _http_client is not None:
+            await _http_client.close()
+    finally:
+        _http_client = None
+        _llm_client = None
+        _prompt_manager = None
 
 
 def reset_singletons() -> None:

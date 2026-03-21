@@ -322,6 +322,7 @@ class TopicCollectionPipeline:
         except Exception as e:
             await self.session.rollback()
             logger.error("topic_commit_failed", error=str(e), count=len(saved))
+            saved.clear()
             raise
 
         return saved

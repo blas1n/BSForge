@@ -158,7 +158,12 @@ class VisualSourcingManager:
                 )
 
             except (httpx.HTTPError, RuntimeError, ValueError, OSError) as e:
-                logger.warning("scene_visual_failed", scene=i, error=str(e))
+                logger.warning(
+                    "scene_visual_failed",
+                    scene=i,
+                    error_type=type(e).__name__,
+                    error=str(e),
+                )
                 fallback_asset = await self._create_fallback(
                     output_dir=output_dir / f"scene_{i:03d}",
                     duration=duration,
@@ -322,6 +327,12 @@ class VisualSourcingManager:
             )
         except ImportError as err:
             raise RuntimeError("Pillow is required for fallback visual generation") from err
+
+    async def __aenter__(self) -> "VisualSourcingManager":
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        await self.close()
 
     async def close(self) -> None:
         """Close all clients."""

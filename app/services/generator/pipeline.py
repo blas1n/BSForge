@@ -358,6 +358,16 @@ class VideoGenerationPipeline:
             return self.config.tts.default_voice_ko_male
         return self.config.tts.default_voice_en
 
+    async def __aenter__(self) -> "VideoGenerationPipeline":
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        await self.close()
+
+    async def close(self) -> None:
+        """Close owned resources (visual manager HTTP clients)."""
+        await self.visual_manager.close()
+
     async def _extract_thumbnail(self, video_path: Path, output_path: Path) -> Path:
         """Extract first frame from video as thumbnail.
 
