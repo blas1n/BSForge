@@ -26,13 +26,13 @@ from app.config.persona import PersonaConfig
 from app.core.config import get_config
 from app.core.database import async_session_maker, close_db
 from app.core.dependencies import (
+    close_singletons,
     create_collector_pipeline,
     create_http_client,
     create_llm_client,
     create_prompt_manager,
     create_script_generator,
     create_video_pipeline,
-    reset_singletons,
 )
 from app.core.logging import get_logger
 from app.infrastructure.http_client import HTTPClient
@@ -267,8 +267,8 @@ def _build_persona_config(channel: Channel) -> PersonaConfig | None:
             communication=communication,
             perspective=perspective,
         )
-    except Exception:
-        logger.exception("persona_config_build_failed", channel=channel.name)
+    except (ValueError, TypeError, KeyError) as e:
+        logger.warning("persona_config_build_failed", channel=channel.name, error=str(e))
         return None
 
 
@@ -329,8 +329,10 @@ _shutdown_event: asyncio.Event | None = None
 def _handle_shutdown_signal() -> None:
     """Signal handler for graceful shutdown."""
     logger.info("shutdown_signal_received")
-    if _shutdown_event:
+    if _shutdown_event is not None:
         _shutdown_event.set()
+    else:
+        logger.warning("shutdown_signal_before_event_init")
 
 
 async def run_scheduler(interval_hours: int = 6) -> None:
@@ -377,10 +379,7 @@ async def main() -> None:
     try:
         await run_scheduler()
     finally:
-        # Cleanup shared singletons
-        http_client = create_http_client()
-        await http_client.close()
-        reset_singletons()
+        await close_singletons()
         await close_db()
 
 

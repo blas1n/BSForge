@@ -42,8 +42,8 @@ class TestBuildPersonaConfig:
         assert result.name == "테크브로"
         assert result.tagline == "핵심만"
 
-    def test_returns_none_on_invalid_persona(self) -> None:
-        """Test returns None when persona data is invalid."""
+    def test_returns_none_on_validation_error(self) -> None:
+        """Test returns None when persona data causes ValueError."""
         channel = MagicMock()
         channel.name = "test"
         channel.persona.name = None  # Invalid — name is required
@@ -54,10 +54,22 @@ class TestBuildPersonaConfig:
         channel.persona.communication_style = None
         channel.persona.perspective = None
 
-        # Should not raise, returns None on error
+        # Should not raise for ValueError/TypeError/KeyError, returns None
         result = _build_persona_config(channel)
         # Either returns config with defaults or None on failure
         assert result is None or result.name is None
+
+    def test_propagates_unexpected_errors(self) -> None:
+        """Test that unexpected errors (not ValueError/TypeError/KeyError) propagate."""
+        channel = MagicMock()
+        channel.name = "test"
+        # Accessing .persona raises an unexpected error
+        type(channel).persona = property(
+            lambda self: (_ for _ in ()).throw(RuntimeError("DB crash"))
+        )
+
+        with pytest.raises(RuntimeError, match="DB crash"):
+            _build_persona_config(channel)
 
 
 class TestGetVoiceId:

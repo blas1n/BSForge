@@ -260,8 +260,22 @@ def create_upload_pipeline(
     )
 
 
+async def close_singletons() -> None:
+    """Close and reset all singleton instances.
+
+    Ensures HTTPClient is properly closed before clearing references.
+    Use this for production shutdown to avoid resource leaks.
+    """
+    global _http_client, _llm_client, _prompt_manager
+    if _http_client is not None:
+        await _http_client.close()
+    _http_client = None
+    _llm_client = None
+    _prompt_manager = None
+
+
 def reset_singletons() -> None:
-    """Reset all singleton instances. For testing only."""
+    """Reset all singleton instances without closing. For testing only."""
     global _http_client, _llm_client, _prompt_manager
     _http_client = None
     _llm_client = None
@@ -286,5 +300,6 @@ __all__ = [
     "create_youtube_auth",
     "create_youtube_uploader",
     "get_session_factory",
+    "close_singletons",
     "reset_singletons",
 ]

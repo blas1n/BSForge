@@ -145,6 +145,7 @@ class LLMClient:
             # When using a proxy (api_base), LiteLLM needs a provider prefix
             # to route correctly. Only add if model has no provider prefix yet.
             if self.base_url and model and not model.startswith(_KNOWN_PROVIDER_PREFIXES):
+                logger.debug("auto_prefixed_model", original=model, prefixed=f"openai/{model}")
                 model = f"openai/{model}"
 
             logger.debug(

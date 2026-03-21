@@ -105,12 +105,15 @@ class VisualSourcingManager:
 
         if len(scenes) != len(scene_results):
             logger.warning(
-                "Scene/TTS result count mismatch: %d scenes vs %d TTS results",
-                len(scenes),
-                len(scene_results),
+                "scene_tts_count_mismatch",
+                scenes=len(scenes),
+                tts_results=len(scene_results),
             )
 
-        for i, (scene, tts_result) in enumerate(zip(scenes, scene_results, strict=False)):
+        paired_count = min(len(scenes), len(scene_results))
+
+        paired_scenes = zip(scenes[:paired_count], scene_results[:paired_count], strict=True)
+        for i, (scene, tts_result) in enumerate(paired_scenes):
             keyword = scene.visual_keyword or scene.text[:50]
             duration = tts_result.duration_seconds
             start_offset = tts_result.start_offset
@@ -171,6 +174,33 @@ class VisualSourcingManager:
                         start_offset=start_offset,
                     )
                 )
+
+        # Generate fallback visuals for remaining scenes without TTS results
+        if len(scenes) > paired_count:
+            last_end = (
+                (scene_results[-1].start_offset + scene_results[-1].duration_seconds)
+                if scene_results
+                else 0.0
+            )
+            default_duration = 3.0
+            for i in range(paired_count, len(scenes)):
+                scene = scenes[i]
+                logger.warning("scene_missing_tts_result", scene=i)
+                fallback_asset = await self._create_fallback(
+                    output_dir=output_dir / f"scene_{i:03d}",
+                    duration=default_duration,
+                    orientation=orientation,
+                )
+                results.append(
+                    SceneVisualResult(
+                        scene_index=i,
+                        scene_type=scene.scene_type.value,
+                        asset=fallback_asset,
+                        duration=default_duration,
+                        start_offset=last_end,
+                    )
+                )
+                last_end += default_duration
 
         logger.info("sourced_visuals", count=len(results))
         return results

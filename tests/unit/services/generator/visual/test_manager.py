@@ -245,15 +245,17 @@ class TestSourceVisualsForScenes:
         mock_pexels.search_images.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_scene_tts_count_mismatch_processes_available_pairs(
+    async def test_scene_tts_count_mismatch_generates_fallback_for_extra_scenes(
         self,
         manager: VisualSourcingManager,
         mock_pexels: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """More scenes than TTS results -> only processes matching pairs."""
-        asset = _make_asset()
-        mock_pexels.search_images.return_value = [asset]
+        """More scenes than TTS results -> paired scenes sourced, extras get fallback."""
+        # Provide distinct assets so dedup doesn't cause fallback on paired scenes
+        asset_a = _make_asset(source_id="AAA", metadata_score=0.9)
+        asset_b = _make_asset(source_id="BBB", metadata_score=0.9)
+        mock_pexels.search_images.side_effect = [[asset_a], [asset_b]]
 
         scenes = [
             _make_scene(scene_type=SceneType.HOOK),
@@ -261,14 +263,18 @@ class TestSourceVisualsForScenes:
             _make_scene(scene_type=SceneType.CTA),
         ]
         tts_results = [
-            _make_tts_result(index=0, duration=3.0),
-            _make_tts_result(index=1, duration=5.0),
+            _make_tts_result(index=0, duration=3.0, start_offset=0.0),
+            _make_tts_result(index=1, duration=5.0, start_offset=3.0),
         ]
 
         results = await manager.source_visuals_for_scenes(scenes, tts_results, tmp_path)
 
-        # Only 2 results because zip(strict=False) stops at shorter list
-        assert len(results) == 2
+        # All 3 scenes get results: 2 paired + 1 fallback
+        assert len(results) == 3
+        assert results[0].asset.source == "pexels"
+        assert results[1].asset.source == "pexels"
+        assert results[2].asset.type == VisualSourceType.SOLID_COLOR
+        assert results[2].scene_index == 2
 
     @pytest.mark.asyncio
     async def test_asset_deduplication_skips_same_source_id(

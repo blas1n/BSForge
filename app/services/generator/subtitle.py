@@ -29,9 +29,17 @@ from app.services.generator.tts.base import SceneTTSResult, WordTimestamp
 
 logger = get_logger(__name__)
 
+# Safety margin when clamping subtitle end times to scene boundaries (seconds)
+_SCENE_BOUNDARY_MARGIN = 0.02
+# Minimum gap between consecutive subtitle segments to prevent overlap (seconds)
+_MIN_SEGMENT_GAP = 0.05
 
-def _hex_to_ass_bgr(hex_color: str) -> str:
-    """Convert hex color to ASS BGR format (&HBBGGRR&) with validation.
+
+def _hex_to_inline_bgr(hex_color: str) -> str:
+    """Convert hex color to ASS inline override BGR format (&HBBGGRR&).
+
+    Used for inline color tags like {\\c&HBBGGRR&} in subtitle text.
+    For style definitions (with alpha), use SubtitleGenerator._hex_to_ass_color().
 
     Args:
         hex_color: Hex color string (e.g., "#FF69B4" or "FF69B4")
@@ -662,7 +670,7 @@ class SubtitleGenerator:
         Returns:
             Text with ASS color tags for numbers/percentages
         """
-        ass_color = _hex_to_ass_bgr(highlight_color)
+        ass_color = _hex_to_inline_bgr(highlight_color)
 
         # Protect existing ASS tags from number matching (e.g. {\k101}, {\fad(100,50)})
         protected_tags: list[str] = []
@@ -1026,24 +1034,23 @@ class SubtitleGenerator:
             for j, sr in enumerate(scene_results):
                 if sr.start_offset <= seg.start < scene_boundaries[j]:
                     if seg.end > scene_boundaries[j]:
-                        seg.end = scene_boundaries[j] - 0.02  # 20ms safety margin
+                        seg.end = scene_boundaries[j] - _SCENE_BOUNDARY_MARGIN
                     clamped = True
                     break
 
             # Fallback: segment at exact boundary — clamp to nearest scene end
             if not clamped:
-                for j in range(len(scene_boundaries)):
-                    if seg.start < scene_boundaries[j]:
-                        if seg.end > scene_boundaries[j]:
-                            seg.end = scene_boundaries[j] - 0.02
+                for _j, boundary in enumerate(scene_boundaries):
+                    if seg.start <= boundary:
+                        if seg.end > boundary:
+                            seg.end = boundary - _SCENE_BOUNDARY_MARGIN
                         break
 
         # Post-process 2: enforce minimum gap between consecutive segments
         # to prevent subtitle overlap in the renderer.
-        min_gap = 0.05  # 50ms gap
         for i in range(len(all_segments) - 1):
-            if all_segments[i].end > all_segments[i + 1].start - min_gap:
-                adjusted_end = all_segments[i + 1].start - min_gap
+            if all_segments[i].end > all_segments[i + 1].start - _MIN_SEGMENT_GAP:
+                adjusted_end = all_segments[i + 1].start - _MIN_SEGMENT_GAP
                 # Prevent invalid segment where start >= end
                 all_segments[i].end = max(adjusted_end, all_segments[i].start)
 
@@ -1281,7 +1288,7 @@ class SubtitleGenerator:
         # Highlight emphasis words (wrap with secondary color tag)
         # Note: This creates inline ASS override tags
         if emphasis_words and persona_style:
-            ass_color = _hex_to_ass_bgr(persona_style.secondary_color)
+            ass_color = _hex_to_inline_bgr(persona_style.secondary_color)
             for word in emphasis_words:
                 # Match whole word only, replace first occurrence to avoid
                 # corrupting already-inserted ASS tags

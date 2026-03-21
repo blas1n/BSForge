@@ -12,6 +12,7 @@ import platform
 import re
 import shutil
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -52,6 +53,8 @@ class CompositionResult:
 
 # Composition ID registered in remotion/src/Root.tsx
 _COMPOSITION_ID = "KoreanShorts"
+# Maximum time to wait for a Remotion render before killing the process
+_RENDER_TIMEOUT_SECONDS = 600  # 10 minutes
 
 
 class RemotionCompositor:
@@ -153,7 +156,7 @@ class RemotionCompositor:
 
         # Stage assets into Remotion's public/ directory for staticFile() resolution.
         # Use a unique subdirectory per render to avoid collisions.
-        render_id = f"_render_{os.getpid()}_{int(time.time())}"
+        render_id = f"_render_{uuid.uuid4().hex[:12]}"
         public_dir = self.remotion_dir / "public" / render_id
         public_dir.mkdir(parents=True, exist_ok=True)
 
@@ -336,7 +339,16 @@ class RemotionCompositor:
             stderr=asyncio.subprocess.PIPE,
             env=env,
         )
-        stdout, stderr = await proc.communicate()
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(), timeout=_RENDER_TIMEOUT_SECONDS
+            )
+        except TimeoutError:
+            proc.kill()
+            await proc.wait()
+            raise RuntimeError(
+                f"Remotion render timed out after {_RENDER_TIMEOUT_SECONDS}s"
+            ) from None
 
         elapsed = time.time() - start_time
 

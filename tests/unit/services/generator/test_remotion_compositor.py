@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -367,6 +367,38 @@ class TestRender:
                 output_path=output_path,
                 total_duration=30.0,
             )
+
+    @pytest.mark.asyncio
+    async def test_render_timeout_kills_process(self, compositor, tmp_path):
+        """Render that exceeds timeout is killed and raises RuntimeError."""
+        import asyncio
+
+        output_path = tmp_path / "output.mp4"
+
+        async def mock_communicate_hang():
+            await asyncio.sleep(9999)  # Simulate hanging process
+            return b"", b""
+
+        mock_proc = MagicMock()
+        mock_proc.communicate = mock_communicate_hang
+        mock_proc.kill = MagicMock()
+        mock_proc.wait = AsyncMock()
+
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=mock_proc),
+            patch(
+                "app.services.generator.remotion_compositor._RENDER_TIMEOUT_SECONDS",
+                0.1,  # 100ms timeout for test
+            ),
+            pytest.raises(RuntimeError, match="timed out"),
+        ):
+            await compositor._render(
+                props_path=tmp_path / "props.json",
+                output_path=output_path,
+                total_duration=30.0,
+            )
+
+        mock_proc.kill.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_render_cmd_contains_remotion_args(self, compositor, tmp_path):

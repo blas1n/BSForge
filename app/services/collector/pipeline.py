@@ -86,6 +86,7 @@ class CollectionConfig:
     exclude: list[str] = field(default_factory=list)
     max_topics: int = field(default_factory=lambda: _get_collector_defaults().get("max_topics", 20))
     save_to_db: bool = True
+    default_topic_status: TopicStatus = TopicStatus.APPROVED
 
     @classmethod
     def from_channel_config(cls, channel_config: dict[str, Any]) -> CollectionConfig:
@@ -181,13 +182,14 @@ class TopicCollectionPipeline:
         stats.deduplicated_count = len(deduplicated)
 
         # Step 5: Save to DB
+        topic_status = config.default_topic_status
         if config.save_to_db:
-            saved = await self._save_topics(channel, deduplicated, config.max_topics)
+            saved = await self._save_topics(channel, deduplicated, config.max_topics, topic_status)
             stats.saved_count = len(saved)
             return saved, stats
 
         topics = [
-            self._create_topic_model(channel, raw, norm)
+            self._create_topic_model(channel, raw, norm, status=topic_status)
             for raw, norm in deduplicated[: config.max_topics]
         ]
         return topics, stats
@@ -305,12 +307,13 @@ class TopicCollectionPipeline:
         channel: Channel,
         topics: list[tuple[RawTopic, NormalizedTopic]],
         max_topics: int,
+        status: TopicStatus = TopicStatus.APPROVED,
     ) -> list[Topic]:
         """Save topics to database."""
         saved: list[Topic] = []
 
         for raw, norm in topics[:max_topics]:
-            topic = self._create_topic_model(channel, raw, norm)
+            topic = self._create_topic_model(channel, raw, norm, status=status)
             self.session.add(topic)
             saved.append(topic)
 
@@ -329,6 +332,7 @@ class TopicCollectionPipeline:
         raw: RawTopic,
         norm: NormalizedTopic,
         content_hash: str | None = None,
+        status: TopicStatus = TopicStatus.APPROVED,
     ) -> Topic:
         """Create Topic model from processed data."""
         if content_hash is None:
@@ -353,7 +357,7 @@ class TopicCollectionPipeline:
             score_trend=0.0,
             score_relevance=0.0,
             score_total=0.0,
-            status=TopicStatus.APPROVED,
+            status=status,
             published_at=published_at,
             expires_at=expires_at,
             content_hash=content_hash,

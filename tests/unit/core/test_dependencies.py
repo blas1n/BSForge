@@ -1,8 +1,11 @@
 """Unit tests for dependency factory functions."""
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from app.core.dependencies import (
+    close_singletons,
     create_http_client,
     create_llm_client,
     create_normalizer,
@@ -103,3 +106,28 @@ class TestCreateNormalizer:
         normalizer = create_normalizer(llm_client=llm, prompt_manager=pm)
         assert normalizer.llm_client is llm
         assert normalizer.prompt_manager is pm
+
+
+class TestCloseSingletons:
+    """Tests for close_singletons."""
+
+    @pytest.mark.asyncio
+    async def test_closes_http_client(self) -> None:
+        """Test that close_singletons closes HTTPClient before clearing."""
+        reset_singletons()
+        client = create_http_client()
+
+        with patch.object(client, "close", new_callable=AsyncMock) as mock_close:
+            await close_singletons()
+            mock_close.assert_awaited_once()
+
+        # Singletons are cleared after close
+        new_client = create_http_client()
+        assert new_client is not client
+        reset_singletons()
+
+    @pytest.mark.asyncio
+    async def test_no_error_when_no_singletons(self) -> None:
+        """Test that close_singletons is safe when nothing is initialized."""
+        reset_singletons()
+        await close_singletons()  # Should not raise

@@ -241,8 +241,33 @@ class TestScriptGenerator:
         )
 
         assert variables["topic_title"] == "Test"
-        assert variables["persona_name"] is None
+        assert variables["persona_name"] == ""
         assert variables["target_duration"] == 55
+
+    def test_build_variables_defaults_are_not_none(self, generator: ScriptGenerator) -> None:
+        """Test that optional template variables default to empty, not None."""
+        variables = generator._build_variables(
+            topic_title="Test",
+            topic_summary="Summary",
+            topic_terms=[],
+            persona=None,
+            target_duration=25,
+            video_format="YouTube Shorts",
+        )
+
+        # String fields should be "" not None
+        for key in (
+            "persona_name",
+            "persona_tagline",
+            "communication_tone",
+            "similar_content",
+            "enriched_cluster_summary",
+        ):
+            assert variables[key] == "", f"{key} should be empty string, got {variables[key]}"
+
+        # List fields should be [] not None
+        for key in ("sentence_endings", "connectors", "perspective_values", "avoid_words"):
+            assert variables[key] == [], f"{key} should be empty list, got {variables[key]}"
 
     def test_build_variables_includes_current_date(self, generator: ScriptGenerator) -> None:
         """Test _build_variables includes current_date for LLM context."""
