@@ -10,8 +10,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_config
-from app.core.container import container
 from app.core.database import check_db_connection, close_db, init_db
+from app.core.dependencies import close_singletons
 from app.core.logging import get_logger, setup_logging
 
 # Setup logging
@@ -22,8 +22,6 @@ logger = get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan events.
-
-    Handles startup and shutdown events for the FastAPI application.
 
     Args:
         app: FastAPI application instance
@@ -52,10 +50,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Shutdown
     logger.info("Shutting down BSForge application")
+    await close_singletons()
     await close_db()
-    # Close Redis connections from DI container
-    redis_client = container.redis()
-    await redis_client.close()
     logger.info("Cleanup complete")
 
 
@@ -71,10 +67,15 @@ app = FastAPI(
 )
 
 # Configure CORS
+_cors_origins = (
+    ["http://localhost:3000", "http://localhost:8000"]
+    if _config.is_development
+    else []  # Production: configure via reverse proxy or extend this list
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_config.cors_origins,
-    allow_credentials=_config.cors_allow_credentials,
+    allow_origins=_cors_origins,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -83,35 +84,19 @@ app.add_middleware(
 # Health check endpoint
 @app.get("/health")
 async def health_check() -> dict[str, str]:
-    """Health check endpoint.
-
-    Returns:
-        Health status
-    """
-    cfg = get_config()
+    """Health check endpoint."""
     return {
         "status": "healthy",
-        "app": cfg.app_name,
-        "env": cfg.app_env,
+        "app": _config.app_name,
+        "env": _config.app_env,
     }
 
 
 @app.get("/")
 async def root() -> dict[str, str]:
-    """Root endpoint.
-
-    Returns:
-        Welcome message
-    """
+    """Root endpoint."""
     return {
         "message": "BSForge API",
         "version": "0.1.0",
-        "docs": "/docs" if get_config().is_development else "disabled",
+        "docs": "/docs" if _config.is_development else "disabled",
     }
-
-
-# API routers will be added in later phases
-# from app.api.v1 import channels, review, stats
-# app.include_router(channels.router, prefix="/api/v1", tags=["channels"])
-# app.include_router(review.router, prefix="/api/v1", tags=["review"])
-# app.include_router(stats.router, prefix="/api/v1", tags=["stats"])

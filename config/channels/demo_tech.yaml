@@ -1,0 +1,64 @@
+# config/channels/demo_tech.yaml
+# Demo channel config — Korean tech shorts
+# Uses only free sources (Reddit, RSS) — no API keys needed
+
+channel:
+  id: "demo-tech"
+  name: "테크 데모"
+  description: "기술 뉴스 쇼츠 데모 채널"
+
+persona:
+  name: "테크브로"
+  tagline: "뻔한 소리 없이 핵심만"
+  voice:
+    gender: "male"
+    service: "edge-tts"
+    voice_id: "ko-KR-InJoonNeural"
+    settings:
+      speed: 1.05
+      pitch: 0
+  communication:
+    tone: "friendly"
+    formality: "semi-formal"
+    speech_patterns:
+      sentence_endings: ["~해요", "~거든요", "~인 거죠"]
+      connectors: ["근데", "사실", "그래서"]
+      emphasis_words: ["진짜", "솔직히", "핵심은"]
+    avoid_patterns:
+      words: ["혁신적인", "패러다임", "시너지"]
+      styles: ["과도한 감탄사"]
+  perspective:
+    core_values: ["실용성", "솔직함", "효율"]
+    contrarian_views: ["AI 만능론에 회의적", "복잡한 것보다 단순한 해결책 선호"]
+  visual_style:
+    accent_color: "#FF6B6B"
+    secondary_color: "#4ECDC4"
+
+topic_collection:
+  target_language: ko
+  sources:
+    - "reddit"
+    - "hn_rss"
+  source_overrides:
+    reddit:
+      params:
+        subreddits: ["programming", "technology", "MachineLearning"]
+        sort: "hot"
+        time: "day"
+      filters:
+        min_score: 50
+      limit: 10
+    hn_rss:
+      params:
+        feed_url: "https://hnrss.org/frontpage?count=10"
+        name: "Hacker News"
+      limit: 10
+
+filtering:
+  include: []
+  exclude: ["nsfw", "hiring", "who is hiring"]
+
+content:
+  format: "shorts"
+  target_duration: 25
+  video_template: "korean_shorts_standard"

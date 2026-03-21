@@ -5,9 +5,9 @@ Configuration is validated at startup and provides type-safe access throughout t
 """
 
 import secrets
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -46,12 +46,12 @@ class Config(BaseSettings):
     # Database Settings
     # ============================================
     database_url: str = Field(
-        default="postgresql+asyncpg://bsforge:bsforge_password@localhost:5432/bsforge",
-        description="Async PostgreSQL connection URL",
+        default="",
+        description="Async PostgreSQL connection URL (postgresql+asyncpg://...)",
     )
     database_url_sync: str = Field(
-        default="postgresql://bsforge:bsforge_password@localhost:5432/bsforge",
-        description="Sync PostgreSQL connection URL (for Alembic)",
+        default="",
+        description="Sync PostgreSQL connection URL for Alembic (postgresql://...)",
     )
     database_echo: bool = Field(default=False, description="Echo SQL queries")
     database_pool_size: int = Field(default=5, description="Connection pool size", ge=1, le=50)
@@ -59,64 +59,24 @@ class Config(BaseSettings):
         default=10, description="Max overflow connections", ge=0, le=50
     )
 
-    redis_url: str = Field(default="redis://localhost:6379/0", description="Redis connection URL")
-    celery_broker_url: str = Field(
-        default="redis://localhost:6379/1", description="Celery broker URL"
-    )
-    celery_result_backend: str = Field(
-        default="redis://localhost:6379/2", description="Celery result backend URL"
-    )
-
     # ============================================
     # Security Settings
     # ============================================
     secret_key: str = Field(
-        default_factory=lambda: secrets.token_urlsafe(32),
+        default_factory=lambda: "auto:" + secrets.token_urlsafe(32),
         description="Application secret key",
     )
-    jwt_secret_key: str = Field(
-        default_factory=lambda: secrets.token_urlsafe(32), description="JWT secret key"
-    )
-    jwt_algorithm: str = Field(default="HS256", description="JWT algorithm")
-    access_token_expire_minutes: int = Field(
-        default=30, description="Access token expiration time", ge=1, le=10080
-    )
 
     # ============================================
-    # LLM & AI APIs
+    # LLM Gateway
     # ============================================
-    anthropic_api_key: str = Field(default="", description="Anthropic API key")
-    openai_api_key: str = Field(default="", description="OpenAI API key")
-    gemini_api_key: str = Field(default="", description="Google Gemini API key")
-
-    # LLM Model Settings (LiteLLM format: provider/model-name)
-    # Lightweight tasks (translation, classification, content classification)
-    llm_model_light: str = Field(
-        default="anthropic/claude-haiku-4-5-20251001",
-        description="LLM model for lightweight tasks (translation, classification)",
+    llm_api_base: str = Field(
+        default="https://api.anthropic.com/v1", description="LLM gateway base URL"
     )
-    llm_model_light_max_tokens: int = Field(
-        default=500, description="Max tokens for lightweight LLM tasks", ge=100, le=2000
+    llm_api_key: str = Field(default="", description="LLM gateway API key")
+    llm_model: str = Field(
+        default="anthropic/claude-sonnet-4-20250514", description="Default LLM model name"
     )
-
-    # Heavy tasks (script generation)
-    llm_model_heavy: str = Field(
-        default="anthropic/claude-sonnet-4-20250514",
-        description="LLM model for heavy tasks (script generation)",
-    )
-    llm_model_heavy_max_tokens: int = Field(
-        default=2000, description="Max tokens for heavy LLM tasks", ge=500, le=8000
-    )
-
-    # ============================================
-    # Vector Database
-    # ============================================
-    chroma_persist_directory: str = Field(
-        default="./chroma_db", description="Chroma persist directory"
-    )
-    pinecone_api_key: str = Field(default="", description="Pinecone API key")
-    pinecone_environment: str = Field(default="us-east-1-aws", description="Pinecone environment")
-    pinecone_index_name: str = Field(default="bsforge", description="Pinecone index name")
 
     # ============================================
     # YouTube API
@@ -149,13 +109,6 @@ class Config(BaseSettings):
     reddit_client_secret: str = Field(default="", description="Reddit client secret")
     reddit_user_agent: str = Field(default="BSForge/1.0", description="Reddit user agent")
     pexels_api_key: str = Field(default="", description="Pexels API key")
-    pixabay_api_key: str = Field(default="", description="Pixabay API key")
-    brave_search_api_key: str = Field(default="", description="Brave Search API key")
-
-    # ============================================
-    # Web Research
-    # ============================================
-    tavily_api_key: str = Field(default="", description="Tavily API key for web research")
 
     # ============================================
     # File Storage
@@ -164,33 +117,16 @@ class Config(BaseSettings):
     local_storage_path: str = Field(default="./outputs", description="Local storage path")
 
     # ============================================
-    # Notifications
-    # ============================================
-    telegram_bot_token: str = Field(default="", description="Telegram bot token")
-    telegram_chat_id: str = Field(default="", description="Telegram chat ID")
-
-    # ============================================
-    # API Server
-    # ============================================
-    api_host: str = Field(default="0.0.0.0", description="API server host")
-    api_port: int = Field(default=8000, description="API server port", ge=1, le=65535)
-
-    # ============================================
-    # CORS Settings
-    # ============================================
-    cors_origins: list[str] = Field(
-        default=["http://localhost:3000", "http://localhost:8000"],
-        description="Allowed CORS origins",
-    )
-    cors_allow_credentials: bool = Field(default=True, description="Allow CORS credentials")
-
-    # ============================================
     # Feature Flags
     # ============================================
-    enable_ab_testing: bool = Field(default=True, description="Enable A/B testing")
     enable_auto_upload: bool = Field(default=False, description="Enable auto upload")
-    enable_series_detection: bool = Field(default=True, description="Enable series detection")
-    enable_trend_collection: bool = Field(default=True, description="Enable trend collection")
+
+    # ============================================
+    # Orchestrator
+    # ============================================
+    scheduler_interval_hours: int = Field(
+        default=6, description="Hours between orchestrator runs", ge=1, le=168
+    )
 
     @field_validator("database_url", mode="before")
     @classmethod
@@ -204,11 +140,37 @@ class Config(BaseSettings):
             Validated database URL
 
         Raises:
-            ValueError: If URL doesn't use asyncpg driver
+            ValueError: If URL doesn't use asyncpg driver or is empty
         """
+        if not v:
+            return v  # Allow empty for CLI/test contexts
         if isinstance(v, str) and not v.startswith("postgresql+asyncpg://"):
             raise ValueError("database_url must use asyncpg driver (postgresql+asyncpg://)")
         return v
+
+    @model_validator(mode="after")
+    def _warn_production_defaults(self) -> Any:
+        """Warn about insecure defaults in production."""
+        if self.app_env == "production":
+            if self.secret_key.startswith("auto:"):
+                raise ValueError(
+                    "SECRET_KEY must be set explicitly in production "
+                    "to avoid session invalidation across restarts."
+                )
+            if not self.llm_api_key:
+                raise ValueError(
+                    "LLM_API_KEY is required in production. "
+                    "Set it via environment variable or .env file."
+                )
+            if not self.database_url:
+                raise ValueError(
+                    "DATABASE_URL is required in production. "
+                    "Set it via environment variable or .env file."
+                )
+        # Strip "auto:" prefix from secret_key (keep the random part only)
+        if self.secret_key.startswith("auto:"):
+            self.secret_key = self.secret_key[5:]
+        return self
 
     @property
     def is_development(self) -> bool:

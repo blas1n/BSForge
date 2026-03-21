@@ -27,9 +27,7 @@ def validate_weights_sum(
     """
     total = sum(values.values())
     if abs(total - expected_sum) > tolerance:
-        raise ValueError(
-            f"Weights must sum to {expected_sum} (got {total:.2f}). " f"Values: {values}"
-        )
+        raise ValueError(f"Weights must sum to {expected_sum} (got {total:.2f}). Values: {values}")
 
 
 def validate_range_list(
@@ -55,8 +53,7 @@ def validate_range_list(
     out_of_range = [v for v in values if v < min_val or v > max_val]
     if out_of_range:
         raise ValueError(
-            f"{field_name} must be between {min_val} and {max_val}. "
-            f"Invalid values: {out_of_range}"
+            f"{field_name} must be between {min_val} and {max_val}. Invalid values: {out_of_range}"
         )
     return sorted(set(values))
 

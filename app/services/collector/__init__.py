@@ -3,19 +3,10 @@
 This package implements the topic collection pipeline:
 1. Source collectors fetch raw topics from external sources
 2. Normalizer translates, cleans, and classifies topics
-3. Deduplicator removes duplicate topics
-4. Filter applies include/exclude rules
-5. Scorer calculates relevance scores
-6. Queue manager adds topics to priority queue
+3. Filter applies include/exclude rules
+4. Deduplication via DB hash check
 """
 
-from app.config import (
-    DedupConfig,
-    FilteringConfig,
-    QueueConfig,
-    ScoringConfig,
-    ScoringWeights,
-)
 from app.services.collector.base import (
     BaseSource,
     CollectionResult,
@@ -23,16 +14,8 @@ from app.services.collector.base import (
     RawTopic,
     ScoredTopic,
 )
-from app.services.collector.deduplicator import (
-    DedupReason,
-    DedupResult,
-    TopicDeduplicator,
-)
 from app.services.collector.filter import FilterReason, FilterResult, TopicFilter
 from app.services.collector.normalizer import ClassificationResult, TopicNormalizer
-from app.services.collector.queue_manager import QueueStats, TopicQueueManager
-from app.services.collector.scorer import ScoreComponents, TopicScorer
-from app.services.collector.series_matcher import SeriesMatcher, SeriesMatchResult
 
 __all__ = [
     # Base DTOs
@@ -44,26 +27,8 @@ __all__ = [
     # Normalizer
     "TopicNormalizer",
     "ClassificationResult",
-    # Deduplicator
-    "TopicDeduplicator",
-    "DedupConfig",
-    "DedupResult",
-    "DedupReason",
     # Filter
     "TopicFilter",
-    "FilteringConfig",
     "FilterResult",
     "FilterReason",
-    # Scorer
-    "TopicScorer",
-    "ScoringConfig",
-    "ScoringWeights",
-    "ScoreComponents",
-    # Queue Manager
-    "TopicQueueManager",
-    "QueueConfig",
-    "QueueStats",
-    # Series Matcher
-    "SeriesMatcher",
-    "SeriesMatchResult",
 ]

@@ -1,29 +1,26 @@
 """Visual sourcing manager.
 
-Orchestrates visual asset sourcing from multiple sources with priority-based fallback.
-Supports scene-based visual sourcing for BSForge's scene architecture.
+Orchestrates visual asset sourcing from Pexels (stock) and Wan (AI generation).
 
-Source priority (configurable):
-1. Pexels videos
-2. Pixabay videos
-3. Pexels images
-4. Pixabay images
-5. Wan 2.2 AI video
-6. Fallback (solid color/gradient)
+Source priority:
+1. Pexels videos/images (stock)
+2. Wan 2.2 AI video generation
+3. Solid color fallback (generated locally)
 """
 
-from dataclasses import dataclass
+import asyncio
+import shutil
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
+
+import httpx
 
 from app.config.video import VisualConfig
 from app.core.logging import get_logger
 from app.infrastructure.http_client import HTTPClient
 from app.services.generator.visual.base import VisualAsset
-from app.services.generator.visual.fallback import FallbackGenerator
 from app.services.generator.visual.pexels import PexelsClient
-from app.services.generator.visual.pixabay import PixabayClient
-from app.services.generator.visual.tavily_image import TavilyImageClient
 from app.services.generator.visual.wan_video_source import WanVideoSource
 
 if TYPE_CHECKING:
@@ -55,21 +52,10 @@ class SceneVisualResult:
 class VisualSourcingManager:
     """Manage visual asset sourcing with priority-based fallback.
 
-    Orchestrates sourcing from:
-    1. Stock videos (Pexels)
-    2. Stock videos (Pixabay)
-    3. Stock images (Pexels)
-    4. Stock images (Pixabay)
-    5. AI-generated video (Wan 2.2)
-    6. Fallback backgrounds (solid/gradient)
-
-    Example:
-        >>> manager = VisualSourcingManager()
-        >>> assets = await manager.source_visuals(
-        ...     keywords=["technology", "innovation"],
-        ...     duration_needed=55.0,
-        ...     output_dir=Path("/tmp/visuals"),
-        ... )
+    Sources:
+    1. Pexels (stock videos/images)
+    2. Wan 2.2 (AI-generated video)
+    3. Solid color fallback
     """
 
     def __init__(
@@ -77,10 +63,7 @@ class VisualSourcingManager:
         http_client: HTTPClient,
         config: VisualConfig,
         pexels_client: PexelsClient,
-        pixabay_client: PixabayClient,
-        tavily_image_client: TavilyImageClient,
         wan_video_source: WanVideoSource,
-        fallback_generator: FallbackGenerator,
     ) -> None:
         """Initialize VisualSourcingManager.
 
@@ -88,270 +71,12 @@ class VisualSourcingManager:
             http_client: Shared HTTP client for API requests
             config: Visual configuration
             pexels_client: Pexels client instance
-            pixabay_client: Pixabay client instance
-            tavily_image_client: Tavily web image search client instance
             wan_video_source: Wan 2.2 video generation source instance
-            fallback_generator: Fallback generator instance
         """
         self.config = config
         self._http_client = http_client
         self._pexels = pexels_client
-        self._pixabay = pixabay_client
-        self._tavily_image = tavily_image_client
         self._wan_video = wan_video_source
-        self._fallback = fallback_generator
-
-    async def source_visuals(
-        self,
-        keywords: list[str],
-        duration_needed: float,
-        output_dir: Path,
-        orientation: Literal["portrait", "landscape", "square"] = "portrait",
-    ) -> list[VisualAsset]:
-        """Source visual assets for video generation.
-
-        Attempts to gather enough visuals to cover the required duration.
-        Uses priority-based sourcing with fallback.
-
-        Args:
-            keywords: Search keywords
-            duration_needed: Total duration needed in seconds
-            output_dir: Directory to download assets
-            orientation: Visual orientation
-
-        Returns:
-            List of visual assets (downloaded)
-        """
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        assets: list[VisualAsset] = []
-        current_duration = 0.0
-
-        # Default duration for images
-        image_duration = 5.0
-
-        logger.info(f"Sourcing visuals for {duration_needed}s, keywords: {keywords}")
-
-        # Try each source type in priority order
-        for source_type in self.config.source_priority:
-            if current_duration >= duration_needed:
-                break
-
-            remaining = duration_needed - current_duration
-
-            try:
-                new_assets = await self._source_from_type(
-                    source_type=source_type,
-                    keywords=keywords,
-                    duration_needed=remaining,
-                    output_dir=output_dir,
-                    orientation=orientation,
-                    image_duration=image_duration,
-                )
-
-                for asset in new_assets:
-                    if current_duration >= duration_needed:
-                        break
-
-                    # Download if not already downloaded
-                    if not asset.is_downloaded:
-                        try:
-                            asset = await self._download_asset(asset, output_dir)
-                        except Exception as e:
-                            logger.warning(f"Failed to download {asset.source_id}: {e}")
-                            continue
-
-                    assets.append(asset)
-
-                    # Update duration
-                    if asset.is_video and asset.duration:
-                        current_duration += asset.duration
-                    else:
-                        current_duration += image_duration
-
-            except Exception as e:
-                logger.warning(f"Source {source_type} failed: {e}")
-                continue
-
-        # Ensure we have at least fallback
-        if not assets:
-            logger.warning("No assets found, using fallback")
-            fallback_assets = await self._fallback.search(
-                query="",
-                max_results=1,
-                orientation=orientation,
-            )
-            if fallback_assets:
-                asset = await self._fallback.download(fallback_assets[0], output_dir)
-                asset.duration = duration_needed
-                assets.append(asset)
-
-        # Adjust last asset duration if needed
-        if assets:
-            total_duration = sum((a.duration or image_duration) for a in assets)
-            if total_duration < duration_needed and assets[-1].is_image:
-                # Extend last image duration
-                assets[-1].duration = (assets[-1].duration or image_duration) + (
-                    duration_needed - total_duration
-                )
-
-        logger.info(f"Sourced {len(assets)} visual assets")
-        return assets
-
-    async def _source_from_type(
-        self,
-        source_type: str,
-        keywords: list[str],
-        duration_needed: float,
-        output_dir: Path,
-        orientation: Literal["portrait", "landscape", "square"],
-        image_duration: float,
-    ) -> list[VisualAsset]:
-        """Source assets from a specific type.
-
-        Args:
-            source_type: Source type string
-            keywords: Search keywords
-            duration_needed: Duration needed
-            output_dir: Output directory
-            orientation: Orientation
-            image_duration: Default image duration
-
-        Returns:
-            List of visual assets
-        """
-        query = " ".join(keywords[:3])  # Use first 3 keywords
-        max_results = max(1, int(duration_needed / image_duration) + 2)
-
-        if source_type == "tavily_image":
-            if not self.config.tavily_image_enabled:
-                return []
-            return await self._tavily_image.search_images(
-                query=query,
-                max_results=max_results,
-            )
-
-        elif source_type == "pexels_video":
-            return await self._pexels.search_videos(
-                query=query,
-                max_results=max_results,
-                orientation=orientation,
-                min_duration=3.0,
-            )
-
-        elif source_type == "pixabay_video":
-            return await self._pixabay.search_videos(
-                query=query,
-                max_results=max_results,
-                orientation=orientation,
-                min_duration=3.0,
-            )
-
-        elif source_type == "pexels_image":
-            return await self._pexels.search_images(
-                query=query,
-                max_results=max_results,
-                orientation=orientation,
-            )
-
-        elif source_type == "pixabay_image":
-            return await self._pixabay.search_images(
-                query=query,
-                max_results=max_results,
-                orientation=orientation,
-            )
-
-        elif source_type == "wan_video":
-            return await self._generate_with_wan(
-                prompt=self._build_ai_prompt(keywords),
-                count=min(2, max_results),
-                orientation=orientation,
-                duration_needed=duration_needed,
-            )
-
-        elif source_type in ("solid_color", "gradient"):
-            return await self._fallback.search(
-                query="",
-                max_results=1,
-                orientation=orientation,
-            )
-
-        else:
-            logger.warning(f"Unknown source type: {source_type}")
-            return []
-
-    async def _generate_with_wan(
-        self,
-        prompt: str,
-        count: int,
-        orientation: Literal["portrait", "landscape", "square"],
-        duration_needed: float,
-    ) -> list[VisualAsset]:
-        """Generate video clips with Wan 2.2.
-
-        Args:
-            prompt: Video description prompt
-            count: Number of clips to generate
-            orientation: Video orientation
-            duration_needed: Total duration needed (used to size individual clips)
-
-        Returns:
-            List of generated video assets, empty if Wan unavailable
-        """
-        if not await self._wan_video.is_available():
-            return []
-
-        # Clip duration: aim for ~5s clips to cover duration
-        clip_duration = self._wan_video.default_duration
-
-        return await self._wan_video.generate(
-            prompt=prompt,
-            count=count,
-            orientation=orientation,
-            duration_seconds=clip_duration,
-        )
-
-    async def _download_asset(
-        self,
-        asset: VisualAsset,
-        output_dir: Path,
-    ) -> VisualAsset:
-        """Download asset using appropriate client.
-
-        Args:
-            asset: Asset to download
-            output_dir: Output directory
-
-        Returns:
-            Downloaded asset
-        """
-        if asset.source == "pexels":
-            return await self._pexels.download(asset, output_dir)
-        elif asset.source == "pixabay":
-            return await self._pixabay.download(asset, output_dir)
-        elif asset.source == "tavily_web":
-            return await self._tavily_image.download(asset, output_dir)
-        elif asset.source == "fallback":
-            return await self._fallback.download(asset, output_dir)
-        else:
-            raise ValueError(f"Unknown asset source: {asset.source}")
-
-    def _build_ai_prompt(self, keywords: list[str]) -> str:
-        """Build AI image prompt from keywords.
-
-        visual_keyword already contains scene-specific style info,
-        so we just add common quality suffix.
-
-        Args:
-            keywords: Keywords to incorporate (from visual_keyword)
-
-        Returns:
-            AI prompt string
-        """
-        if not keywords:
-            return "abstract digital background, modern, professional"
-
-        return ", ".join(keywords)
 
     async def source_visuals_for_scenes(
         self,
@@ -361,11 +86,6 @@ class VisualSourcingManager:
         orientation: Literal["portrait", "landscape", "square"] = "portrait",
     ) -> list[SceneVisualResult]:
         """Source visual assets for each scene individually.
-
-        This method sources one visual per scene, using the scene's keyword
-        and visual_strategy to determine the best source strategy. This enables
-        scene-specific visual treatment (e.g., different visuals for
-        COMMENTARY vs CONTENT scenes).
 
         Args:
             scenes: List of Scene objects with keywords and strategies
@@ -379,47 +99,30 @@ class VisualSourcingManager:
         output_dir.mkdir(parents=True, exist_ok=True)
         results: list[SceneVisualResult] = []
 
-        logger.info(f"Sourcing visuals for {len(scenes)} scenes")
+        logger.info("sourcing_visuals", scene_count=len(scenes))
 
-        # Track last asset for scene reuse (configurable scene types)
         last_asset: VisualAsset | None = None
-        # Track used source IDs to avoid duplicates across scenes
-        used_source_ids: set[str] = set()
-        # Get reuse types from config (lowercase scene type names)
+        used_source_ids: set[tuple[str | None, str | None]] = set()
         reuse_types = self.config.reuse_previous_visual_types
 
-        for i, (scene, tts_result) in enumerate(zip(scenes, scene_results, strict=False)):
-            # Get scene-specific parameters
+        if len(scenes) != len(scene_results):
+            logger.warning(
+                "scene_tts_count_mismatch",
+                scenes=len(scenes),
+                tts_results=len(scene_results),
+            )
+
+        paired_count = min(len(scenes), len(scene_results))
+
+        paired_scenes = zip(scenes[:paired_count], scene_results[:paired_count], strict=True)
+        for i, (scene, tts_result) in enumerate(paired_scenes):
             keyword = scene.visual_keyword or scene.text[:50]
             duration = tts_result.duration_seconds
             start_offset = tts_result.start_offset
 
-            logger.info(
-                f"[Scene {i}] type={scene.scene_type.value}, "
-                f"visual_keyword='{scene.visual_keyword}'"
-            )
-
-            # Reuse previous image for configured scene types (e.g., CTA - short)
+            # Reuse previous image for configured scene types (e.g., CTA)
             if scene.scene_type.value in reuse_types and last_asset is not None:
-                logger.info(
-                    f"  [{scene.scene_type.value.upper()}] Reusing previous image: "
-                    f"{last_asset.source_id}"
-                )
-                # Create a copy with updated duration
-                reused_asset = VisualAsset(
-                    type=last_asset.type,
-                    url=last_asset.url,
-                    path=last_asset.path,
-                    duration=duration,
-                    width=last_asset.width,
-                    height=last_asset.height,
-                    source=last_asset.source,
-                    source_id=last_asset.source_id,
-                    license=last_asset.license,
-                    keywords=last_asset.keywords,
-                    metadata=last_asset.metadata,
-                    metadata_score=last_asset.metadata_score,
-                )
+                reused_asset = replace(last_asset, duration=duration)
                 results.append(
                     SceneVisualResult(
                         scene_index=i,
@@ -431,25 +134,22 @@ class VisualSourcingManager:
                 )
                 continue
 
+            scene_dir = output_dir / f"scene_{i:03d}"
             try:
-                asset = await self._source_for_scene(
-                    keyword=keyword,
-                    duration=duration,
-                    output_dir=output_dir / f"scene_{i:03d}",
-                    orientation=orientation,
-                    exclude_source_ids=used_source_ids,
-                    requires_web_search=scene.requires_web_search,
-                )
-
-                # Ensure asset has correct duration
+                async with asyncio.timeout(30):
+                    asset = await self._source_for_scene(
+                        keyword=keyword,
+                        duration=duration,
+                        output_dir=scene_dir,
+                        orientation=orientation,
+                        exclude_source_ids=used_source_ids,
+                    )
                 asset.duration = duration
-
-                # Update last_asset for potential CTA reuse
                 last_asset = asset
 
-                # Track used source IDs to avoid duplicates
-                if asset.source_id:
-                    used_source_ids.add(asset.source_id)
+                # Track by (source, source_id) or (source, url) for deduplication
+                asset_key = (asset.source, asset.source_id or asset.url)
+                used_source_ids.add(asset_key)
 
                 results.append(
                     SceneVisualResult(
@@ -461,19 +161,21 @@ class VisualSourcingManager:
                     )
                 )
 
-            except Exception as e:
-                logger.warning(f"Failed to source visual for scene {i}: {e}")
-
-                # Use fallback
-                fallback_asset = await self._create_fallback_for_scene(
+            except (httpx.HTTPError, RuntimeError, ValueError, OSError, TimeoutError) as e:
+                logger.warning(
+                    "scene_visual_failed",
+                    scene=i,
+                    error_type=type(e).__name__,
+                    error=str(e),
+                )
+                # Clean up partial downloads from failed attempt
+                shutil.rmtree(scene_dir, ignore_errors=True)
+                fallback_asset = await self._create_fallback(
                     output_dir=output_dir / f"scene_{i:03d}",
                     duration=duration,
                     orientation=orientation,
                 )
-
-                # Update last_asset even for fallback
                 last_asset = fallback_asset
-
                 results.append(
                     SceneVisualResult(
                         scene_index=i,
@@ -484,7 +186,34 @@ class VisualSourcingManager:
                     )
                 )
 
-        logger.info(f"Sourced {len(results)} scene visuals")
+        # Generate fallback visuals for remaining scenes without TTS results
+        if len(scenes) > paired_count:
+            last_end = (
+                (scene_results[-1].start_offset + scene_results[-1].duration_seconds)
+                if scene_results
+                else 0.0
+            )
+            default_duration = 3.0
+            for i in range(paired_count, len(scenes)):
+                scene = scenes[i]
+                logger.warning("scene_missing_tts_result", scene=i)
+                fallback_asset = await self._create_fallback(
+                    output_dir=output_dir / f"scene_{i:03d}",
+                    duration=default_duration,
+                    orientation=orientation,
+                )
+                results.append(
+                    SceneVisualResult(
+                        scene_index=i,
+                        scene_type=scene.scene_type.value,
+                        asset=fallback_asset,
+                        duration=default_duration,
+                        start_offset=last_end,
+                    )
+                )
+                last_end += default_duration
+
+        logger.info("sourced_visuals", count=len(results))
         return results
 
     async def _source_for_scene(
@@ -493,236 +222,135 @@ class VisualSourcingManager:
         duration: float,
         output_dir: Path,
         orientation: Literal["portrait", "landscape", "square"],
-        exclude_source_ids: set[str] | None = None,
-        requires_web_search: bool = False,
+        exclude_source_ids: set[tuple[str | None, str | None]] | None = None,
     ) -> VisualAsset:
         """Source a single visual asset for a scene.
 
-        Uses stock search with metadata score filtering, falls back to AI generation.
-
-        Args:
-            keyword: Search keyword
-            duration: Duration needed
-            output_dir: Output directory
-            orientation: Visual orientation
-            exclude_source_ids: Set of source IDs to exclude (already used)
-            requires_web_search: True if keyword refers to real person/brand
-                               (use Tavily web search instead of stock)
-
-        Returns:
-            Downloaded visual asset
+        Priority: Pexels stock → Wan AI → fallback.
         """
         output_dir.mkdir(parents=True, exist_ok=True)
         exclude_ids = exclude_source_ids or set()
-
-        return await self._source_stock_with_quality_check(
-            keyword=keyword,
-            duration=duration,
-            output_dir=output_dir,
-            orientation=orientation,
-            exclude_source_ids=exclude_ids,
-            requires_web_search=requires_web_search,
-        )
-
-    async def _source_stock_with_quality_check(
-        self,
-        keyword: str,
-        duration: float,
-        output_dir: Path,
-        orientation: Literal["portrait", "landscape", "square"],
-        exclude_source_ids: set[str] | None = None,
-        requires_web_search: bool = False,
-    ) -> VisualAsset:
-        """Source from stock with metadata-based quality evaluation.
-
-        Filters candidates by metadata_score (title/tags matching).
-        Falls back to Wan AI video generation or solid color.
-
-        Args:
-            keyword: Search keyword
-            duration: Duration needed
-            output_dir: Output directory
-            orientation: Visual orientation
-            exclude_source_ids: Set of source IDs to exclude (already used)
-            requires_web_search: True if keyword refers to real person/brand
-
-        Returns:
-            Visual asset
-        """
         metadata_threshold = self.config.metadata_score_threshold
-        exclude_ids = exclude_source_ids or set()
 
-        # Use Tavily web search ONLY for real person/brand images
-        if requires_web_search and self.config.tavily_image_enabled:
-            logger.info(f"  [WEB SEARCH] '{keyword}' requires real person/brand image")
+        # Try Pexels (image and video)
+        for source_type in ["pexels_image", "pexels_video"]:
             try:
-                tavily_asset = await self._tavily_image.search_and_select_best(
-                    query=keyword,
-                    output_dir=output_dir,
-                    num_candidates=10,
-                )
-                if tavily_asset:
-                    logger.info(f"  [SELECT] tavily_web: {tavily_asset.source_id}")
-                    return tavily_asset
-            except Exception as e:
-                logger.warning(f"Tavily search failed: {e}")
-            # Fallback to AI generation for person/brand if Tavily fails
-            logger.info("  [FALLBACK] Web search failed, trying AI generation")
-            return await self._source_ai_only(
-                keywords=[keyword],
-                duration=duration,
-                output_dir=output_dir,
-                orientation=orientation,
-            )
-
-        # Try stock sources for general keywords
-        stock_sources = [
-            "pexels_image",
-            "pixabay_image",
-            "pexels_video",
-            "pixabay_video",
-        ]
-
-        for source_type in stock_sources:
-            try:
-                assets = await self._source_from_type(
-                    source_type=source_type,
-                    keywords=[keyword],
-                    duration_needed=duration,
-                    output_dir=output_dir,
-                    orientation=orientation,
-                    image_duration=duration,
-                )
-
-                # Sort by metadata_score descending
-                assets = sorted(
-                    assets,
-                    key=lambda a: a.metadata_score or 0.0,
-                    reverse=True,
-                )
-
-                for asset in assets:
-                    # Skip already used sources
-                    if asset.source_id and asset.source_id in exclude_ids:
-                        logger.info(f"  [SKIP] {asset.source}:{asset.source_id} already used")
-                        continue
-
-                    # Filter by metadata score
-                    meta_score = asset.metadata_score or 0.0
-                    if meta_score < metadata_threshold:
-                        logger.info(
-                            f"  [SKIP] {asset.source}:{asset.source_id} "
-                            f"metadata={meta_score:.2f} < threshold={metadata_threshold}"
-                        )
-                        continue
-
-                    logger.info(
-                        f"  [SELECT] {asset.source}:{asset.source_id} "
-                        f"metadata={meta_score:.2f} (>= {metadata_threshold})"
+                if source_type == "pexels_video":
+                    assets = await self._pexels.search_videos(
+                        query=keyword,
+                        max_results=5,
+                        orientation=orientation,
+                        min_duration=3.0,
+                    )
+                else:
+                    assets = await self._pexels.search_images(
+                        query=keyword,
+                        max_results=5,
+                        orientation=orientation,
                     )
 
-                    # Download if needed
-                    if not asset.is_downloaded:
-                        try:
-                            asset = await self._download_asset(asset, output_dir)
-                        except Exception as e:
-                            logger.warning(f"Failed to download {asset.source_id}: {e}")
-                            continue
+                assets = sorted(assets, key=lambda a: a.metadata_score or 0.0, reverse=True)
 
+                for asset in assets:
+                    asset_key = (asset.source, asset.source_id or asset.url)
+                    if asset_key in exclude_ids:
+                        continue
+                    if (
+                        asset.metadata_score is not None
+                        and asset.metadata_score < metadata_threshold
+                    ):
+                        continue
+
+                    if not asset.is_downloaded:
+                        asset = await self._pexels.download(asset, output_dir)
                     return asset
 
             except Exception as e:
-                logger.warning(f"Source {source_type} failed: {e}")
-                continue
+                logger.warning(
+                    "pexels_search_failed",
+                    source_type=source_type,
+                    keyword=keyword,
+                    error=str(e),
+                )
 
-        # All stock sources failed or low quality, try AI generation
-        logger.info(f"No quality stock found for '{keyword}', trying AI generation")
-        return await self._source_ai_only(
-            keywords=[keyword],
-            duration=duration,
-            output_dir=output_dir,
-            orientation=orientation,
-        )
-
-    async def _source_ai_only(
-        self,
-        keywords: list[str],
-        duration: float,
-        output_dir: Path,
-        orientation: Literal["portrait", "landscape", "square"],
-    ) -> VisualAsset:
-        """Source using AI generation only (Wan 2.2).
-
-        Args:
-            keywords: Keywords for prompt generation
-            duration: Duration needed
-            output_dir: Output directory
-            orientation: Visual orientation
-
-        Returns:
-            Visual asset
-        """
-        prompt = self._build_ai_prompt(keywords)
-
-        # Try Wan 2.2 video generation
+        # Try Wan AI video
         try:
-            assets = await self._generate_with_wan(
-                prompt=prompt,
-                count=1,
-                orientation=orientation,
-                duration_needed=duration,
-            )
-            if assets:
-                asset = assets[0]
-                if not asset.is_downloaded:
-                    asset = await self._wan_video.download(asset, output_dir)
-                return asset
+            if await self._wan_video.is_available():
+                prompt = keyword if keyword else "abstract digital background"
+                wan_assets = await self._wan_video.generate(
+                    prompt=prompt,
+                    count=1,
+                    orientation=orientation,
+                    duration_seconds=self._wan_video.default_duration,
+                )
+                if wan_assets:
+                    asset = wan_assets[0]
+                    if not asset.is_downloaded:
+                        asset = await self._wan_video.download(asset, output_dir)
+                    return asset
         except Exception as e:
-            logger.warning(f"Wan video generation failed: {e}")
+            logger.warning("wan_generation_failed", error=str(e))
 
-        # All AI failed, use fallback
-        return await self._create_fallback_for_scene(
-            output_dir=output_dir,
-            duration=duration,
-            orientation=orientation,
-        )
+        # Fallback
+        return await self._create_fallback(output_dir, duration, orientation)
 
-    async def _create_fallback_for_scene(
+    async def _create_fallback(
         self,
         output_dir: Path,
         duration: float,
         orientation: Literal["portrait", "landscape", "square"],
     ) -> VisualAsset:
-        """Create a fallback visual for a scene.
+        """Create a solid color fallback visual."""
+        from app.services.generator.visual.base import VisualSourceType
 
-        Args:
-            output_dir: Output directory
-            duration: Duration for the visual
-            orientation: Visual orientation
-
-        Returns:
-            Fallback visual asset
-        """
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        fallback_assets = await self._fallback.search(
-            query="",
-            max_results=1,
-            orientation=orientation,
-        )
+        # Generate a simple solid color image
+        try:
+            from PIL import Image
 
-        if fallback_assets:
-            asset = await self._fallback.download(fallback_assets[0], output_dir)
-            asset.duration = duration
-            return asset
+            if orientation == "portrait":
+                size = (1080, 1920)
+            elif orientation == "landscape":
+                size = (1920, 1080)
+            else:
+                size = (1080, 1080)
 
-        # Absolute fallback - should never reach here
-        raise RuntimeError("Failed to create fallback visual")
+            img = Image.new("RGB", size, color=(20, 20, 30))
+            path = output_dir / "fallback.png"
+            img.save(str(path))
+
+            return VisualAsset(
+                type=VisualSourceType.SOLID_COLOR,
+                url="",
+                path=path,
+                duration=duration,
+                width=size[0],
+                height=size[1],
+                source="fallback",
+                source_id="fallback",
+                license="generated",
+            )
+        except ImportError as err:
+            raise RuntimeError("Pillow is required for fallback visual generation") from err
+
+    async def __aenter__(self) -> "VisualSourcingManager":
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        await self.close()
 
     async def close(self) -> None:
         """Close all clients."""
-        await self._pexels.close()
-        await self._pixabay.close()
+        for client in (self._pexels, self._wan_video):
+            try:
+                await client.close()
+            except Exception:
+                logger.warning(
+                    "visual_client_close_error",
+                    client=type(client).__name__,
+                    exc_info=True,
+                )
 
 
 __all__ = ["VisualSourcingManager", "SceneVisualResult"]

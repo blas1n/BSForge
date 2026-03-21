@@ -11,7 +11,6 @@ Scene-based generation:
 - Different visual styles for NEUTRAL vs PERSONA scenes
 """
 
-import logging
 import re
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -20,6 +19,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from app.config.video import CompositionConfig, SubtitleConfig, SubtitleStyleConfig
 from app.core.config_loader import load_language_config
+from app.core.logging import get_logger
 from app.services.generator.templates import (
     ASSDialogueParams,
     ASSStyleParams,
@@ -27,12 +27,38 @@ from app.services.generator.templates import (
 )
 from app.services.generator.tts.base import SceneTTSResult, WordTimestamp
 
+logger = get_logger(__name__)
+
+# Safety margin when clamping subtitle end times to scene boundaries (seconds)
+_SCENE_BOUNDARY_MARGIN = 0.02
+# Minimum gap between consecutive subtitle segments to prevent overlap (seconds)
+_MIN_SEGMENT_GAP = 0.05
+
+
+def _hex_to_inline_bgr(hex_color: str) -> str:
+    """Convert hex color to ASS inline override BGR format (&HBBGGRR&).
+
+    Used for inline color tags like {\\c&HBBGGRR&} in subtitle text.
+    For style definitions (with alpha), use SubtitleGenerator._hex_to_ass_color().
+
+    Args:
+        hex_color: Hex color string (e.g., "#FF69B4" or "FF69B4")
+
+    Returns:
+        ASS BGR color string (e.g., "&HB469FF&")
+    """
+    hex_color = hex_color.lstrip("#")
+    if len(hex_color) != 6 or not all(c in "0123456789abcdefABCDEF" for c in hex_color):
+        logger.warning("invalid_hex_color", hex_color=hex_color)
+        hex_color = "FFFFFF"
+    r, g, b = hex_color[0:2], hex_color[2:4], hex_color[4:6]
+    return f"&H{b}{g}{r}&"
+
+
 if TYPE_CHECKING:
     from app.config.persona import PersonaStyleConfig
     from app.config.video_template import VideoTemplateConfig
     from app.models.scene import Scene, VisualStyle
-
-logger = logging.getLogger(__name__)
 
 
 @lru_cache(maxsize=1)
@@ -205,7 +231,7 @@ class SubtitleGenerator:
                 )
             )
 
-        logger.info(f"Generated {len(segments)} subtitle segments from timestamps")
+        logger.info("subtitle_segments_from_timestamps", count=len(segments))
 
         return SubtitleFile(
             segments=segments,
@@ -264,7 +290,7 @@ class SubtitleGenerator:
                 )
                 current_time += sub_duration
 
-        logger.info(f"Generated {len(segments)} subtitle segments from script")
+        logger.info("subtitle_segments_from_script", count=len(segments))
 
         return SubtitleFile(
             segments=segments,
@@ -299,108 +325,18 @@ class SubtitleGenerator:
 
         style = subtitle.style
 
-        # Get styling from template or fall back to config defaults
-        if template and template.subtitle:
-            tmpl_sub = template.subtitle
-            tmpl_layout = template.layout
-
-            font_name = tmpl_sub.font_name
-            font_size = tmpl_sub.font_size
-            outline_width = tmpl_sub.outline_width
-            bold = 1 if tmpl_sub.bold else 0
-            italic = 1 if getattr(tmpl_sub, "italic", False) else 0
-            primary_color = self._hex_to_ass_color(tmpl_sub.primary_color)
-            outline_color = self._hex_to_ass_color(tmpl_sub.outline_color)
-            highlight_color = self._hex_to_ass_color(tmpl_sub.highlight_color)
-            highlight_color_hex = tmpl_sub.highlight_color  # Keep hex for inline tags
-
-            # Background
-            if tmpl_sub.background_enabled:
-                bg_color = self._hex_to_ass_color(
-                    tmpl_sub.background_color,
-                    opacity=tmpl_sub.background_opacity,
-                )
-                border_style = 3  # Background box
-            else:
-                bg_color = "&H00000000"  # Transparent
-                border_style = 1  # Outline only
-
-            # Position from layout
-            position = tmpl_layout.subtitle_position if tmpl_layout else "center"
-            margin_ratio = tmpl_layout.subtitle_margin_ratio if tmpl_layout else 0.5
-
-            # Calculate margin_v based on position and ratio
-            # For height H: 0.15 = near bottom, 0.5 = center, 0.85 = near top
-            video_height = self.composition_config.height
-            if position == "bottom":
-                alignment = 2  # Bottom center
-                margin_v = int(video_height * margin_ratio)
-            elif position == "top":
-                alignment = 8  # Top center
-                margin_v = int(video_height * (1 - margin_ratio))
-            else:  # center
-                alignment = 5  # Middle center
-                margin_v = int(video_height * (0.5 - margin_ratio / 2))
-
-            # Animation settings
-            fade_in_ms = tmpl_sub.fade_in_ms
-            fade_out_ms = tmpl_sub.fade_out_ms
-            karaoke_enabled = tmpl_sub.karaoke_enabled
-        else:
-            # Fall back to default config (no template)
-            font_name = style.font_name
-            font_size = style.font_size
-            outline_width = style.outline_width
-            alignment = self._get_ass_alignment()
-            margin_v = self.config.margin_bottom
-            primary_color = self._hex_to_ass_color(style.primary_color)
-            outline_color = self._hex_to_ass_color(style.outline_color)
-            highlight_color = self._hex_to_ass_color(self.config.highlight_color)
-            highlight_color_hex = self.config.highlight_color  # Keep hex for inline tags
-            bg_color = self._hex_to_ass_color(
-                style.background_color,
-                opacity=style.background_opacity if style.background_enabled else 0.0,
-            )
-            border_style = 3 if style.background_enabled else 1
-            bold = 0
-            italic = 0
-            fade_in_ms = 100
-            fade_out_ms = 50
-            karaoke_enabled = self.config.highlight_current_word
+        # Resolve styling from template or config defaults
+        sv = self._resolve_style_vars(style, template)
+        highlight_color_hex = sv["highlight_color_hex"]
+        fade_in_ms = sv["fade_in_ms"]
+        fade_out_ms = sv["fade_out_ms"]
+        karaoke_enabled = sv["karaoke_enabled"]
 
         # Build styles using template loader
-        default_style = ASSStyleParams(
-            name="Default",
-            font_name=font_name,
-            font_size=font_size,
-            primary_color=primary_color,
-            outline_color=outline_color,
-            back_color=bg_color,
-            bold=bold,
-            italic=italic,
-            border_style=border_style,
-            outline=outline_width,
-            alignment=alignment,
-            margin_l=self.config.margin_horizontal,
-            margin_r=self.config.margin_horizontal,
-            margin_v=margin_v,
-        )
-        highlight_style = ASSStyleParams(
-            name="Highlight",
-            font_name=font_name,
-            font_size=font_size,
-            primary_color=highlight_color,
-            outline_color=outline_color,
-            back_color=bg_color,
-            bold=1,
-            italic=italic,
-            border_style=border_style,
-            outline=outline_width,
-            alignment=alignment,
-            margin_l=self.config.margin_horizontal,
-            margin_r=self.config.margin_horizontal,
-            margin_v=margin_v,
-        )
+        default_style = self._make_style_params("Default", sv)
+        highlight_color_ass = self._hex_to_ass_color(highlight_color_hex)
+        highlight_sv = {**sv, "primary_color": highlight_color_ass, "bold": 1}
+        highlight_style = self._make_style_params("Highlight", highlight_sv)
 
         # Render header with styles
         ass_content = self.template_loader.render_header(
@@ -431,10 +367,14 @@ class SubtitleGenerator:
             )
             ass_content += dialogue + "\n"
 
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(ass_content)
+        try:
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write(ass_content)
+        except OSError as e:
+            logger.error("ass_write_failed", path=str(output_path), error=str(e))
+            raise
 
-        logger.info(f"Generated ASS subtitle: {output_path}")
+        logger.info("ass_subtitle_generated", path=str(output_path))
         return output_path
 
     def to_srt(
@@ -467,10 +407,14 @@ class SubtitleGenerator:
             srt_content += f"{start_time} --> {end_time}\n"
             srt_content += f"{segment.text}\n\n"
 
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(srt_content)
+        try:
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write(srt_content)
+        except OSError as e:
+            logger.error("srt_write_failed", path=str(output_path), error=str(e))
+            raise
 
-        logger.info(f"Generated SRT subtitle: {output_path}")
+        logger.info("srt_subtitle_generated", path=str(output_path))
         return output_path
 
     def _split_into_sentences(self, text: str) -> list[str]:
@@ -514,6 +458,98 @@ class SubtitleGenerator:
 
         return chunks
 
+    def _resolve_style_vars(
+        self,
+        style: SubtitleStyleConfig,
+        template: "VideoTemplateConfig | None",
+    ) -> dict[str, Any]:
+        """Resolve styling variables from template or config defaults.
+
+        Returns a dict with keys: font_name, font_size, outline_width, bold, italic,
+        primary_color, outline_color, bg_color, border_style, alignment, margin_v,
+        fade_in_ms, fade_out_ms, karaoke_enabled, highlight_color_hex.
+        """
+        if template and template.subtitle:
+            tmpl_sub = template.subtitle
+            tmpl_layout = template.layout
+
+            if tmpl_sub.background_enabled:
+                bg_color = self._hex_to_ass_color(
+                    tmpl_sub.background_color, opacity=tmpl_sub.background_opacity
+                )
+                border_style = 3
+            else:
+                bg_color = "&H00000000"
+                border_style = 1
+
+            position = tmpl_layout.subtitle_position if tmpl_layout else "center"
+            margin_ratio = tmpl_layout.subtitle_margin_ratio if tmpl_layout else 0.5
+            video_height = self.composition_config.height
+            if position == "bottom":
+                alignment, margin_v = 2, int(video_height * margin_ratio)
+            elif position == "top":
+                alignment, margin_v = 8, int(video_height * (1 - margin_ratio))
+            else:
+                alignment, margin_v = 5, int(video_height * (0.5 - margin_ratio / 2))
+
+            return {
+                "font_name": tmpl_sub.font_name,
+                "font_size": tmpl_sub.font_size,
+                "outline_width": tmpl_sub.outline_width,
+                "bold": 1 if tmpl_sub.bold else 0,
+                "italic": 1 if getattr(tmpl_sub, "italic", False) else 0,
+                "primary_color": self._hex_to_ass_color(tmpl_sub.primary_color),
+                "outline_color": self._hex_to_ass_color(tmpl_sub.outline_color),
+                "bg_color": bg_color,
+                "border_style": border_style,
+                "alignment": alignment,
+                "margin_v": margin_v,
+                "fade_in_ms": tmpl_sub.fade_in_ms,
+                "fade_out_ms": tmpl_sub.fade_out_ms,
+                "karaoke_enabled": tmpl_sub.karaoke_enabled,
+                "highlight_color_hex": tmpl_sub.highlight_color,
+            }
+
+        return {
+            "font_name": style.font_name,
+            "font_size": style.font_size,
+            "outline_width": style.outline_width,
+            "bold": 0,
+            "italic": 0,
+            "primary_color": self._hex_to_ass_color(style.primary_color),
+            "outline_color": self._hex_to_ass_color(style.outline_color),
+            "bg_color": self._hex_to_ass_color(
+                style.background_color,
+                opacity=style.background_opacity if style.background_enabled else 0.0,
+            ),
+            "border_style": 3 if style.background_enabled else 1,
+            "alignment": self._get_ass_alignment(),
+            "margin_v": self.config.margin_bottom,
+            "fade_in_ms": 100,
+            "fade_out_ms": 50,
+            "karaoke_enabled": self.config.highlight_current_word,
+            "highlight_color_hex": self.config.highlight_color,
+        }
+
+    def _make_style_params(self, name: str, sv: dict[str, Any]) -> ASSStyleParams:
+        """Create ASSStyleParams from resolved style variables."""
+        return ASSStyleParams(
+            name=name,
+            font_name=sv["font_name"],
+            font_size=sv["font_size"],
+            primary_color=sv["primary_color"],
+            outline_color=sv["outline_color"],
+            back_color=sv["bg_color"],
+            bold=sv["bold"],
+            italic=sv["italic"],
+            border_style=sv["border_style"],
+            outline=sv["outline_width"],
+            alignment=sv["alignment"],
+            margin_l=self.config.margin_horizontal,
+            margin_r=self.config.margin_horizontal,
+            margin_v=sv["margin_v"],
+        )
+
     def _hex_to_ass_color(
         self,
         hex_color: str,
@@ -528,8 +564,11 @@ class SubtitleGenerator:
         Returns:
             ASS color string
         """
-        # Remove # prefix
+        # Remove # prefix and validate
         hex_color = hex_color.lstrip("#")
+        if len(hex_color) != 6 or not all(c in "0123456789abcdefABCDEF" for c in hex_color):
+            logger.warning("invalid_hex_color", hex_color=hex_color)
+            hex_color = "FFFFFF"
 
         # Parse RGB
         r = int(hex_color[0:2], 16)
@@ -622,6 +661,7 @@ class SubtitleGenerator:
         """Automatically highlight numbers, percentages, and key data.
 
         Korean Shorts style: important numbers should pop visually.
+        Protects existing ASS tags (e.g. karaoke \\k timing) from being altered.
 
         Args:
             text: Original text
@@ -630,10 +670,16 @@ class SubtitleGenerator:
         Returns:
             Text with ASS color tags for numbers/percentages
         """
-        # Convert hex to ASS BGR format
-        hex_color = highlight_color.lstrip("#")
-        r, g, b = hex_color[0:2], hex_color[2:4], hex_color[4:6]
-        ass_color = f"&H{b}{g}{r}&"
+        ass_color = _hex_to_inline_bgr(highlight_color)
+
+        # Protect existing ASS tags from number matching (e.g. {\k101}, {\fad(100,50)})
+        protected_tags: list[str] = []
+
+        def protect_tag(m: re.Match[str]) -> str:
+            protected_tags.append(m.group())
+            return f"\x00TAG{len(protected_tags) - 1}\x00"
+
+        safe_text = re.sub(r"\{[^}]*\}", protect_tag, text)
 
         # Combined pattern to match all number formats in one pass
         # Priority: Korean expressions > units > percentages > plain numbers
@@ -644,7 +690,13 @@ class SubtitleGenerator:
         def replacer(match: re.Match[str]) -> str:
             return f"{{\\c{ass_color}}}{match.group(1)}{{\\c}}"
 
-        return re.sub(combined_pattern, replacer, text)
+        safe_text = re.sub(combined_pattern, replacer, safe_text)
+
+        # Restore protected ASS tags
+        for i, tag in enumerate(protected_tags):
+            safe_text = safe_text.replace(f"\x00TAG{i}\x00", tag)
+
+        return safe_text
 
     def _split_scene_text_with_timing(
         self,
@@ -770,6 +822,99 @@ class SubtitleGenerator:
 
         return segments
 
+    def _split_words_with_timestamps(
+        self,
+        word_timestamps: list[WordTimestamp],
+        scene_result: "SceneTTSResult",
+        visual_style: "VisualStyle",
+        emphasis_words: list[str],
+        persona_style: "PersonaStyleConfig | None",
+        max_chars: int,
+        max_words: int,
+        start_index: int,
+    ) -> list[SubtitleSegment]:
+        """Split word timestamps into segments, preserving per-word timing for karaoke.
+
+        Used when scene.tts_text is None (display text == TTS text),
+        meaning word timestamps map directly to the display words.
+
+        Args:
+            word_timestamps: Word timing from TTS
+            scene_result: TTS result with timing info
+            visual_style: Visual style for this scene
+            emphasis_words: Words to emphasize
+            persona_style: Optional persona styling
+            max_chars: Maximum characters per line
+            max_words: Maximum words per segment
+            start_index: Starting segment index
+
+        Returns:
+            List of subtitle segments with word-level timing
+        """
+        segments: list[SubtitleSegment] = []
+        segment_index = start_index
+        current_words: list[WordTimestamp] = []
+        current_text = ""
+
+        for word_ts in word_timestamps:
+            word = word_ts.word.strip()
+            if not word:
+                continue
+
+            potential_text = f"{current_text} {word}".strip() if current_text else word
+            word_count = len(current_words) + 1
+
+            should_break = self._should_break_korean(
+                current_text=current_text,
+                next_word=word,
+                potential_text=potential_text,
+                word_count=word_count,
+                max_chars=max_chars,
+                max_words=max_words,
+            )
+
+            if should_break and current_words:
+                styled_text = self._apply_scene_styling(
+                    current_text,
+                    visual_style,
+                    emphasis_words,
+                    persona_style,
+                )
+                segments.append(
+                    SubtitleSegment(
+                        index=segment_index,
+                        start=current_words[0].start + scene_result.start_offset,
+                        end=current_words[-1].end + scene_result.start_offset,
+                        text=styled_text,
+                        words=current_words.copy(),
+                    )
+                )
+                segment_index += 1
+                current_words = []
+                current_text = ""
+
+            current_words.append(word_ts)
+            current_text = f"{current_text} {word}".strip() if current_text else word
+
+        if current_words:
+            styled_text = self._apply_scene_styling(
+                current_text,
+                visual_style,
+                emphasis_words,
+                persona_style,
+            )
+            segments.append(
+                SubtitleSegment(
+                    index=segment_index,
+                    start=current_words[0].start + scene_result.start_offset,
+                    end=current_words[-1].end + scene_result.start_offset,
+                    text=styled_text,
+                    words=current_words.copy(),
+                )
+            )
+
+        return segments
+
     def generate_from_scene_results(
         self,
         scene_results: list[SceneTTSResult],
@@ -803,7 +948,11 @@ class SubtitleGenerator:
             return SubtitleFile(segments=[], style=self.config.style)
 
         if len(scene_results) != len(scenes):
-            logger.warning(f"Mismatch: {len(scene_results)} TTS results, {len(scenes)} scenes")
+            logger.warning(
+                "scene_tts_count_mismatch",
+                tts_results=len(scene_results),
+                scenes=len(scenes),
+            )
 
         all_segments: list[SubtitleSegment] = []
         segment_index = 1
@@ -840,11 +989,9 @@ class SubtitleGenerator:
                 segment_index += len(segments_from_manual)
                 continue
 
-            # Priority 2: Use scene.text (original notation) split by timing
-            # TTS word timestamps are based on tts_text (pronunciation text),
-            # but subtitles should show scene.text (original notation like GPT-4)
-            if scene:
-                # Split scene.text into segments based on timing from word_timestamps
+            # Priority 2: When tts_text differs from text, word timestamps
+            # can't be mapped to display text. Use proportional timing instead.
+            if scene and scene.tts_text is not None:
                 scene_segments = self._split_scene_text_with_timing(
                     scene_text=scene.text,
                     word_timestamps=word_timestamps,
@@ -860,74 +1007,52 @@ class SubtitleGenerator:
                 segment_index += len(scene_segments)
                 continue
 
-            # Fallback for no scene: use word timestamps directly
+            # Priority 3: When tts_text is None (text == tts_content), word
+            # timestamps map directly to display text. Use them for karaoke.
             if not word_timestamps:
                 continue
 
-            # Group words into segments within this scene's boundaries
-            current_words: list[WordTimestamp] = []
-            current_text = ""
+            karaoke_segments = self._split_words_with_timestamps(
+                word_timestamps=word_timestamps,
+                scene_result=scene_result,
+                visual_style=visual_style,
+                emphasis_words=emphasis_words,
+                persona_style=persona_style,
+                max_chars=max_chars,
+                max_words=max_words_per_segment,
+                start_index=segment_index,
+            )
+            all_segments.extend(karaoke_segments)
+            segment_index += len(karaoke_segments)
 
-            for word_ts in word_timestamps:
-                word = word_ts.word.strip()
-                if not word:
-                    continue
+        # Post-process 1: clamp each segment's end to its scene boundary.
+        # TTS word timestamps can slightly exceed scene duration, causing
+        # the last 2-4 characters to render in the next scene cut.
+        # Uses bisect for O(N log M) instead of O(N*M) nested loops.
+        from bisect import bisect_right
 
-                potential_text = f"{current_text} {word}".strip() if current_text else word
-                word_count = len(current_words) + 1
+        scene_boundaries: list[float] = [
+            sr.start_offset + sr.duration_seconds for sr in scene_results
+        ]
 
-                # Korean-aware break detection
-                should_break = self._should_break_korean(
-                    current_text=current_text,
-                    next_word=word,
-                    potential_text=potential_text,
-                    word_count=word_count,
-                    max_chars=max_chars,
-                    max_words=max_words_per_segment,
-                )
+        for seg in all_segments:
+            # Find the scene boundary this segment should be clamped to.
+            # bisect_right returns the first boundary AFTER seg.start,
+            # which is the end of the scene this segment belongs to.
+            # e.g. boundaries=[5.0, 8.0], seg.start=5.0 → idx=1 → boundary=8.0 (scene 1 end)
+            idx = bisect_right(scene_boundaries, seg.start)
+            if idx < len(scene_boundaries):
+                boundary = scene_boundaries[idx]
+                if seg.end > boundary:
+                    seg.end = max(boundary - _SCENE_BOUNDARY_MARGIN, seg.start)
 
-                if should_break:
-                    # Create segment from current words
-                    styled_text = self._apply_scene_styling(
-                        current_text,
-                        visual_style,
-                        emphasis_words,
-                        persona_style,
-                    )
-                    all_segments.append(
-                        SubtitleSegment(
-                            index=segment_index,
-                            start=current_words[0].start + scene_result.start_offset,
-                            end=current_words[-1].end + scene_result.start_offset,
-                            text=styled_text,
-                            words=current_words.copy(),
-                        )
-                    )
-                    segment_index += 1
-                    current_words = []
-                    current_text = ""
-
-                current_words.append(word_ts)
-                current_text = f"{current_text} {word}".strip() if current_text else word
-
-            # Add remaining words as final segment for this scene
-            if current_words:
-                styled_text = self._apply_scene_styling(
-                    current_text,
-                    visual_style,
-                    emphasis_words,
-                    persona_style,
-                )
-                all_segments.append(
-                    SubtitleSegment(
-                        index=segment_index,
-                        start=current_words[0].start + scene_result.start_offset,
-                        end=current_words[-1].end + scene_result.start_offset,
-                        text=styled_text,
-                        words=current_words.copy(),
-                    )
-                )
-                segment_index += 1
+        # Post-process 2: enforce minimum gap between consecutive segments
+        # to prevent subtitle overlap in the renderer.
+        for i in range(len(all_segments) - 1):
+            if all_segments[i].end > all_segments[i + 1].start - _MIN_SEGMENT_GAP:
+                adjusted_end = all_segments[i + 1].start - _MIN_SEGMENT_GAP
+                # Prevent invalid segment where start >= end
+                all_segments[i].end = max(adjusted_end, all_segments[i].start)
 
         logger.info(
             f"Generated {len(all_segments)} scene-aware subtitle segments "
@@ -1084,7 +1209,7 @@ class SubtitleGenerator:
         word_ts_idx = 0
         total_words = len(word_timestamps)
 
-        for seg_text in subtitle_segments:
+        for seg_pos, seg_text in enumerate(subtitle_segments):
             # Find words in this segment
             seg_words = seg_text.split()
             matched_timestamps: list[WordTimestamp] = []
@@ -1098,7 +1223,10 @@ class SubtitleGenerator:
                     ts_word = word_timestamps[word_ts_idx]
                     ts_word_clean = ts_word.word.strip().strip(".,!?。！？")
 
-                    if seg_word_clean == ts_word_clean or seg_word_clean in ts_word_clean:
+                    if seg_word_clean == ts_word_clean or (
+                        seg_word_clean in ts_word_clean
+                        and len(seg_word_clean) >= len(ts_word_clean) * 0.7
+                    ):
                         matched_timestamps.append(ts_word)
                         word_ts_idx += 1
                         break
@@ -1117,9 +1245,8 @@ class SubtitleGenerator:
                 end_time = matched_timestamps[-1].end + scene_result.start_offset
             else:
                 # Fallback: estimate based on position in scene
-                seg_idx = subtitle_segments.index(seg_text)
                 seg_duration = scene_result.duration_seconds / len(subtitle_segments)
-                start_time = scene_result.start_offset + (seg_idx * seg_duration)
+                start_time = scene_result.start_offset + (seg_pos * seg_duration)
                 end_time = start_time + seg_duration
 
             styled_text = self._apply_scene_styling(
@@ -1161,15 +1288,15 @@ class SubtitleGenerator:
         # Highlight emphasis words (wrap with secondary color tag)
         # Note: This creates inline ASS override tags
         if emphasis_words and persona_style:
+            ass_color = _hex_to_inline_bgr(persona_style.secondary_color)
             for word in emphasis_words:
-                if word in result:
-                    # ASS inline color override: {\c&HBBGGRR&}text{\c}
-                    hex_color = persona_style.secondary_color.lstrip("#")
-                    # Convert RGB to BGR for ASS
-                    r, g, b = hex_color[0:2], hex_color[2:4], hex_color[4:6]
-                    ass_color = f"&H{b}{g}{r}&"
+                # Match whole word only, replace first occurrence to avoid
+                # corrupting already-inserted ASS tags
+                pattern = re.compile(re.escape(word))
+                if pattern.search(result):
                     highlighted = f"{{\\c{ass_color}}}{word}{{\\c}}"
-                    result = result.replace(word, highlighted, 1)
+                    repl = highlighted  # bind for lambda closure
+                    result = pattern.sub(lambda _, r=repl: r, result, count=1)
 
         return result
 
@@ -1205,118 +1332,17 @@ class SubtitleGenerator:
 
         style = subtitle.style
 
-        # Base styling from template or config
-        if template and template.subtitle:
-            tmpl_sub = template.subtitle
-            tmpl_layout = template.layout
+        # Resolve styling from template or config defaults (shared with to_ass)
+        sv = self._resolve_style_vars(style, template)
+        highlight_color_hex = sv["highlight_color_hex"]
+        fade_in_ms = sv["fade_in_ms"]
+        fade_out_ms = sv["fade_out_ms"]
+        karaoke_enabled = sv["karaoke_enabled"]
 
-            font_name = tmpl_sub.font_name
-            font_size = tmpl_sub.font_size
-            outline_width = tmpl_sub.outline_width
-            bold = 1 if tmpl_sub.bold else 0
-            italic = 1 if getattr(tmpl_sub, "italic", False) else 0
-            primary_color = self._hex_to_ass_color(tmpl_sub.primary_color)
-            outline_color = self._hex_to_ass_color(tmpl_sub.outline_color)
-
-            position = tmpl_layout.subtitle_position if tmpl_layout else "center"
-            margin_ratio = tmpl_layout.subtitle_margin_ratio if tmpl_layout else 0.5
-
-            video_height = self.composition_config.height
-            if position == "bottom":
-                alignment = 2
-                margin_v = int(video_height * margin_ratio)
-            elif position == "top":
-                alignment = 8
-                margin_v = int(video_height * (1 - margin_ratio))
-            else:
-                alignment = 5
-                margin_v = int(video_height * (0.5 - margin_ratio / 2))
-
-            fade_in_ms = tmpl_sub.fade_in_ms
-            fade_out_ms = tmpl_sub.fade_out_ms
-            karaoke_enabled = tmpl_sub.karaoke_enabled
-            bg_color = (
-                self._hex_to_ass_color(
-                    tmpl_sub.background_color, opacity=tmpl_sub.background_opacity
-                )
-                if tmpl_sub.background_enabled
-                else "&H00000000"
-            )
-            border_style = 3 if tmpl_sub.background_enabled else 1
-        else:
-            font_name = style.font_name
-            font_size = style.font_size
-            outline_width = style.outline_width
-            alignment = self._get_ass_alignment()
-            margin_v = self.config.margin_bottom
-            primary_color = self._hex_to_ass_color(style.primary_color)
-            outline_color = self._hex_to_ass_color(style.outline_color)
-            bg_color = self._hex_to_ass_color(
-                style.background_color,
-                opacity=style.background_opacity if style.background_enabled else 0.0,
-            )
-            border_style = 3 if style.background_enabled else 1
-            bold = 0
-            italic = 0
-            fade_in_ms = 100
-            fade_out_ms = 50
-            karaoke_enabled = self.config.highlight_current_word
-
-        # Get highlight color for auto-highlighting numbers
-        if template and template.subtitle:
-            highlight_color_hex = template.subtitle.highlight_color
-        else:
-            highlight_color_hex = self.config.highlight_color
-
-        # Create style params for each visual style
-        neutral_style_params = ASSStyleParams(
-            name="Neutral",
-            font_name=font_name,
-            font_size=font_size,
-            primary_color=primary_color,
-            outline_color=outline_color,
-            back_color=bg_color,
-            bold=bold,
-            italic=italic,
-            border_style=border_style,
-            outline=outline_width,
-            alignment=alignment,
-            margin_l=self.config.margin_horizontal,
-            margin_r=self.config.margin_horizontal,
-            margin_v=margin_v,
-        )
-        persona_style_params = ASSStyleParams(
-            name="Persona",
-            font_name=font_name,
-            font_size=font_size,
-            primary_color=primary_color,
-            outline_color=outline_color,
-            back_color=bg_color,
-            bold=bold,
-            italic=italic,
-            border_style=border_style,
-            outline=outline_width,
-            alignment=alignment,
-            margin_l=self.config.margin_horizontal,
-            margin_r=self.config.margin_horizontal,
-            margin_v=margin_v,
-        )
-        emphasis_style_params = ASSStyleParams(
-            name="Emphasis",
-            font_name=font_name,
-            font_size=font_size,
-            primary_color=primary_color,
-            outline_color=outline_color,
-            back_color=bg_color,
-            bold=bold,
-            italic=italic,
-            border_style=border_style,
-            outline=outline_width,
-            alignment=alignment,
-            margin_l=self.config.margin_horizontal,
-            margin_r=self.config.margin_horizontal,
-            margin_v=margin_v,
-        )
+        # Create style params for each visual style (same base, different names)
+        neutral_style_params = self._make_style_params("Neutral", sv)
+        persona_style_params = self._make_style_params("Persona", sv)
+        emphasis_style_params = self._make_style_params("Emphasis", sv)
 
         # Render header with styles
         ass_content = self.template_loader.render_header(
@@ -1367,7 +1393,7 @@ class SubtitleGenerator:
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(ass_content)
 
-        logger.info(f"Generated scene-styled ASS subtitle: {output_path}")
+        logger.info("scene_styled_ass_generated", path=str(output_path))
         return output_path
 
     def _find_scene_index(self, timestamp: float, scene_timings: list[tuple[float, float]]) -> int:

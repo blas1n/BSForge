@@ -6,8 +6,11 @@ Provides graceful fallback when the Wan service is unavailable.
 
 import base64
 import random
+import time
 from pathlib import Path
 from typing import Literal
+
+import httpx
 
 from app.config.video import WanConfig
 from app.core.logging import get_logger
@@ -17,6 +20,11 @@ from app.services.generator.visual.base import (
     VisualAsset,
     VisualSourceType,
 )
+
+# Maximum base64 payload size (100 MB decoded)
+_MAX_VIDEO_BYTES = 100 * 1024 * 1024
+# Service availability cache TTL in seconds (5 minutes)
+_AVAILABILITY_TTL_SECONDS = 300
 
 logger = get_logger(__name__)
 
@@ -49,6 +57,7 @@ class WanVideoSource(BaseVisualSource):
         self._config = config or WanConfig()
         self._client = http_client
         self._service_available: bool | None = None
+        self._availability_checked_at: float = 0.0
 
     @property
     def default_duration(self) -> float:
@@ -67,7 +76,9 @@ class WanVideoSource(BaseVisualSource):
         if not self._config.enabled:
             return False
 
-        if self._service_available and not force_check:
+        elapsed = time.monotonic() - self._availability_checked_at
+        cache_expired = elapsed > _AVAILABILITY_TTL_SECONDS
+        if self._service_available and not force_check and not cache_expired:
             return True
 
         try:
@@ -79,6 +90,7 @@ class WanVideoSource(BaseVisualSource):
             if response.status_code == 200:
                 data = response.json()
                 self._service_available = data.get("status") == "ok"
+                self._availability_checked_at = time.monotonic()
                 if self._service_available:
                     logger.info(
                         f"Wan service available: device={data.get('device')}, "
@@ -87,10 +99,11 @@ class WanVideoSource(BaseVisualSource):
                     )
                 return self._service_available
 
-        except Exception as e:
+        except (httpx.HTTPError, ValueError, OSError) as e:
             logger.warning(f"Wan service check failed: {e}")
 
         self._service_available = False
+        self._availability_checked_at = time.monotonic()
         return False
 
     async def search(
@@ -119,6 +132,25 @@ class WanVideoSource(BaseVisualSource):
             duration_seconds=duration,
         )
 
+    def _enhance_prompt(self, prompt: str, orientation: str = "portrait") -> str:
+        """Append cinematic quality cues to a generation prompt.
+
+        Args:
+            prompt: Raw scene keyword or description
+            orientation: Video orientation hint
+
+        Returns:
+            Enhanced prompt with cinematic modifiers
+        """
+        orientation_hint = (
+            "vertical 9:16 composition" if orientation == "portrait" else "horizontal widescreen"
+        )
+        return (
+            f"{prompt}, {orientation_hint}, cinematic lighting, "
+            "dramatic atmosphere, sharp focus, professional film quality, "
+            "social media short video aesthetic, high contrast"
+        )
+
     async def generate(
         self,
         prompt: str,
@@ -143,6 +175,7 @@ class WanVideoSource(BaseVisualSource):
             logger.warning("Wan service not available, skipping generation")
             return []
 
+        prompt = self._enhance_prompt(prompt, orientation)
         width, height = self._get_dimensions(orientation)
         duration = duration_seconds or self._config.default_duration_seconds
 
@@ -194,7 +227,7 @@ class WanVideoSource(BaseVisualSource):
                     f"({data.get('duration_seconds', duration):.1f}s, seed={data.get('seed')})"
                 )
 
-            except Exception as e:
+            except (httpx.HTTPError, ValueError, KeyError, OSError) as e:
                 logger.error(f"Wan generation failed: {e}", exc_info=True)
                 self._service_available = False
                 continue
@@ -239,6 +272,14 @@ class WanVideoSource(BaseVisualSource):
             return asset
 
         try:
+            # Validate size before decoding (base64 is ~4/3 of decoded size)
+            estimated_size = len(video_base64) * 3 // 4
+            if estimated_size > _MAX_VIDEO_BYTES:
+                raise ValueError(
+                    f"Video data too large ({estimated_size / 1024 / 1024:.1f}MB), "
+                    f"max={_MAX_VIDEO_BYTES / 1024 / 1024:.0f}MB"
+                )
+
             video_data = base64.b64decode(video_base64)
 
             with open(output_path, "wb") as f:
@@ -293,7 +334,7 @@ class WanVideoSource(BaseVisualSource):
         except FileNotFoundError:
             logger.error(f"File not found: {file_path}")
             return None
-        except Exception as e:
+        except (httpx.HTTPError, ValueError, OSError) as e:
             logger.error(f"CLIP evaluation failed: {e}", exc_info=True)
             self._service_available = False
             return None

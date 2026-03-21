@@ -23,23 +23,6 @@ def mock_http_client() -> HTTPClient:
 class TestCreateSource:
     """Tests for create_source function."""
 
-    def test_create_hackernews_source(self, mock_http_client: HTTPClient) -> None:
-        """Test creating HackerNews source."""
-        source = create_source("hackernews", mock_http_client)
-        assert source is not None
-        assert source.__class__.__name__ == "HackerNewsSource"
-
-    def test_create_hackernews_with_overrides(self, mock_http_client: HTTPClient) -> None:
-        """Test creating HackerNews source with config overrides."""
-        overrides = {
-            "filters": {"min_score": 100},
-            "limit": 20,
-        }
-        source = create_source("hackernews", mock_http_client, overrides)
-        assert source is not None
-        assert source._config.min_score == 100
-        assert source._config.limit == 20
-
     def test_create_reddit_source_requires_subreddits(self, mock_http_client: HTTPClient) -> None:
         """Test that Reddit source requires subreddits in overrides."""
         with pytest.raises(ValueError, match="subreddits"):
@@ -58,66 +41,11 @@ class TestCreateSource:
         assert source._config.min_score == 50
         assert source._config.limit == 15
 
-    def test_create_youtube_trending_source(self, mock_http_client: HTTPClient) -> None:
-        """Test creating YouTube Trending source."""
-        source = create_source("youtube_trending", mock_http_client)
-        assert source is not None
-        assert source.__class__.__name__ == "YouTubeTrendingSource"
-
     def test_create_google_trends_source(self, mock_http_client: HTTPClient) -> None:
         """Test creating Google Trends source."""
         source = create_source("google_trends", mock_http_client)
         assert source is not None
         assert source.__class__.__name__ == "GoogleTrendsSource"
-
-    def test_create_dcinside_source(self, mock_http_client: HTTPClient) -> None:
-        """Test creating DCInside source."""
-        source = create_source("dcinside", mock_http_client)
-        assert source is not None
-        assert source.__class__.__name__ == "DCInsideSource"
-
-    def test_create_dcinside_with_overrides(self, mock_http_client: HTTPClient) -> None:
-        """Test creating DCInside source with custom galleries."""
-        overrides = {
-            "params": {"galleries": ["programming", "tech"], "gallery_type": "minor"},
-            "filters": {"min_score": 100},
-            "limit": 20,
-        }
-        source = create_source("dcinside", mock_http_client, overrides)
-        assert source is not None
-        assert source._config.galleries == ["programming", "tech"]
-        assert source._config.gallery_type == "minor"
-        assert source._config.min_score == 100
-
-    def test_create_clien_source(self, mock_http_client: HTTPClient) -> None:
-        """Test creating Clien source."""
-        source = create_source("clien", mock_http_client)
-        assert source is not None
-        assert source.__class__.__name__ == "ClienSource"
-
-    def test_create_clien_with_overrides(self, mock_http_client: HTTPClient) -> None:
-        """Test creating Clien source with custom boards."""
-        overrides = {
-            "params": {"boards": ["park", "jirum"]},
-            "filters": {"min_score": 50},
-            "limit": 25,
-        }
-        source = create_source("clien", mock_http_client, overrides)
-        assert source is not None
-        assert source._config.boards == ["park", "jirum"]
-        assert source._config.min_score == 50
-
-    def test_create_ruliweb_source(self, mock_http_client: HTTPClient) -> None:
-        """Test creating Ruliweb source."""
-        source = create_source("ruliweb", mock_http_client)
-        assert source is not None
-        assert source.__class__.__name__ == "RuliwebSource"
-
-    def test_create_fmkorea_source(self, mock_http_client: HTTPClient) -> None:
-        """Test creating FMKorea source."""
-        source = create_source("fmkorea", mock_http_client)
-        assert source is not None
-        assert source.__class__.__name__ == "FmkoreaSource"
 
     def test_create_rss_source(self, mock_http_client: HTTPClient) -> None:
         """Test creating RSS source."""
@@ -152,13 +80,13 @@ class TestCreateSource:
     def test_custom_source_id(self, mock_http_client: HTTPClient) -> None:
         """Test creating source with custom source ID."""
         custom_id = uuid.uuid4()
-        source = create_source("hackernews", mock_http_client, source_id=custom_id)
+        source = create_source("google_trends", mock_http_client, source_id=custom_id)
         assert source is not None
         assert source.source_id == custom_id
 
     def test_generates_source_id_if_not_provided(self, mock_http_client: HTTPClient) -> None:
         """Test that source ID is generated if not provided."""
-        source = create_source("hackernews", mock_http_client)
+        source = create_source("google_trends", mock_http_client)
         assert source is not None
         assert source.source_id is not None
         assert isinstance(source.source_id, uuid.UUID)
@@ -177,43 +105,43 @@ class TestCollectFromSources:
             mock_source.collect.return_value = mock_topics
             mock_create.return_value = mock_source
 
-            topics = await collect_from_sources(["hackernews"], mock_http_client)
+            topics = await collect_from_sources(["google_trends"], mock_http_client)
 
             assert len(topics) == 1
-            mock_create.assert_called_once_with("hackernews", mock_http_client, {})
+            mock_create.assert_called_once_with("google_trends", mock_http_client, {})
 
     @pytest.mark.asyncio
     async def test_collect_from_multiple_sources(self, mock_http_client: HTTPClient) -> None:
         """Test collecting from multiple sources."""
-        mock_topics_hn = [{"title": "HN Topic"}]
+        mock_topics_trends = [{"title": "Trends Topic"}]
         mock_topics_reddit = [{"title": "Reddit Topic"}]
 
         with patch("app.services.collector.sources.factory.create_source") as mock_create:
-            mock_source_hn = AsyncMock()
-            mock_source_hn.collect.return_value = mock_topics_hn
+            mock_source_trends = AsyncMock()
+            mock_source_trends.collect.return_value = mock_topics_trends
 
             mock_source_reddit = AsyncMock()
             mock_source_reddit.collect.return_value = mock_topics_reddit
 
-            mock_create.side_effect = [mock_source_hn, mock_source_reddit]
+            mock_create.side_effect = [mock_source_trends, mock_source_reddit]
 
-            topics = await collect_from_sources(["hackernews", "reddit"], mock_http_client)
+            topics = await collect_from_sources(["google_trends", "reddit"], mock_http_client)
 
             assert len(topics) == 2
 
     @pytest.mark.asyncio
     async def test_collect_applies_source_overrides(self, mock_http_client: HTTPClient) -> None:
         """Test that source overrides are applied."""
-        overrides = {"hackernews": {"limit": 50}}
+        overrides = {"google_trends": {"limit": 50}}
 
         with patch("app.services.collector.sources.factory.create_source") as mock_create:
             mock_source = AsyncMock()
             mock_source.collect.return_value = []
             mock_create.return_value = mock_source
 
-            await collect_from_sources(["hackernews"], mock_http_client, overrides)
+            await collect_from_sources(["google_trends"], mock_http_client, overrides)
 
-            mock_create.assert_called_once_with("hackernews", mock_http_client, {"limit": 50})
+            mock_create.assert_called_once_with("google_trends", mock_http_client, {"limit": 50})
 
     @pytest.mark.asyncio
     async def test_collect_skips_unknown_sources(self, mock_http_client: HTTPClient) -> None:
@@ -233,8 +161,7 @@ class TestCollectFromSources:
             mock_source.collect.side_effect = Exception("Collection failed")
             mock_create.return_value = mock_source
 
-            # Should not raise, just return empty list
-            topics = await collect_from_sources(["hackernews"], mock_http_client)
+            topics = await collect_from_sources(["google_trends"], mock_http_client)
 
             assert len(topics) == 0
 
@@ -247,12 +174,10 @@ class TestCollectFromSources:
             mock_source_ok = AsyncMock()
             mock_source_ok.collect.return_value = mock_topics
 
-            # First call raises ValueError (unknown source), second returns working source
             mock_create.side_effect = [ValueError("Unknown source"), mock_source_ok]
 
             topics = await collect_from_sources(
                 ["failing_source", "working_source"], mock_http_client
             )
 
-            # Should have topics from the working source
             assert len(topics) == 1

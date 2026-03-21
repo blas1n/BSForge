@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -17,6 +17,25 @@ from app.config.video_template import (
     VisualEffectsConfig,
 )
 from app.services.generator.remotion_compositor import RemotionCompositor
+
+
+@pytest.fixture
+def capture_props(monkeypatch: pytest.MonkeyPatch) -> dict:
+    """Capture Remotion props JSON written during compose_scenes.
+
+    Returns a dict that is populated when write_text is called on
+    a file named 'remotion_props.json'.
+    """
+    written: dict = {}
+    original = Path.write_text
+
+    def _capture(self: Path, data: str, *args: object, **kwargs: object) -> None:
+        if self.name == "remotion_props.json":
+            written.update(json.loads(data))
+        return original(self, data, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "write_text", _capture)
+    return written
 
 
 @pytest.fixture
@@ -296,59 +315,6 @@ class TestStageAsset:
         assert existing.read_bytes() == b"old data"
 
 
-class TestReencodeVideo:
-    """Tests for RemotionCompositor._reencode_video()."""
-
-    @pytest.mark.asyncio
-    async def test_returns_reencoded_path(self, compositor, tmp_path):
-        src = tmp_path / "clip.webm"
-        src.write_bytes(b"fake video")
-        out = tmp_path / "clip_h264.mp4"
-
-        async def mock_communicate():
-            out.write_bytes(b"reencoded")
-            return b"", b""
-
-        mock_proc = MagicMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = mock_communicate
-
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
-            result = await compositor._reencode_video(src)
-
-        assert result == out
-
-    @pytest.mark.asyncio
-    async def test_returns_original_on_failure(self, compositor, tmp_path):
-        src = tmp_path / "clip.webm"
-        src.write_bytes(b"fake video")
-
-        async def mock_communicate():
-            return b"", b"error"
-
-        mock_proc = MagicMock()
-        mock_proc.returncode = 1
-        mock_proc.communicate = mock_communicate
-
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
-            result = await compositor._reencode_video(src)
-
-        assert result == src
-
-    @pytest.mark.asyncio
-    async def test_skips_if_already_reencoded(self, compositor, tmp_path):
-        src = tmp_path / "clip.webm"
-        src.write_bytes(b"fake video")
-        out = tmp_path / "clip_h264.mp4"
-        out.write_bytes(b"already done")
-
-        with patch("asyncio.create_subprocess_exec") as mock_exec:
-            result = await compositor._reencode_video(src)
-
-        mock_exec.assert_not_called()
-        assert result == out
-
-
 class TestRender:
     """Tests for RemotionCompositor._render()."""
 
@@ -422,6 +388,38 @@ class TestRender:
             )
 
     @pytest.mark.asyncio
+    async def test_render_timeout_kills_process(self, compositor, tmp_path):
+        """Render that exceeds timeout is killed and raises RuntimeError."""
+        import asyncio
+
+        output_path = tmp_path / "output.mp4"
+
+        async def mock_communicate_hang():
+            await asyncio.sleep(9999)  # Simulate hanging process
+            return b"", b""
+
+        mock_proc = MagicMock()
+        mock_proc.communicate = mock_communicate_hang
+        mock_proc.kill = MagicMock()
+        mock_proc.wait = AsyncMock()
+
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=mock_proc),
+            patch(
+                "app.services.generator.remotion_compositor._RENDER_TIMEOUT_SECONDS",
+                0.1,  # 100ms timeout for test
+            ),
+            pytest.raises(RuntimeError, match="timed out"),
+        ):
+            await compositor._render(
+                props_path=tmp_path / "props.json",
+                output_path=output_path,
+                total_duration=30.0,
+            )
+
+        mock_proc.kill.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_render_cmd_contains_remotion_args(self, compositor, tmp_path):
         output_path = tmp_path / "output.mp4"
         props_path = tmp_path / "props.json"
@@ -451,7 +449,7 @@ class TestComposeScenes:
     """Tests for RemotionCompositor.compose_scenes()."""
 
     @pytest.mark.asyncio
-    async def test_compose_scenes_writes_props_json(self, compositor, tmp_path):
+    async def test_compose_scenes_writes_props_json(self, compositor, tmp_path, capture_props):
         output_path = tmp_path / "video"
         tts_results = [_make_tts_result(10.0), _make_tts_result(5.0)]
         scene_visuals = [_make_scene_visual(10.0), _make_scene_visual(5.0)]
@@ -464,19 +462,7 @@ class TestComposeScenes:
         mock_proc.returncode = 0
         mock_proc.communicate = mock_communicate
 
-        written_props: dict = {}
-
-        original_write_text = Path.write_text
-
-        def capture_write_text(self, data, *args, **kwargs):
-            if self.name == "remotion_props.json":
-                written_props.update(json.loads(data))
-            return original_write_text(self, data, *args, **kwargs)
-
-        with (
-            patch("asyncio.create_subprocess_exec", return_value=mock_proc),
-            patch.object(Path, "write_text", capture_write_text),
-        ):
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             await compositor.compose_scenes(
                 scenes=[],
                 scene_tts_results=tts_results,
@@ -486,10 +472,10 @@ class TestComposeScenes:
                 output_path=output_path,
             )
 
-        assert written_props["duration_seconds"] == 15.0
-        assert written_props["fps"] == 30
-        assert "visuals" in written_props
-        assert "subtitles" in written_props
+        assert capture_props["duration_seconds"] == 15.0
+        assert capture_props["fps"] == 30
+        assert "visuals" in capture_props
+        assert "subtitles" in capture_props
 
     @pytest.mark.asyncio
     async def test_compose_scenes_cleans_up_props_file_on_success(self, compositor, tmp_path):
@@ -546,7 +532,9 @@ class TestComposeScenes:
         assert not (tmp_path / "remotion_props.json").exists()
 
     @pytest.mark.asyncio
-    async def test_compose_scenes_uses_persona_accent_color(self, compositor, tmp_path):
+    async def test_compose_scenes_uses_persona_accent_color(
+        self, compositor, tmp_path, capture_props
+    ):
         output_path = tmp_path / "video"
         tts_results = [_make_tts_result(5.0)]
 
@@ -561,19 +549,7 @@ class TestComposeScenes:
         mock_proc.returncode = 0
         mock_proc.communicate = mock_communicate
 
-        written_props: dict = {}
-
-        original_write_text = Path.write_text
-
-        def capture_write_text(self, data, *args, **kwargs):
-            if self.name == "remotion_props.json":
-                written_props.update(json.loads(data))
-            return original_write_text(self, data, *args, **kwargs)
-
-        with (
-            patch("asyncio.create_subprocess_exec", return_value=mock_proc),
-            patch.object(Path, "write_text", capture_write_text),
-        ):
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             await compositor.compose_scenes(
                 scenes=[],
                 scene_tts_results=tts_results,
@@ -584,10 +560,10 @@ class TestComposeScenes:
                 persona_style=persona_style,
             )
 
-        assert written_props["accent_color"] == "#00FF00"
+        assert capture_props["accent_color"] == "#00FF00"
 
     @pytest.mark.asyncio
-    async def test_compose_scenes_default_accent_color(self, compositor, tmp_path):
+    async def test_compose_scenes_default_accent_color(self, compositor, tmp_path, capture_props):
         output_path = tmp_path / "video"
         tts_results = [_make_tts_result(5.0)]
 
@@ -599,19 +575,7 @@ class TestComposeScenes:
         mock_proc.returncode = 0
         mock_proc.communicate = mock_communicate
 
-        written_props: dict = {}
-
-        original_write_text = Path.write_text
-
-        def capture_write_text(self, data, *args, **kwargs):
-            if self.name == "remotion_props.json":
-                written_props.update(json.loads(data))
-            return original_write_text(self, data, *args, **kwargs)
-
-        with (
-            patch("asyncio.create_subprocess_exec", return_value=mock_proc),
-            patch.object(Path, "write_text", capture_write_text),
-        ):
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             await compositor.compose_scenes(
                 scenes=[],
                 scene_tts_results=tts_results,
@@ -621,7 +585,7 @@ class TestComposeScenes:
                 output_path=output_path,
             )
 
-        assert written_props["accent_color"] == "#FF69B4"
+        assert capture_props["accent_color"] == "#FF69B4"
 
 
 class TestBuildSafeZone:
@@ -748,7 +712,7 @@ class TestComposeScenesWithSafeZoneAndTheme:
     """Tests that compose_scenes includes safe_zone and theme in props."""
 
     @pytest.mark.asyncio
-    async def test_props_include_safe_zone_and_theme(self, compositor, tmp_path):
+    async def test_props_include_safe_zone_and_theme(self, compositor, tmp_path, capture_props):
         output_path = tmp_path / "video"
         tts_results = [_make_tts_result(5.0)]
 
@@ -760,19 +724,7 @@ class TestComposeScenesWithSafeZoneAndTheme:
         mock_proc.returncode = 0
         mock_proc.communicate = mock_communicate
 
-        written_props: dict = {}
-
-        original_write_text = Path.write_text
-
-        def capture_write_text(self, data, *args, **kwargs):
-            if self.name == "remotion_props.json":
-                written_props.update(json.loads(data))
-            return original_write_text(self, data, *args, **kwargs)
-
-        with (
-            patch("asyncio.create_subprocess_exec", return_value=mock_proc),
-            patch.object(Path, "write_text", capture_write_text),
-        ):
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             await compositor.compose_scenes(
                 scenes=[],
                 scene_tts_results=tts_results,
@@ -783,16 +735,16 @@ class TestComposeScenesWithSafeZoneAndTheme:
             )
 
         # safe_zone and theme should always be present in props
-        assert "safe_zone" in written_props
-        assert written_props["safe_zone"]["top_px"] == 380
-        assert written_props["safe_zone"]["bottom_px"] == 480
+        assert "safe_zone" in capture_props
+        assert capture_props["safe_zone"]["top_px"] == 380
+        assert capture_props["safe_zone"]["bottom_px"] == 480
 
-        assert "theme" in written_props
-        assert written_props["theme"]["accent_color"] == "#FF69B4"
-        assert written_props["theme"]["font_family"] == "Pretendard"
+        assert "theme" in capture_props
+        assert capture_props["theme"]["accent_color"] == "#FF69B4"
+        assert capture_props["theme"]["font_family"] == "Pretendard"
 
     @pytest.mark.asyncio
-    async def test_props_with_custom_template(self, compositor, tmp_path):
+    async def test_props_with_custom_template(self, compositor, tmp_path, capture_props):
         output_path = tmp_path / "video"
         tts_results = [_make_tts_result(5.0)]
 
@@ -815,19 +767,7 @@ class TestComposeScenesWithSafeZoneAndTheme:
         mock_proc.returncode = 0
         mock_proc.communicate = mock_communicate
 
-        written_props: dict = {}
-
-        original_write_text = Path.write_text
-
-        def capture_write_text(self, data, *args, **kwargs):
-            if self.name == "remotion_props.json":
-                written_props.update(json.loads(data))
-            return original_write_text(self, data, *args, **kwargs)
-
-        with (
-            patch("asyncio.create_subprocess_exec", return_value=mock_proc),
-            patch.object(Path, "write_text", capture_write_text),
-        ):
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             await compositor.compose_scenes(
                 scenes=[],
                 scene_tts_results=tts_results,
@@ -838,9 +778,9 @@ class TestComposeScenesWithSafeZoneAndTheme:
                 video_template=template,
             )
 
-        assert written_props["safe_zone"]["top_px"] == 160
-        assert written_props["theme"]["accent_color"] == "#00BFFF"
-        assert written_props["theme"]["font_family"] == "Noto Sans KR"
+        assert capture_props["safe_zone"]["top_px"] == 160
+        assert capture_props["theme"]["accent_color"] == "#00BFFF"
+        assert capture_props["theme"]["font_family"] == "Noto Sans KR"
 
 
 class TestBuildVisualAssetsWithCameraAndTransitions:
@@ -939,7 +879,7 @@ class TestComposeScenesWithNewProps:
     """Tests that compose_scenes includes headline_animation and camera/transition props."""
 
     @pytest.mark.asyncio
-    async def test_props_include_headline_animation(self, compositor, tmp_path):
+    async def test_props_include_headline_animation(self, compositor, tmp_path, capture_props):
         output_path = tmp_path / "video"
         tts_results = [_make_tts_result(5.0)]
 
@@ -958,18 +898,7 @@ class TestComposeScenesWithNewProps:
         mock_proc.returncode = 0
         mock_proc.communicate = mock_communicate
 
-        written_props: dict = {}
-        original_write_text = Path.write_text
-
-        def capture_write_text(self, data, *args, **kwargs):
-            if self.name == "remotion_props.json":
-                written_props.update(json.loads(data))
-            return original_write_text(self, data, *args, **kwargs)
-
-        with (
-            patch("asyncio.create_subprocess_exec", return_value=mock_proc),
-            patch.object(Path, "write_text", capture_write_text),
-        ):
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             await compositor.compose_scenes(
                 scenes=[],
                 scene_tts_results=tts_results,
@@ -980,10 +909,10 @@ class TestComposeScenesWithNewProps:
                 video_template=template,
             )
 
-        assert written_props["headline_animation"] == "bounce"
+        assert capture_props["headline_animation"] == "bounce"
 
     @pytest.mark.asyncio
-    async def test_default_headline_animation(self, compositor, tmp_path):
+    async def test_default_headline_animation(self, compositor, tmp_path, capture_props):
         output_path = tmp_path / "video"
         tts_results = [_make_tts_result(5.0)]
 
@@ -995,18 +924,7 @@ class TestComposeScenesWithNewProps:
         mock_proc.returncode = 0
         mock_proc.communicate = mock_communicate
 
-        written_props: dict = {}
-        original_write_text = Path.write_text
-
-        def capture_write_text(self, data, *args, **kwargs):
-            if self.name == "remotion_props.json":
-                written_props.update(json.loads(data))
-            return original_write_text(self, data, *args, **kwargs)
-
-        with (
-            patch("asyncio.create_subprocess_exec", return_value=mock_proc),
-            patch.object(Path, "write_text", capture_write_text),
-        ):
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             await compositor.compose_scenes(
                 scenes=[],
                 scene_tts_results=tts_results,
@@ -1016,10 +934,10 @@ class TestComposeScenesWithNewProps:
                 output_path=output_path,
             )
 
-        assert written_props["headline_animation"] == "fade_in"
+        assert capture_props["headline_animation"] == "fade_in"
 
     @pytest.mark.asyncio
-    async def test_props_use_template_text_animation(self, compositor, tmp_path):
+    async def test_props_use_template_text_animation(self, compositor, tmp_path, capture_props):
         output_path = tmp_path / "video"
         tts_results = [_make_tts_result(5.0)]
 
@@ -1046,18 +964,7 @@ class TestComposeScenesWithNewProps:
         mock_proc.returncode = 0
         mock_proc.communicate = mock_communicate
 
-        written_props: dict = {}
-        original_write_text = Path.write_text
-
-        def capture_write_text(self, data, *args, **kwargs):
-            if self.name == "remotion_props.json":
-                written_props.update(json.loads(data))
-            return original_write_text(self, data, *args, **kwargs)
-
-        with (
-            patch("asyncio.create_subprocess_exec", return_value=mock_proc),
-            patch.object(Path, "write_text", capture_write_text),
-        ):
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             await compositor.compose_scenes(
                 scenes=[],
                 scene_tts_results=tts_results,
@@ -1069,10 +976,12 @@ class TestComposeScenesWithNewProps:
                 video_template=template,
             )
 
-        assert written_props["subtitles"][0]["text_animation"] == "pop"
+        assert capture_props["subtitles"][0]["text_animation"] == "pop"
 
     @pytest.mark.asyncio
-    async def test_props_include_camera_movement_in_visuals(self, compositor, tmp_path):
+    async def test_props_include_camera_movement_in_visuals(
+        self, compositor, tmp_path, capture_props
+    ):
         output_path = tmp_path / "video"
         tts_results = [_make_tts_result(5.0)]
         scene_visuals = [_make_scene_visual(5.0, 0.0)]
@@ -1093,18 +1002,7 @@ class TestComposeScenesWithNewProps:
         mock_proc.returncode = 0
         mock_proc.communicate = mock_communicate
 
-        written_props: dict = {}
-        original_write_text = Path.write_text
-
-        def capture_write_text(self, data, *args, **kwargs):
-            if self.name == "remotion_props.json":
-                written_props.update(json.loads(data))
-            return original_write_text(self, data, *args, **kwargs)
-
-        with (
-            patch("asyncio.create_subprocess_exec", return_value=mock_proc),
-            patch.object(Path, "write_text", capture_write_text),
-        ):
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             await compositor.compose_scenes(
                 scenes=[],
                 scene_tts_results=tts_results,
@@ -1115,9 +1013,9 @@ class TestComposeScenesWithNewProps:
                 video_template=template,
             )
 
-        assert len(written_props["visuals"]) == 1
-        assert written_props["visuals"][0]["camera_movement"] == "pan_left"
-        assert written_props["visuals"][0]["transition_out"] == "crossfade"
+        assert len(capture_props["visuals"]) == 1
+        assert capture_props["visuals"][0]["camera_movement"] == "pan_left"
+        assert capture_props["visuals"][0]["transition_out"] == "crossfade"
 
 
 class TestBuildSceneMetadata:

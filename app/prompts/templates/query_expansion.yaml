@@ -7,7 +7,6 @@ version: "1.0.0"
 description: "Expands a search query into multiple alternative queries for improved retrieval"
 
 # LLM Settings
-model: "anthropic/claude-haiku-4-5-20251001"
 max_tokens: 200
 temperature: 0.7
 

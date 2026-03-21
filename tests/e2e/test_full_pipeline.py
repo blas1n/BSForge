@@ -2,7 +2,7 @@
 
 These tests verify the complete workflow:
 1. Collect topics with persona context
-2. Generate script from topic using RAG
+2. Generate script from topic
 3. Generate video from script
 """
 
@@ -25,9 +25,10 @@ from app.services.generator.remotion_compositor import RemotionCompositor
 from app.services.generator.subtitle import SubtitleGenerator
 from app.services.generator.tts.base import TTSSynthesisConfig as TTSConfigDataclass
 from app.services.generator.tts.edge import EdgeTTSEngine
-from app.services.generator.visual.fallback import FallbackGenerator
+from app.services.generator.tts.utils import concatenate_scene_audio
+from app.services.generator.visual.manager import SceneVisualResult
 
-from .conftest import create_scored_topic
+from .conftest import create_fallback_visual, create_scored_topic
 
 
 class TestPersonaBasedGeneration:
@@ -71,7 +72,6 @@ class TestPersonaBasedGeneration:
         sample_topic: ScoredTopic,
     ) -> None:
         """Test script generation from topic with persona."""
-        # Mock LLM client for script generation
         llm_client = AsyncMock()
         llm_client.complete = AsyncMock(
             return_value=MagicMock(
@@ -85,8 +85,6 @@ OpenAI가 최근 발표한 새로운 기능들이 정말 대단한데요.
             )
         )
 
-        # In real implementation, this would use ScriptGenerator
-        # Here we simulate the script generation
         script_text = llm_client.complete.return_value.content
 
         assert len(script_text) > 50
@@ -105,55 +103,100 @@ OpenAI가 최근 발표한 새로운 기능들이 정말 대단한데요.
         subtitle_generator: SubtitleGenerator,
     ) -> None:
         """Test complete topic to video pipeline."""
-        # Simulate generated script
-        script_text = """안녕하세요! 오늘은 ChatGPT 최신 업데이트를 살펴보겠습니다.
-새로운 기능들이 정말 놀라운데요, 특히 한국어 지원이 크게 개선되었습니다.
-여러분도 직접 사용해보시길 추천드립니다."""
+        scenes = [
+            Scene(
+                scene_type=SceneType.HOOK,
+                text="안녕하세요! 오늘은 ChatGPT 최신 업데이트를 살펴보겠습니다.",
+                visual_keyword="ChatGPT update news",
+            ),
+            Scene(
+                scene_type=SceneType.CONTENT,
+                text="새로운 기능들이 정말 놀라운데요, 특히 한국어 지원이 크게 개선되었습니다.",
+                visual_keyword="AI Korean language support",
+            ),
+            Scene(
+                scene_type=SceneType.CONCLUSION,
+                text="여러분도 직접 사용해보시길 추천드립니다.",
+                visual_keyword="recommendation try it",
+            ),
+        ]
 
-        # Step 1: Generate TTS with persona voice
+        scene_script = SceneScript(
+            scenes=scenes,
+            headline="ChatGPT 최신 업데이트",
+        )
+
+        # Step 1: Generate TTS for each scene
         tts_config = TTSConfigDataclass(
             voice_id=sample_persona.voice.voice_id,
             speed=sample_persona.voice.settings.speed,
         )
 
-        tts_result = await edge_tts_engine.synthesize(
-            text=script_text,
+        scene_tts_results = await edge_tts_engine.synthesize_scenes(
+            scenes=scenes,
             config=tts_config,
-            output_path=temp_output_dir / "topic_audio",
+            output_dir=temp_output_dir / "audio_scenes",
         )
 
-        assert tts_result.audio_path.exists()
+        assert len(scene_tts_results) == len(scenes)
+        for tts_result in scene_tts_results:
+            assert tts_result.audio_path.exists()
 
-        # Step 2: Generate subtitles
-        if tts_result.word_timestamps:
-            subtitle_file = subtitle_generator.generate_from_timestamps(tts_result.word_timestamps)
-        else:
-            subtitle_file = subtitle_generator.generate_from_script(
-                script_text, tts_result.duration_seconds
-            )
+        # Step 2: Concatenate audio
+        combined_tts = await concatenate_scene_audio(
+            scene_results=scene_tts_results,
+            output_path=temp_output_dir / "combined_audio",
+            ffmpeg_wrapper=ffmpeg_wrapper,
+        )
+
+        assert combined_tts.audio_path.exists()
+
+        # Step 3: Generate subtitles
+        subtitle_file = subtitle_generator.generate_from_scene_results(
+            scene_results=scene_tts_results,
+            scenes=scenes,
+        )
 
         subtitle_path = temp_output_dir / "topic_subs.ass"
         subtitle_generator.to_ass(subtitle_file, subtitle_path)
 
-        # Step 3: Generate visual
-        fallback_gen = FallbackGenerator()
-        visuals = await fallback_gen.search("technology", max_results=1)
-        visual = await fallback_gen.download(visuals[0], temp_output_dir)
+        # Step 4: Generate visuals (fallback solid color for each scene)
+        current_offset = 0.0
+        scene_visuals = []
+        for i, (scene, tts_result) in enumerate(zip(scenes, scene_tts_results, strict=False)):
+            visual = create_fallback_visual(
+                temp_output_dir / "visuals",
+                name=f"scene_{i}",
+                duration=tts_result.duration_seconds,
+            )
+            scene_visuals.append(
+                SceneVisualResult(
+                    scene_index=i,
+                    scene_type=scene.scene_type.value,
+                    asset=visual,
+                    duration=tts_result.duration_seconds,
+                    start_offset=current_offset,
+                )
+            )
+            current_offset += tts_result.duration_seconds
 
-        # Step 4: Compose video
+        # Step 5: Compose video
         video_path = temp_output_dir / "topic_video.mp4"
 
-        result = await remotion_compositor.compose(
-            audio=tts_result,
-            visuals=[visual],
+        result = await remotion_compositor.compose_scenes(
+            scenes=scenes,
+            scene_tts_results=scene_tts_results,
+            scene_visuals=scene_visuals,
+            combined_audio_path=combined_tts.audio_path,
             subtitle_file=subtitle_path,
             output_path=video_path,
+            headline=scene_script.headline,
         )
 
         assert video_path.exists()
         assert result.duration_seconds > 0
 
-        # Step 5: Extract thumbnail from first frame
+        # Step 6: Extract thumbnail from first frame
         thumb_path = temp_output_dir / "topic_thumb.jpg"
         stream = ffmpeg_wrapper.extract_frame(
             video_path=video_path,
@@ -181,48 +224,80 @@ class TestBatchVideoGeneration:
     ) -> None:
         """Test generating videos for multiple topics."""
         topics = [
-            ("AI 기술 트렌드", "인공지능이 변화시키는 세상"),
-            ("프로그래밍 팁", "개발자를 위한 생산성 향상 방법"),
+            ("AI 기술 트렌드", "인공지능이 변화시키는 세상", "AI technology trend"),
+            ("프로그래밍 팁", "개발자를 위한 생산성 향상 방법", "programming productivity"),
         ]
-
-        fallback_gen = FallbackGenerator()
 
         generated_videos = []
 
-        for i, (title, script) in enumerate(topics):
+        for i, (title, script, keyword) in enumerate(topics):
             topic_dir = temp_output_dir / f"topic_{i}"
             topic_dir.mkdir(exist_ok=True)
 
+            scenes = [
+                Scene(
+                    scene_type=SceneType.HOOK,
+                    text=script,
+                    visual_keyword=keyword,
+                ),
+            ]
+
+            scene_script = SceneScript(scenes=scenes, headline=title)
+
             # TTS
             tts_config = TTSConfigDataclass(voice_id="ko-KR-SunHiNeural")
-            tts_result = await edge_tts_engine.synthesize(
-                text=script,
+            scene_tts_results = await edge_tts_engine.synthesize_scenes(
+                scenes=scenes,
                 config=tts_config,
-                output_path=topic_dir / "audio",
+                output_dir=topic_dir / "audio_scenes",
+            )
+
+            # Concatenate audio
+            combined_tts = await concatenate_scene_audio(
+                scene_results=scene_tts_results,
+                output_path=topic_dir / "combined_audio",
+                ffmpeg_wrapper=ffmpeg_wrapper,
             )
 
             # Subtitles
-            if tts_result.word_timestamps:
-                sub_file = subtitle_generator.generate_from_timestamps(tts_result.word_timestamps)
-            else:
-                sub_file = subtitle_generator.generate_from_script(
-                    script, tts_result.duration_seconds
-                )
+            sub_file = subtitle_generator.generate_from_scene_results(
+                scene_results=scene_tts_results,
+                scenes=scenes,
+            )
 
             sub_path = topic_dir / "subs.ass"
             subtitle_generator.to_ass(sub_file, sub_path)
 
-            # Visual
-            visuals = await fallback_gen.search("tech", max_results=1)
-            visual = await fallback_gen.download(visuals[0], topic_dir)
+            # Visuals
+            current_offset = 0.0
+            scene_visuals = []
+            for j, (scene, tts_result) in enumerate(zip(scenes, scene_tts_results, strict=False)):
+                visual = create_fallback_visual(
+                    topic_dir / "visuals",
+                    name=f"bg_{i}_{j}",
+                    duration=tts_result.duration_seconds,
+                )
+                scene_visuals.append(
+                    SceneVisualResult(
+                        scene_index=j,
+                        scene_type=scene.scene_type.value,
+                        asset=visual,
+                        duration=tts_result.duration_seconds,
+                        start_offset=current_offset,
+                    )
+                )
+                current_offset += tts_result.duration_seconds
 
             # Compose
             video_path = topic_dir / "video.mp4"
-            await remotion_compositor.compose(
-                audio=tts_result,
-                visuals=[visual],
+            await remotion_compositor.compose_scenes(
+                scenes=scenes,
+                scene_tts_results=scene_tts_results,
+                scene_visuals=scene_visuals,
+                combined_audio_path=combined_tts.audio_path,
                 subtitle_file=sub_path,
                 output_path=video_path,
+                headline=scene_script.headline,
             )
 
             # Extract thumbnail from first frame
@@ -260,7 +335,6 @@ class TestErrorHandling:
         subtitle_generator: SubtitleGenerator,
     ) -> None:
         """Test handling of empty script."""
-        # Empty script should return empty subtitle file
         subtitle_file = subtitle_generator.generate_from_script("", 5.0)
 
         assert len(subtitle_file.segments) == 0
@@ -273,8 +347,6 @@ class TestErrorHandling:
         edge_tts_engine: EdgeTTSEngine,
     ) -> None:
         """Test handling of very long script (beyond Shorts limit)."""
-        # YouTube Shorts max is 60 seconds
-        # This script should exceed that when spoken
         long_script = " ".join(["이것은 매우 긴 스크립트입니다."] * 50)
 
         tts_config = TTSConfigDataclass(voice_id="ko-KR-SunHiNeural")
@@ -285,35 +357,7 @@ class TestErrorHandling:
             output_path=temp_output_dir / "long_audio",
         )
 
-        # Should still generate, but warn about length
         assert tts_result.audio_path.exists()
-        # In production, we'd truncate or split the script
-
-
-class TestIntegrationWithRAG:
-    """E2E tests for RAG-based script generation."""
-
-    @pytest.mark.asyncio
-    async def test_rag_context_retrieval(self) -> None:
-        """Test RAG context retrieval for script generation."""
-        # This would test the full RAG pipeline:
-        # 1. Retrieve relevant content chunks
-        # 2. Build context with persona info
-        # 3. Generate script with LLM
-
-        # For now, we mock the RAG components
-        mock_retriever = AsyncMock()
-        mock_retriever.retrieve = AsyncMock(
-            return_value=[
-                MagicMock(text="AI 기술이 빠르게 발전하고 있습니다.", score=0.9),
-                MagicMock(text="ChatGPT는 OpenAI에서 개발했습니다.", score=0.85),
-            ]
-        )
-
-        # Verify retrieval works
-        results = await mock_retriever.retrieve("ChatGPT 최신 소식")
-        assert len(results) == 2
-        assert results[0].score > results[1].score
 
 
 class TestSceneBasedVideoGeneration:
@@ -356,22 +400,18 @@ class TestSceneBasedVideoGeneration:
         """Test SceneScript structure validation."""
         errors = sample_scene_script.validate_structure()
 
-        # Should have no critical errors (may have duration warnings)
         structural_errors = [e for e in errors if "HOOK" in e or "CONTENT" in e]
         assert len(structural_errors) == 0
 
-        # Should have commentary (BSForge differentiator)
         assert sample_scene_script.has_commentary
 
     def test_scene_script_transitions(self, sample_scene_script: SceneScript) -> None:
         """Test recommended transitions between scenes."""
         transitions = sample_scene_script.get_recommended_transitions()
 
-        # Should have n-1 transitions for n scenes
         assert len(transitions) == len(sample_scene_script.scenes) - 1
 
         # CONTENT -> COMMENTARY should be FLASH (key differentiator)
-        # Position 1 is CONTENT->COMMENTARY
         assert transitions[1] == TransitionType.FLASH
 
     def test_scene_types_classification(self, sample_scene_script: SceneScript) -> None:
@@ -423,10 +463,8 @@ class TestSceneBasedVideoGeneration:
             assert tts_result.audio_path.exists()
             assert tts_result.duration_seconds > 0
 
-        # Verify all scenes processed
         assert len(scene_audios) == 4
 
-        # Commentary scene should be marked as persona scene
         commentary_audio = next(a for a in scene_audios if a["scene_type"].value == "commentary")
         assert commentary_audio["is_persona"] is True
 
@@ -436,44 +474,68 @@ class TestSceneBasedVideoGeneration:
         temp_output_dir: Path,
         sample_scene_script: SceneScript,
         skip_without_ffmpeg: None,
+        ffmpeg_wrapper: FFmpegWrapper,
         edge_tts_engine: EdgeTTSEngine,
         remotion_compositor: RemotionCompositor,
         subtitle_generator: SubtitleGenerator,
     ) -> None:
         """Test video composition with scene-based structure."""
+        scenes = sample_scene_script.scenes
         tts_config = TTSConfigDataclass(voice_id="ko-KR-SunHiNeural")
-        fallback_gen = FallbackGenerator()
 
-        # Generate TTS for full script
-        full_text = sample_scene_script.full_text
-        tts_result = await edge_tts_engine.synthesize(
-            text=full_text,
+        # Step 1: Generate TTS for each scene
+        scene_tts_results = await edge_tts_engine.synthesize_scenes(
+            scenes=scenes,
             config=tts_config,
-            output_path=temp_output_dir / "scene_audio",
+            output_dir=temp_output_dir / "audio_scenes",
         )
 
-        # Generate subtitles
-        if tts_result.word_timestamps:
-            subtitle_file = subtitle_generator.generate_from_timestamps(tts_result.word_timestamps)
-        else:
-            subtitle_file = subtitle_generator.generate_from_script(
-                full_text, tts_result.duration_seconds
-            )
+        # Step 2: Concatenate audio
+        combined_tts = await concatenate_scene_audio(
+            scene_results=scene_tts_results,
+            output_path=temp_output_dir / "combined_audio",
+            ffmpeg_wrapper=ffmpeg_wrapper,
+        )
+
+        # Step 3: Generate subtitles
+        subtitle_file = subtitle_generator.generate_from_scene_results(
+            scene_results=scene_tts_results,
+            scenes=scenes,
+        )
 
         subtitle_path = temp_output_dir / "scene_subs.ass"
         subtitle_generator.to_ass(subtitle_file, subtitle_path)
 
-        # Generate visuals
-        visuals = await fallback_gen.search("technology AI", max_results=1)
-        visual = await fallback_gen.download(visuals[0], temp_output_dir)
+        # Step 4: Generate visuals (fallback solid color for each scene)
+        current_offset = 0.0
+        scene_visuals = []
+        for i, (scene, tts_result) in enumerate(zip(scenes, scene_tts_results, strict=False)):
+            visual = create_fallback_visual(
+                temp_output_dir / "visuals",
+                name=f"scene_{i}",
+                duration=tts_result.duration_seconds,
+            )
+            scene_visuals.append(
+                SceneVisualResult(
+                    scene_index=i,
+                    scene_type=scene.scene_type.value,
+                    asset=visual,
+                    duration=tts_result.duration_seconds,
+                    start_offset=current_offset,
+                )
+            )
+            current_offset += tts_result.duration_seconds
 
-        # Compose video
+        # Step 5: Compose video
         video_path = temp_output_dir / "scene_video.mp4"
-        result = await remotion_compositor.compose(
-            audio=tts_result,
-            visuals=[visual],
+        result = await remotion_compositor.compose_scenes(
+            scenes=scenes,
+            scene_tts_results=scene_tts_results,
+            scene_visuals=scene_visuals,
+            combined_audio_path=combined_tts.audio_path,
             subtitle_file=subtitle_path,
             output_path=video_path,
+            headline=sample_scene_script.headline,
         )
 
         assert video_path.exists()
@@ -485,13 +547,10 @@ class TestSceneBasedVideoGeneration:
             style = scene.inferred_visual_style
 
             if scene.is_persona_scene:
-                # Commentary/Reaction should have PERSONA style
                 assert style == VisualStyle.PERSONA
             elif scene.scene_type.value in ("conclusion", "cta"):
-                # Conclusion/CTA should have EMPHASIS style
                 assert style == VisualStyle.EMPHASIS
             else:
-                # Others should have NEUTRAL style
                 assert style == VisualStyle.NEUTRAL
 
 
@@ -509,10 +568,6 @@ class TestFullPipelineIntegration:
         subtitle_generator: SubtitleGenerator,
     ) -> None:
         """Test complete pipeline: Topic -> SceneScript -> Video."""
-        # Keywords would be used by RAG in production: ["GPT-5", "OpenAI", "AI"]
-
-        # Step 1: Simulated RAG script generation (would use ScriptGenerator)
-        # In production, RAG retrieves relevant chunks and LLM generates script
         scene_script = SceneScript(
             scenes=[
                 Scene(
@@ -534,40 +589,63 @@ class TestFullPipelineIntegration:
             headline="GPT-5, 곧 출시",
         )
 
-        # Step 2: Video generation
-        tts_config = TTSConfigDataclass(voice_id="ko-KR-InJoonNeural")
-        fallback_gen = FallbackGenerator()
+        scenes = scene_script.scenes
 
-        # TTS
-        full_text = scene_script.full_text
-        tts_result = await edge_tts_engine.synthesize(
-            text=full_text,
+        # Step 1: Generate TTS for each scene
+        tts_config = TTSConfigDataclass(voice_id="ko-KR-InJoonNeural")
+
+        scene_tts_results = await edge_tts_engine.synthesize_scenes(
+            scenes=scenes,
             config=tts_config,
-            output_path=temp_output_dir / "pipeline_audio",
+            output_dir=temp_output_dir / "audio_scenes",
         )
 
-        # Subtitles
-        if tts_result.word_timestamps:
-            subtitle_file = subtitle_generator.generate_from_timestamps(tts_result.word_timestamps)
-        else:
-            subtitle_file = subtitle_generator.generate_from_script(
-                full_text, tts_result.duration_seconds
-            )
+        # Step 2: Concatenate audio
+        combined_tts = await concatenate_scene_audio(
+            scene_results=scene_tts_results,
+            output_path=temp_output_dir / "combined_audio",
+            ffmpeg_wrapper=ffmpeg_wrapper,
+        )
+
+        # Step 3: Subtitles
+        subtitle_file = subtitle_generator.generate_from_scene_results(
+            scene_results=scene_tts_results,
+            scenes=scenes,
+        )
 
         subtitle_path = temp_output_dir / "pipeline_subs.ass"
         subtitle_generator.to_ass(subtitle_file, subtitle_path)
 
-        # Visual
-        visuals = await fallback_gen.search("AI technology", max_results=1)
-        visual = await fallback_gen.download(visuals[0], temp_output_dir)
+        # Step 4: Visuals
+        current_offset = 0.0
+        scene_visuals = []
+        for i, (scene, tts_result) in enumerate(zip(scenes, scene_tts_results, strict=False)):
+            visual = create_fallback_visual(
+                temp_output_dir / "visuals",
+                name=f"scene_{i}",
+                duration=tts_result.duration_seconds,
+            )
+            scene_visuals.append(
+                SceneVisualResult(
+                    scene_index=i,
+                    scene_type=scene.scene_type.value,
+                    asset=visual,
+                    duration=tts_result.duration_seconds,
+                    start_offset=current_offset,
+                )
+            )
+            current_offset += tts_result.duration_seconds
 
-        # Compose
+        # Step 5: Compose
         video_path = temp_output_dir / "pipeline_video.mp4"
-        result = await remotion_compositor.compose(
-            audio=tts_result,
-            visuals=[visual],
+        result = await remotion_compositor.compose_scenes(
+            scenes=scenes,
+            scene_tts_results=scene_tts_results,
+            scene_visuals=scene_visuals,
+            combined_audio_path=combined_tts.audio_path,
             subtitle_file=subtitle_path,
             output_path=video_path,
+            headline=scene_script.headline,
         )
 
         # Extract thumbnail from first frame

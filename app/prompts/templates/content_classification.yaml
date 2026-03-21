@@ -7,7 +7,6 @@ version: "1.1.0"
 description: "Classifies text chunks as opinion, example, or analogy for RAG indexing"
 
 # LLM Settings
-model: "anthropic/claude-haiku-4-5-20251001"
 max_tokens: 100
 temperature: 0.1
 

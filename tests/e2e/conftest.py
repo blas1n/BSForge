@@ -13,9 +13,11 @@ import pytest
 from app.config.video import CompositionConfig, SubtitleConfig
 from app.services.collector.base import NormalizedTopic, RawTopic, ScoredTopic
 from app.services.generator.ffmpeg import FFmpegWrapper
+from app.services.generator.remotion_compositor import RemotionCompositor
 from app.services.generator.subtitle import SubtitleGenerator
 from app.services.generator.templates import ASSTemplateLoader
 from app.services.generator.tts.edge import EdgeTTSEngine
+from app.services.generator.visual.base import VisualAsset, VisualSourceType
 
 # =============================================================================
 # Directory Fixtures
@@ -228,6 +230,45 @@ def ffmpeg_wrapper() -> FFmpegWrapper:
 def edge_tts_engine(ffmpeg_wrapper: FFmpegWrapper) -> EdgeTTSEngine:
     """Create EdgeTTSEngine with DI-injected FFmpegWrapper."""
     return EdgeTTSEngine(ffmpeg_wrapper=ffmpeg_wrapper)
+
+
+@pytest.fixture
+def remotion_compositor(composition_config: CompositionConfig) -> RemotionCompositor:
+    """Create RemotionCompositor with default config."""
+    return RemotionCompositor(config=composition_config)
+
+
+# =============================================================================
+# Visual Helper Functions
+# =============================================================================
+
+
+def create_fallback_visual(
+    output_dir: Path,
+    name: str = "fallback",
+    width: int = 1080,
+    height: int = 1920,
+    duration: float | None = None,
+) -> VisualAsset:
+    """Create a solid color fallback visual for tests."""
+    from PIL import Image
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path = output_dir / f"{name}.png"
+    img = Image.new("RGB", (width, height), color=(20, 20, 30))
+    img.save(str(path))
+
+    return VisualAsset(
+        type=VisualSourceType.SOLID_COLOR,
+        url="",
+        path=path,
+        duration=duration,
+        width=width,
+        height=height,
+        source="fallback",
+        source_id="fallback",
+        license="generated",
+    )
 
 
 # Mark for E2E tests that need external services

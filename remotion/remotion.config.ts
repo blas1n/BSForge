@@ -5,4 +5,5 @@ Config.setVideoImageFormat("jpeg");
 Config.setJpegQuality(90);
 Config.setCodec("h264");
 Config.setPixelFormat("yuv420p");
-Config.setCrf(23);
+// Bitrate is set via CLI (--video-bitrate 8M) in remotion_compositor.py.
+// CRF and videoBitrate are mutually exclusive in Remotion 4+.

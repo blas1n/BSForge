@@ -8,12 +8,14 @@ Supports karaoke subtitles, Ken Burns, and rich text animations.
 import asyncio
 import json
 import os
+import platform
 import re
 import shutil
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from app.config.video import CompositionConfig
 from app.config.video_template import SafeZoneConfig, ThemeConfig, VisualEffectsConfig
@@ -51,6 +53,8 @@ class CompositionResult:
 
 # Composition ID registered in remotion/src/Root.tsx
 _COMPOSITION_ID = "KoreanShorts"
+# Maximum time to wait for a Remotion render before killing the process
+_RENDER_TIMEOUT_SECONDS = 600  # 10 minutes
 
 
 class RemotionCompositor:
@@ -95,6 +99,7 @@ class RemotionCompositor:
         headline: str | None = None,
         subtitle_data: "SubtitleFile | None" = None,
         video_template: "VideoTemplateConfig | None" = None,
+        sfx_dir: Path | None = None,
     ) -> CompositionResult:
         """Compose video from scene-based components using Remotion.
 
@@ -122,7 +127,7 @@ class RemotionCompositor:
 
         # Build accent color from persona style
         accent_color = "#FF69B4"  # default hot pink
-        if persona_style and hasattr(persona_style, "accent_color"):
+        if persona_style:
             accent_color = persona_style.accent_color
 
         # Parse headline into two lines
@@ -147,11 +152,11 @@ class RemotionCompositor:
         subtitles = self._build_subtitles(subtitle_data, scene_tts_results, subtitle_anim)
 
         # BGM volume from config
-        bgm_volume = getattr(self.config, "background_music_volume", 0.08)
+        bgm_volume = self.config.background_music_volume
 
         # Stage assets into Remotion's public/ directory for staticFile() resolution.
         # Use a unique subdirectory per render to avoid collisions.
-        render_id = f"_render_{os.getpid()}_{int(time.time())}"
+        render_id = f"_render_{uuid.uuid4().hex[:12]}"
         public_dir = self.remotion_dir / "public" / render_id
         public_dir.mkdir(parents=True, exist_ok=True)
 
@@ -162,21 +167,25 @@ class RemotionCompositor:
             else None
         )
 
+        # Stage SFX files (whoosh, pop, ding) from sfx_dir
+        sfx_paths_rel: dict[str, str] = {}
+        _default_sfx_dir = Path("data/sfx")
+        _sfx_source = (
+            sfx_dir
+            if sfx_dir and sfx_dir.exists()
+            else (_default_sfx_dir if _default_sfx_dir.exists() else None)
+        )
+        if _sfx_source:
+            for sfx_name in ("whoosh", "pop", "ding"):
+                sfx_file = _sfx_source / f"{sfx_name}.mp3"
+                if sfx_file.exists():
+                    rel = self._stage_asset(sfx_file, public_dir, f"sfx_{sfx_name}", render_id)
+                    sfx_paths_rel[sfx_name] = rel
+
         # Stage visual assets and rewrite paths to relative.
-        # Video files are re-encoded to h264 for Chromium compatibility.
+        # OffthreadVideo uses server-side FFmpeg, so no re-encoding needed.
         for v in visuals:
             src = Path(v["path"])
-            if v.get("type") == "video" and src.exists():
-                reencoded = await self._reencode_video(src)
-                if reencoded == src:
-                    # Re-encode failed; treat as image to avoid Chromium codec errors
-                    logger.warning(
-                        "Video re-encode failed, falling back to image type",
-                        src=str(src),
-                    )
-                    v["type"] = "image"
-                else:
-                    src = reencoded
             staged = self._stage_asset(src, public_dir, f"visual_{v['start_time']:.1f}", render_id)
             v["path"] = staged
 
@@ -196,7 +205,18 @@ class RemotionCompositor:
         # Build scene metadata for Remotion (scene types, transitions, emphasis)
         scene_metadata = self._build_scene_metadata(scenes, scene_tts_results)
 
-        props: dict = {
+        # Build color grading dict from template VFX.
+        # brightness in config is an offset (-0.5 to 0.5); CSS brightness() is a multiplier.
+        color_grading = None
+        if vfx.color_grading_enabled:
+            color_grading = {
+                "brightness": 1.0 + vfx.brightness,
+                "contrast": vfx.contrast,
+                "saturation": vfx.saturation,
+                "warmth": vfx.warmth,
+            }
+
+        props: dict[str, Any] = {
             "duration_seconds": total_duration,
             "fps": self.config.fps,
             "width": self.config.width,
@@ -212,9 +232,12 @@ class RemotionCompositor:
             "subtitles": subtitles,
             "enable_ken_burns": vfx.ken_burns_enabled,
             "enable_karaoke": subtitle_data is not None,
+            "headline_exit_after_seconds": 3.0,
             "safe_zone": safe_zone_dict,
             "theme": theme_dict,
+            "color_grading": color_grading,
             "scenes": scene_metadata,
+            "sfx_paths": sfx_paths_rel if sfx_paths_rel else None,
         }
 
         # Save props to a temp JSON file (avoids shell escaping issues).
@@ -244,6 +267,7 @@ class RemotionCompositor:
             Relative path usable by staticFile() (e.g. "_render_123/audio.wav")
         """
         if not src.exists():
+            logger.warning("staging_file_missing", path=str(src))
             return ""
 
         dest_name = f"{prefix}{src.suffix}"
@@ -254,59 +278,6 @@ class RemotionCompositor:
 
         # staticFile() resolves from remotion/public/, so include subdirectory
         return f"{render_id}/{dest_name}"
-
-    @staticmethod
-    async def _reencode_video(src: Path) -> Path:
-        """Re-encode a video to h264/aac mp4 for Chromium compatibility.
-
-        Chromium's media stack only supports a limited set of codecs.
-        Stock video downloads may use VP9, AV1, or other codecs that
-        cause DEMUXER_ERROR_NO_SUPPORTED_STREAMS in Remotion's renderer.
-
-        Args:
-            src: Source video path
-
-        Returns:
-            Path to re-encoded mp4 (same directory, ``_h264.mp4`` suffix).
-            Returns the original path if re-encoding fails.
-        """
-        out = src.with_name(f"{src.stem}_h264.mp4")
-        if out.exists():
-            return out
-
-        proc = await asyncio.create_subprocess_exec(
-            "ffmpeg",
-            "-y",
-            "-i",
-            str(src),
-            "-c:v",
-            "libx264",
-            "-preset",
-            "fast",
-            "-crf",
-            "23",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "128k",
-            "-movflags",
-            "+faststart",
-            "-an",  # stock visuals are muted anyway
-            str(out),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        _, stderr = await proc.communicate()
-
-        if proc.returncode != 0 or not out.exists():
-            logger.warning(
-                "Video re-encode failed, using original",
-                src=str(src),
-                stderr=stderr.decode()[-200:] if stderr else "",
-            )
-            return src
-
-        return out
 
     async def _render(
         self,
@@ -339,17 +310,31 @@ class RemotionCompositor:
             str(props_path),
             "--log",
             "error",  # suppress verbose output
+            "--concurrency",
+            "1",  # limit parallelism to prevent OOM
+            "--video-bitrate",
+            "8M",
         ]
 
         logger.info(
-            f"Starting Remotion render: {_COMPOSITION_ID}, "
-            f"duration={total_duration:.1f}s, output={output_path.name}"
+            "remotion_render_start",
+            composition=_COMPOSITION_ID,
+            duration=round(total_duration, 1),
+            output=output_path.name,
         )
         start_time = time.time()
 
         # Chromium headless requires certain shared libraries; extend LD_LIBRARY_PATH
         env = os.environ.copy()
-        chromium_libs = Path.home() / ".local/lib/chromium-deps/usr/lib/aarch64-linux-gnu"
+        arch = platform.machine()
+        arch_dir = {"aarch64": "aarch64-linux-gnu", "x86_64": "x86_64-linux-gnu"}.get(
+            arch, f"{arch}-linux-gnu"
+        )
+        chromium_base = os.environ.get(
+            "CHROMIUM_LIB_PATH",
+            str(Path.home() / ".local/lib/chromium-deps/usr/lib"),
+        )
+        chromium_libs = Path(chromium_base) / arch_dir
         if chromium_libs.exists():
             env["LD_LIBRARY_PATH"] = f"{chromium_libs}:{env.get('LD_LIBRARY_PATH', '')}"
 
@@ -360,13 +345,26 @@ class RemotionCompositor:
             stderr=asyncio.subprocess.PIPE,
             env=env,
         )
-        stdout, stderr = await proc.communicate()
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(), timeout=_RENDER_TIMEOUT_SECONDS
+            )
+        except TimeoutError:
+            proc.kill()
+            await proc.wait()
+            raise RuntimeError(
+                f"Remotion render timed out after {_RENDER_TIMEOUT_SECONDS}s"
+            ) from None
 
         elapsed = time.time() - start_time
 
         if proc.returncode != 0:
             stderr_text = stderr.decode("utf-8", errors="replace")
-            logger.error(f"Remotion render failed (rc={proc.returncode}):\n{stderr_text}")
+            logger.error(
+                "remotion_render_failed",
+                returncode=proc.returncode,
+                stderr=stderr_text[:500],
+            )
             raise RuntimeError(
                 f"Remotion render failed with exit code {proc.returncode}: {stderr_text[:500]}"
             )
@@ -378,9 +376,11 @@ class RemotionCompositor:
 
         file_size = output_path.stat().st_size
         logger.info(
-            f"Remotion render complete: {output_path.name}, "
-            f"duration={total_duration:.1f}s, size={file_size / 1024 / 1024:.1f}MB, "
-            f"render_time={elapsed:.1f}s"
+            "remotion_render_complete",
+            output=output_path.name,
+            duration=round(total_duration, 1),
+            size_mb=round(file_size / 1024 / 1024, 1),
+            render_time=round(elapsed, 1),
         )
 
         return CompositionResult(
@@ -394,7 +394,7 @@ class RemotionCompositor:
     @staticmethod
     def _build_safe_zone(
         video_template: "VideoTemplateConfig | None",
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Build safe zone dict for Remotion props.
 
         Args:
@@ -420,7 +420,7 @@ class RemotionCompositor:
     def _build_theme(
         video_template: "VideoTemplateConfig | None",
         persona_style: "PersonaStyleConfig | None",
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Build theme dict for Remotion props.
 
         Merges template theme with persona style overrides.
@@ -450,7 +450,7 @@ class RemotionCompositor:
         }
 
         # Persona accent_color overrides template theme
-        if persona_style and hasattr(persona_style, "accent_color"):
+        if persona_style:
             theme["accent_color"] = persona_style.accent_color
 
         return theme
@@ -477,7 +477,7 @@ class RemotionCompositor:
         scene_visuals: list["SceneVisualResult"],
         vfx: VisualEffectsConfig,
         scenes: list["Scene"] | None = None,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Convert SceneVisualResult list to Remotion props format.
 
         Uses per-scene transition types from Scene metadata when available,
@@ -535,7 +535,7 @@ class RemotionCompositor:
         subtitle_data: "SubtitleFile | None",
         scene_tts_results: list["SceneTTSResult"],
         text_animation: str = "fade_in",
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Build subtitle segments list for Remotion props.
 
         Args:
@@ -572,7 +572,7 @@ class RemotionCompositor:
     def _build_scene_metadata(
         scenes: list["Scene"],
         scene_tts_results: list["SceneTTSResult"],
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Build per-scene metadata for Remotion props.
 
         Extracts scene_type, visual_style, transitions, and emphasis_words

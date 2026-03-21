@@ -25,8 +25,8 @@ class TestPromptManager:
         assert "${source_name}" in template.template
         assert "${target_name}" in template.template
         assert "${text}" in template.template
-        # Check LLM settings are loaded
-        assert template.llm_settings.model == "anthropic/claude-haiku-4-5-20251001"
+        # Check LLM settings are loaded (model defaults to empty, set via config)
+        assert template.llm_settings.model == ""
         assert template.llm_settings.max_tokens == 500
         assert template.llm_settings.temperature == 0.2
 
@@ -39,21 +39,21 @@ class TestPromptManager:
         assert template.name == "Classification Prompt"
         assert template.version == "1.2.0"
         assert "${text_to_analyze}" in template.template
-        # Check LLM settings are loaded
-        assert template.llm_settings.model == "anthropic/claude-haiku-4-5-20251001"
+        # Check LLM settings are loaded (model defaults to empty, set via config)
+        assert template.llm_settings.model == ""
         assert template.llm_settings.max_tokens == 500
         assert template.llm_settings.temperature == 0.3
 
-    def test_load_scene_script_prompt_openai(self):
-        """Should load scene script generation prompt with OpenAI model."""
+    def test_load_scene_script_prompt(self):
+        """Should load scene script generation prompt."""
         manager = PromptManager()
         template = manager.load(PromptType.SCRIPT_GENERATION)
 
         assert isinstance(template, PromptTemplate)
         assert template.name == "Scene Script Generation Prompt"
-        # Check OpenAI model is used for script generation
-        assert template.llm_settings.model == "openai/gpt-4o-mini"
-        assert template.llm_settings.max_tokens == 2000
+        # Model is now configured globally, not per-template
+        assert template.llm_settings.model == ""
+        assert template.llm_settings.max_tokens == 8000
         assert template.llm_settings.temperature == 0.8
 
     def test_get_llm_settings(self):
@@ -62,8 +62,8 @@ class TestPromptManager:
         settings = manager.get_llm_settings(PromptType.SCRIPT_GENERATION)
 
         assert isinstance(settings, LLMSettings)
-        assert settings.model == "openai/gpt-4o-mini"
-        assert settings.max_tokens == 2000
+        assert settings.model == ""
+        assert settings.max_tokens == 8000
         assert settings.temperature == 0.8
 
     def test_render_translation_prompt(self):
@@ -127,6 +127,15 @@ class TestPromptManager:
             manager.load(PromptType.TRANSLATION)
 
         assert "not found" in str(exc_info.value).lower()
+
+    def test_empty_yaml_raises_value_error(self, tmp_path):
+        """Should raise ValueError for empty or non-mapping YAML file."""
+        yaml_file = tmp_path / "translation.yaml"
+        yaml_file.write_text("")
+        manager = PromptManager(prompts_dir=tmp_path)
+
+        with pytest.raises(ValueError, match="empty or not a YAML mapping"):
+            manager.load(PromptType.TRANSLATION)
 
     def test_multiple_instances_are_independent(self):
         """Should create independent instances."""
@@ -217,10 +226,10 @@ class TestLLMSettings:
         assert settings.temperature == 0.7
 
     def test_default_llm_settings(self):
-        """Should use default values."""
+        """Should use default values (model empty, set via config)."""
         settings = LLMSettings()
 
-        assert settings.model == "anthropic/claude-haiku-4-5-20251001"
+        assert settings.model == ""
         assert settings.max_tokens == 500
         assert settings.temperature == 0.3
 

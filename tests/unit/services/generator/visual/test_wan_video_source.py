@@ -79,7 +79,9 @@ class TestIsAvailable:
 
     @pytest.mark.asyncio
     async def test_returns_false_on_connection_error(self, source, mock_http_client):
-        mock_http_client.get.side_effect = ConnectionError("refused")
+        import httpx
+
+        mock_http_client.get.side_effect = httpx.ConnectError("refused")
 
         result = await source.is_available()
 
@@ -116,7 +118,10 @@ class TestGenerate:
 
     @pytest.fixture(autouse=True)
     def mock_available(self, source):
+        import time
+
         source._service_available = True
+        source._availability_checked_at = time.monotonic()
 
     @pytest.mark.asyncio
     async def test_returns_empty_when_service_unavailable(self, mock_http_client, wan_config):
@@ -218,7 +223,9 @@ class TestGenerate:
 
     @pytest.mark.asyncio
     async def test_generate_skips_failed_clips(self, source, mock_http_client):
-        mock_http_client.post.side_effect = RuntimeError("GPU OOM")
+        import httpx
+
+        mock_http_client.post.side_effect = httpx.ConnectError("GPU OOM")
 
         results = await source.generate("test", count=1)
 
@@ -362,7 +369,10 @@ class TestEvaluate:
 
     @pytest.fixture(autouse=True)
     def mock_available(self, source):
+        import time
+
         source._service_available = True
+        source._availability_checked_at = time.monotonic()
 
     @pytest.mark.asyncio
     async def test_evaluate_returns_score(self, source, mock_http_client, tmp_path):
@@ -397,7 +407,9 @@ class TestEvaluate:
     async def test_evaluate_returns_none_on_api_error(self, source, mock_http_client, tmp_path):
         video_file = tmp_path / "test.mp4"
         video_file.write_bytes(b"data")
-        mock_http_client.post.side_effect = RuntimeError("API error")
+        import httpx
+
+        mock_http_client.post.side_effect = httpx.ConnectError("API error")
 
         result = await source.evaluate(video_file, "test")
 
@@ -421,3 +433,25 @@ class TestGetDimensions:
     def test_square_uses_smaller_side(self, source):
         w, h = source._get_dimensions("square")
         assert w == h == 480  # min(480, 832)
+
+
+class TestEnhancePrompt:
+    """Tests for WanVideoSource._enhance_prompt()."""
+
+    def test_portrait_includes_vertical_hint(self, source: WanVideoSource) -> None:
+        result = source._enhance_prompt("city street", "portrait")
+        assert "vertical 9:16" in result
+        assert "city street" in result
+
+    def test_landscape_includes_horizontal_hint(self, source: WanVideoSource) -> None:
+        result = source._enhance_prompt("ocean sunset", "landscape")
+        assert "horizontal widescreen" in result
+
+    def test_includes_cinematic_keywords(self, source: WanVideoSource) -> None:
+        result = source._enhance_prompt("tech office", "portrait")
+        assert "cinematic lighting" in result
+        assert "professional film quality" in result
+
+    def test_original_prompt_preserved(self, source: WanVideoSource) -> None:
+        result = source._enhance_prompt("코딩하는 사람", "portrait")
+        assert "코딩하는 사람" in result

@@ -124,6 +124,12 @@ class BaseVisualSource(ABC):
         """
         pass
 
+    async def close(self) -> None:  # noqa: B027
+        """Release resources held by this source.
+
+        Subclasses should override if they hold HTTP clients or other resources.
+        """
+
 
 __all__ = [
     "VisualSourceType",

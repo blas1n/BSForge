@@ -17,7 +17,6 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from app.core.config import get_config
 from app.core.logging import get_logger
 from app.infrastructure.llm import LLMClient, LLMConfig
 from app.prompts.manager import PromptManager, PromptType
@@ -181,12 +180,8 @@ class TopicNormalizer:
                 text=text,
             )
 
-            cfg = get_config()
-            config = LLMConfig(
-                model=cfg.llm_model_light,
-                max_tokens=cfg.llm_model_light_max_tokens,
-                temperature=0.3,
-            )
+            llm_settings = self.prompt_manager.get_llm_settings(PromptType.TRANSLATION)
+            config = LLMConfig.from_prompt_settings(llm_settings)
 
             response = await self.llm_client.complete(
                 config=config,
@@ -265,12 +260,8 @@ class TopicNormalizer:
                 text_to_analyze=text_to_analyze,
             )
 
-            cfg = get_config()
-            config = LLMConfig(
-                model=cfg.llm_model_light,
-                max_tokens=cfg.llm_model_light_max_tokens,
-                temperature=0.0,
-            )
+            llm_settings = self.prompt_manager.get_llm_settings(PromptType.CLASSIFICATION)
+            config = LLMConfig.from_prompt_settings(llm_settings)
 
             response = await self.llm_client.complete(
                 config=config,
@@ -280,15 +271,29 @@ class TopicNormalizer:
             # Parse JSON response
             response_text = response.content.strip()
 
+            if not response_text:
+                logger.warning("classification_empty_response", title=title[:50])
+                return ClassificationResult(
+                    terms=["general"],
+                    entities={},
+                    summary=title[:200],
+                )
+
             # Extract JSON from response (handle markdown code blocks)
             if "```json" in response_text:
                 json_start = response_text.find("```json") + 7
                 json_end = response_text.find("```", json_start)
-                response_text = response_text[json_start:json_end].strip()
+                if json_end != -1:
+                    response_text = response_text[json_start:json_end].strip()
+                else:
+                    response_text = response_text[json_start:].strip()
             elif "```" in response_text:
                 json_start = response_text.find("```") + 3
                 json_end = response_text.find("```", json_start)
-                response_text = response_text[json_start:json_end].strip()
+                if json_end != -1:
+                    response_text = response_text[json_start:json_end].strip()
+                else:
+                    response_text = response_text[json_start:].strip()
 
             # Extract first JSON object (handle extra text after JSON)
             result_dict = self._extract_first_json_object(response_text)
@@ -309,7 +314,12 @@ class TopicNormalizer:
             return result
 
         except Exception as e:
-            logger.error("Classification failed", error=str(e), exc_info=True)
+            logger.error(
+                "classification_failed",
+                error=str(e),
+                raw_response=response_text[:500] if "response_text" in locals() else "N/A",
+                exc_info=True,
+            )
             # Return fallback classification
             return ClassificationResult(
                 terms=["general"],

@@ -87,7 +87,7 @@ layout:
       italic: true
       outline_width: 0
 
-    font_name: "NotoSansCJK KR"
+    font_name: "Noto Sans CJK KR"
     outline_color: "#000000"
     line_spacing: 1.3   # 줄 간격
     letter_spacing: -0.02  # 자간 좁게
@@ -108,7 +108,7 @@ layout:
   caption:
     enabled: true
     position_y_ratio: 0.55  # 중앙보다 약간 아래 (55%)
-    font_name: "NotoSansCJK KR"
+    font_name: "Noto Sans CJK KR"
     font_size: 100  # 90 → 100 (더 볼드하게)
     bold: true
     italic: true
@@ -131,7 +131,7 @@ layout:
     enabled: false
 
 subtitle:
-  font_name: "Noto Sans CJK KR Bold"
+  font_name: "Noto Sans CJK KR"
   font_size: 100
   bold: true
   italic: true
@@ -143,7 +143,7 @@ subtitle:
   background_opacity: 0.0
   fade_in_ms: 100
   fade_out_ms: 80
-  karaoke_enabled: false
+  karaoke_enabled: true
   max_chars_per_line: 20
   max_lines: 2
 
@@ -152,6 +152,15 @@ visual_effects:
   ken_burns_enabled: true
   ken_burns_zoom_speed: 0.0003  # 느리게
   ken_burns_start_scale: 1.08
+
+  # 카메라 무브먼트 다양화
+  randomize_camera: true
+  camera_movement_options:
+    - ken_burns
+    - pan_left
+    - pan_right
+    - tilt_up
+    - zoom_out
 
   # 전환 효과
   transition_type: fade
@@ -176,7 +185,7 @@ audio:
 theme:
   accent_color: "#FF69B4"    # Hot pink (페르소나 설정으로 오버라이드 가능)
   secondary_color: "#FFFFFF"
-  font_family: "Pretendard"
+  font_family: "Noto Sans CJK KR"
   headline_font_size_line1: 110
   headline_font_size_line2: 80
   subtitle_font_size: 100

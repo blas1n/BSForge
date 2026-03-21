@@ -384,12 +384,14 @@ class PexelsClient(BaseVisualSource):
         self,
         video_files: list[dict[str, Any]],
         orientation: str,
+        min_height: int = 1080,
     ) -> dict[str, Any] | None:
-        """Select best video file based on quality and orientation.
+        """Select best video file based on quality, orientation, and resolution.
 
         Args:
             video_files: List of video file options
             orientation: Preferred orientation
+            min_height: Minimum height in pixels (default 1080 for Shorts)
 
         Returns:
             Best video file dict or None
@@ -409,6 +411,12 @@ class PexelsClient(BaseVisualSource):
         if not files:
             files = video_files  # Fallback to all files
 
+        # Require minimum resolution — no SD fallback (caller handles Wan/solid fallback)
+        hd_files = [f for f in files if f.get("height", 0) >= min_height]
+        if not hd_files:
+            return None
+        files = hd_files
+
         # Sort by quality (prefer HD)
         def quality_score(f: dict[str, Any]) -> int:
             quality_val = f.get("quality", "")
@@ -426,6 +434,7 @@ class PexelsClient(BaseVisualSource):
         """Close HTTP client."""
         if self._client and not self._client.is_closed:
             await self._client.aclose()
+        self._client = None
 
 
 __all__ = ["PexelsClient"]

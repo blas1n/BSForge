@@ -1,10 +1,7 @@
 """Infrastructure layer components.
 
-This module provides infrastructure components like vector databases,
-external API clients, and other infrastructure services.
+This module provides infrastructure components like LLM clients,
+HTTP clients, and external API integrations.
 """
 
-from app.infrastructure.bm25_search import BM25Search
-from app.infrastructure.pgvector_db import PgVectorDB
-
-__all__ = ["BM25Search", "PgVectorDB"]
+__all__: list[str] = []

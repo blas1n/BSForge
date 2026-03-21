@@ -163,9 +163,9 @@ class VideoGenerationPipeline:
         if template_name:
             try:
                 template = self.template_loader.load(template_name)
-                logger.info(f"Using video template: {template_name}")
-            except Exception as e:
-                logger.warning(f"Failed to load template '{template_name}': {e}")
+                logger.info("template_loaded", template=template_name)
+            except Exception:
+                logger.warning("template_load_failed", template=template_name, exc_info=True)
 
         # Determine output directory (simplified to single UUID)
         output_dir = Path(self.config.output_dir) / str(script.id)
@@ -177,8 +177,9 @@ class VideoGenerationPipeline:
 
         try:
             logger.info(
-                f"Starting scene-based video generation for script {script.id}, "
-                f"{len(scene_script.scenes)} scenes"
+                "video_generation_start",
+                script_id=str(script.id),
+                scene_count=len(scene_script.scenes),
             )
 
             # Step 1: Get TTS engine
@@ -194,7 +195,7 @@ class VideoGenerationPipeline:
             )
 
             # Step 2: Per-scene TTS generation
-            logger.info(f"Generating audio for {len(scene_script.scenes)} scenes")
+            logger.info("generating_audio", scene_count=len(scene_script.scenes))
 
             scene_tts_results = await engine.synthesize_scenes(
                 scenes=scene_script.scenes,
@@ -203,7 +204,7 @@ class VideoGenerationPipeline:
             )
 
             total_duration = sum(r.duration_seconds for r in scene_tts_results)
-            logger.info(f"Scene audio generated: {total_duration:.1f}s total")
+            logger.info("scene_audio_generated", total_duration_s=round(total_duration, 1))
 
             # Step 3: Concatenate audio
             logger.info("Concatenating scene audio")
@@ -214,7 +215,7 @@ class VideoGenerationPipeline:
                 ffmpeg_wrapper=self.ffmpeg,
             )
 
-            logger.info(f"Combined audio: {combined_tts.duration_seconds:.1f}s")
+            logger.info("audio_combined", duration_s=round(combined_tts.duration_seconds, 1))
 
             # Step 4: Generate scene-aware subtitles
             subtitle_path = None
@@ -243,7 +244,7 @@ class VideoGenerationPipeline:
                         output_dir / "subtitle",
                     )
 
-                logger.info(f"Subtitles generated: {len(subtitle_file.segments)} segments")
+                logger.info("subtitles_generated", segment_count=len(subtitle_file.segments))
 
             # Step 5: Per-scene visual sourcing
             logger.info("Sourcing visuals for each scene")
@@ -255,21 +256,21 @@ class VideoGenerationPipeline:
             )
 
             visual_sources = list({v.asset.source or "unknown" for v in scene_visuals})
-            logger.info(f"Sourced {len(scene_visuals)} scene visuals from: {visual_sources}")
+            logger.info("visuals_sourced", count=len(scene_visuals), sources=visual_sources)
 
             # Step 6: Scene-based composition
             logger.info("Composing scene-based video")
 
             # Get headline
             headline = scene_script.headline
-            logger.info(f"Headline: '{headline}'")
+            logger.info("headline_set", headline=headline)
 
             # Get BGM path if available
             background_music_path = None
             if self.bgm_manager and self.bgm_manager.is_enabled:
                 background_music_path = await self.bgm_manager.get_bgm_for_video()
                 if background_music_path:
-                    logger.info(f"Using BGM: {background_music_path.name}")
+                    logger.info("bgm_selected", name=background_music_path.name)
 
             composition_result = await self.compositor.compose_scenes(
                 scenes=scene_script.scenes,
@@ -285,7 +286,7 @@ class VideoGenerationPipeline:
                 video_template=template,
             )
 
-            logger.info(f"Video composed: {composition_result.duration_seconds:.1f}s")
+            logger.info("video_composed", duration_s=round(composition_result.duration_seconds, 1))
 
             # Step 7: Extract thumbnail from first frame
             logger.info("Extracting thumbnail from video")
@@ -295,7 +296,7 @@ class VideoGenerationPipeline:
                 output_path=output_dir / "thumbnail",
             )
 
-            logger.info(f"Thumbnail extracted: {thumbnail_path}")
+            logger.info("thumbnail_extracted", path=str(thumbnail_path))
 
             # Calculate generation time
             generation_time = int(time.time() - start_time)
@@ -314,21 +315,30 @@ class VideoGenerationPipeline:
             )
 
             logger.info(
-                f"Scene-based video generation complete: {result.video_path}, "
-                f"duration={result.duration_seconds:.1f}s, "
-                f"scenes={len(scene_script.scenes)}, "
-                f"time={generation_time}s"
+                "video_generation_complete",
+                video_path=str(result.video_path),
+                duration_s=result.duration_seconds,
+                scene_count=len(scene_script.scenes),
+                generation_time_s=generation_time,
             )
 
             return result
+
+        except Exception:
+            # Clean up partial output on failure
+            if output_dir.exists():
+                shutil.rmtree(output_dir, ignore_errors=True)
+            raise
 
         finally:
             # Cleanup temp directory
             if self.config.cleanup_temp and temp_dir.exists():
                 try:
                     shutil.rmtree(temp_dir)
-                except Exception as e:
-                    logger.warning(f"Failed to cleanup temp dir: {e}")
+                except Exception:
+                    logger.warning("temp_cleanup_failed", path=str(temp_dir), exc_info=True)
+            elif not self.config.cleanup_temp and temp_dir.exists():
+                logger.warning("temp_dir_retained", path=str(temp_dir))
 
     def _get_voice_for_script(self, script: Script) -> str:
         """Determine voice ID for script.
@@ -341,14 +351,12 @@ class VideoGenerationPipeline:
         Returns:
             Voice ID string
         """
-        # Try to get from channel's persona
+        # Try to get from channel's persona (may fail if relationship not loaded)
         try:
-            if hasattr(script, "channel") and script.channel:
-                persona = script.channel.persona
-                if persona and persona.voice_id:
-                    return persona.voice_id
+            if script.channel and script.channel.persona and script.channel.persona.voice_id:
+                return script.channel.persona.voice_id
         except Exception:
-            pass
+            logger.debug("channel_persona_not_loaded", script_id=str(script.id))
 
         # Fallback to config defaults
         # Simple heuristic: use Korean if script contains Korean characters
@@ -357,6 +365,16 @@ class VideoGenerationPipeline:
         if has_korean:
             return self.config.tts.default_voice_ko_male
         return self.config.tts.default_voice_en
+
+    async def __aenter__(self) -> "VideoGenerationPipeline":
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        await self.close()
+
+    async def close(self) -> None:
+        """Close owned resources (visual manager HTTP clients)."""
+        await self.visual_manager.close()
 
     async def _extract_thumbnail(self, video_path: Path, output_path: Path) -> Path:
         """Extract first frame from video as thumbnail.

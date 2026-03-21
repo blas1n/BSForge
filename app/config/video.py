@@ -265,7 +265,7 @@ class CompositionConfig(BaseModel):
     audio_codec: str = Field(default="aac", description="Audio codec")
     video_bitrate: str = Field(default="5000k", description="Video bitrate")
     audio_bitrate: str = Field(default="192k", description="Audio bitrate")
-    crf: int = Field(default=23, ge=0, le=51, description="Quality (0-51, lower=better)")
+    crf: int = Field(default=18, ge=0, le=51, description="Quality (0-51, lower=better)")
     preset: Literal[
         "ultrafast",
         "superfast",

@@ -1,514 +1,452 @@
 #!/usr/bin/env python
-"""BSForge Full Pipeline Demo: Topic → Script → Video.
+"""BSForge Demo Pipeline: Channel Config → Real Topics → Script → Video.
 
-This script demonstrates the complete video generation pipeline:
-1. Topic Collection: Collect from multiple sources (RSS, communities, etc.)
-2. Clustering: Group similar topics for multi-source integration
-3. Enrichment: LLM-based summarization + Web research (Tavily)
-4. Script Generation: Scene-based script with persona context
-5. Video Generation: TTS + visuals + subtitles → MP4
+Channel-config-driven pipeline that collects real topics from Reddit/RSS,
+normalizes with LLM, and generates video from actual current content.
 
-Features:
-- Multi-source topic clustering
-- Web research integration (Tavily API)
-- YAML-based prompt templates
-- Scene-based video generation
-- AI-generated visuals (Stable Diffusion)
+Phases:
+0. Load channel config YAML (persona, sources, content settings)
+1. Collect real topics from Reddit + HN RSS (no API keys)
+2. Normalize best topic with LLM (translate, classify)
+3. Generate script with persona + real data
+4. TTS with persona voice settings
+5. Subtitles → Visuals → Remotion composition
 
-Run with: uv run python scripts/demo_pipeline.py
+Run with: uv run python scripts/demo_pipeline.py [config_path]
 """
 
 from __future__ import annotations
 
 import asyncio
+import random
 import shutil
-import uuid
+import sys
 from pathlib import Path
+from typing import Any
 
-from sqlalchemy import select
+import yaml
 
-from app.config.enrichment import EnrichmentConfig
-from app.config.research import QueryStrategy, ResearchConfig
+from app.config.persona import PersonaConfig
+from app.config.video import CompositionConfig, SubtitleConfig, VisualConfig, WanConfig
 from app.core.config import get_config
-from app.core.config_loader import ConfigService
-from app.core.container import get_container
-from app.models.channel import Channel, Persona, TTSService
-from app.models.script import Script
-from app.models.topic import Topic
-from app.services.collector.clusterer import TopicCluster, cluster_topics, select_best_cluster
-from app.services.collector.pipeline import CollectionConfig, TopicCollectionPipeline
-from app.services.generator.pipeline import VideoGenerationResult
-from app.services.pipeline.enriched_generation import EnrichedGenerationPipeline
+from app.core.dependencies import create_llm_client, create_prompt_manager
+from app.core.logging import get_logger, setup_logging
+from app.core.template_loader import load_template
+from app.infrastructure.http_client import HTTPClient
+from app.models.scene import Scene, SceneScript, SceneType
+from app.services.collector.base import RawTopic
+from app.services.collector.sources.factory import collect_from_sources
+from app.services.generator.ffmpeg import FFmpegWrapper
+from app.services.generator.remotion_compositor import RemotionCompositor
+from app.services.generator.subtitle import SubtitleGenerator
+from app.services.generator.templates import ASSTemplateLoader
+from app.services.generator.tts.base import TTSSynthesisConfig
+from app.services.generator.tts.edge import EdgeTTSEngine
+from app.services.generator.tts.utils import concatenate_scene_audio
+from app.services.generator.visual.manager import VisualSourcingManager
+from app.services.generator.visual.pexels import PexelsClient
+from app.services.generator.visual.wan_video_source import WanVideoSource
+from app.services.script_generator import ScriptGenerator
 
-# ============================================
-# CONFIGURABLE VARIABLES
-# ============================================
+setup_logging()
+logger = get_logger(__name__)
 
-CHANNEL_NAME = "entertainments-kr"  # Channel config name (without .yaml)
-VIDEO_TEMPLATE_NAME = "korean_shorts_standard"
 OUTPUT_DIR = Path("/tmp/bsforge_demo")
+DEFAULT_CONFIG = Path("config/channels/demo_tech.yaml")
 
-# Enrichment settings
-ENABLE_WEB_RESEARCH = True  # Set False if no Tavily API key
-QUERY_STRATEGY = QueryStrategy.KEYWORD  # KEYWORD, TITLE, or LLM
-MIN_CLUSTER_SIZE = 1  # Minimum topics for LLM summary (1 = always summarize)
+# Fallback script when both collection and LLM are unavailable
+FALLBACK_SCENES = [
+    Scene(
+        scene_type=SceneType.HOOK,
+        text="여러분, AI가 코딩을 대체한다고요?",
+        visual_keyword="programmer typing dark room neon",
+    ),
+    Scene(
+        scene_type=SceneType.CONTENT,
+        text="최근 클로드 코드가 출시되면서 개발자들 사이에서 난리가 났습니다.",
+        visual_keyword="futuristic hologram technology interface",
+    ),
+    Scene(
+        scene_type=SceneType.CONTENT,
+        text="실제로 간단한 버그 수정부터 리팩토링까지 혼자서 척척 해냅니다.",
+        visual_keyword="code screen scrolling fast closeup",
+    ),
+    Scene(
+        scene_type=SceneType.COMMENTARY,
+        text="근데 솔직히 말해서, 아직 시니어 개발자를 대체하긴 어렵습니다.",
+        visual_keyword="man thinking office window cityscape",
+    ),
+    Scene(
+        scene_type=SceneType.CONCLUSION,
+        text="도구는 도구일 뿐, 결국 판단은 사람의 몫입니다.",
+        visual_keyword="team collaboration whiteboard brainstorm",
+    ),
+]
+FALLBACK_HEADLINE = "AI가 코딩을 대체한다고?"
 
-# ============================================
 
-
-async def run_topic_collection(channel: Channel) -> tuple[list[Topic], list[TopicCluster]]:
-    """Run topic collection and clustering.
+def load_channel_config(config_path: Path) -> dict[str, Any]:
+    """Load and parse a channel config YAML file.
 
     Args:
-        channel: Channel model
+        config_path: Path to channel config YAML
 
     Returns:
-        Tuple of (topics, clusters)
+        Parsed config dict with channel, persona, topic_collection, content sections
+
+    Raises:
+        FileNotFoundError: If config file does not exist
     """
-    print("\n" + "=" * 60)
-    print("PHASE 1: Topic Collection & Clustering")
-    print("=" * 60)
+    if not config_path.exists():
+        raise FileNotFoundError(f"Channel config not found: {config_path}")
+    return yaml.safe_load(config_path.read_text())
 
-    container = get_container()
 
-    # Get channel config
-    config_service = ConfigService()
-    channel_config_obj = config_service.get(CHANNEL_NAME)
-    channel_config_dict = {
-        "topic_collection": {
-            "global_sources": channel_config_obj.topic_collection.global_sources,
-            "scoped_sources": channel_config_obj.topic_collection.scoped_sources,
-            "target_language": channel_config_obj.topic_collection.target_language,
-            "source_overrides": channel_config_obj.topic_collection.source_overrides,
-        },
-        "filtering": {
-            "include": channel_config_obj.filtering.include if channel_config_obj.filtering else [],
-            "exclude": channel_config_obj.filtering.exclude if channel_config_obj.filtering else [],
-        },
-    }
-    config = CollectionConfig.from_channel_config(channel_config_dict)
+def pick_best_topic(topics: list[RawTopic]) -> RawTopic | None:
+    """Select the highest-engagement topic from collected raw topics.
 
-    print(f"\n   Channel: {channel.name}")
-    print(f"   Global sources: {config.global_sources}")
-    print(f"   Scoped sources: {config.scoped_sources}")
+    Ranks by score + comments. Returns None for empty list.
 
-    # Get pipeline dependencies from container
-    async with container.infrastructure.db_session() as session:
-        pipeline = TopicCollectionPipeline(
-            session=session,
-            http_client=container.infrastructure.http_client(),
-            normalizer=container.services.topic_normalizer(),
-            redis=container.redis(),
-            deduplicator=container.services.topic_deduplicator(),
-            scorer=container.services.topic_scorer(),
-            global_pool=container.services.global_topic_pool(),
-            scoped_cache=container.services.scoped_source_cache(),
-        )
+    Args:
+        topics: List of raw topics from sources
 
-        topics, stats = await pipeline.collect_for_channel(channel, config)
-
-    print("\n   Collection Stats:")
-    print(f"   - Total collected: {stats.total_collected}")
-    print(f"   - Saved to DB: {stats.saved_count}")
-
+    Returns:
+        Best topic or None if list is empty
+    """
     if not topics:
-        return [], []
+        return None
 
-    # Cluster topics
-    print("\n   Clustering topics...")
+    def engagement_score(topic: RawTopic) -> float:
+        score = topic.metrics.get("score", 0) or 0
+        comments = topic.metrics.get("comments", 0) or 0
+        return float(score) + float(comments) * 0.5
 
-    # Convert Topic models to ScoredTopic DTOs for clustering
-    from app.services.collector.base import ScoredTopic
+    return max(topics, key=engagement_score)
 
-    scored_topics = []
-    for topic in topics:
-        # Use topic.id as fallback for source_id
-        source_id = topic.source_id if topic.source_id else str(topic.id)
-        scored = ScoredTopic(
-            source_id=source_id,
-            source_url=topic.source_url,
-            title_original=topic.title_original,
-            title_normalized=topic.title_normalized,
-            title_translated=topic.title_translated,
-            summary=topic.summary or "",
-            terms=topic.terms or [],
-            entities=topic.entities or {},
-            language=topic.language,
-            content_hash=topic.content_hash,
-            metrics={},  # Topic model doesn't have metrics
-            metadata={"source_name": "collected", "topic_id": str(topic.id)},
-            published_at=topic.published_at,
-            score_source=topic.score_source or 0.0,
-            score_freshness=topic.score_freshness or 0.0,
-            score_trend=topic.score_trend or 0.0,
-            score_relevance=topic.score_relevance or 0.0,
-            score_total=topic.score_total or 0,
+
+async def collect_topics(
+    topic_config: dict[str, Any],
+    filtering: dict[str, Any] | None = None,
+) -> list[RawTopic]:
+    """Collect real topics from configured sources (Reddit, RSS).
+
+    Args:
+        topic_config: topic_collection section from channel config
+        filtering: Optional filtering config (include/exclude lists)
+
+    Returns:
+        List of collected RawTopic objects
+    """
+    sources = topic_config.get("sources", [])
+    source_overrides = topic_config.get("source_overrides", {})
+
+    http_client = HTTPClient()
+    try:
+        raw_topics = await collect_from_sources(
+            enabled_sources=sources,
+            http_client=http_client,
+            source_overrides=source_overrides,
         )
-        scored_topics.append(scored)
+    finally:
+        await http_client.close()
 
-    clusters = cluster_topics(
-        scored_topics,
-        similarity_threshold=0.3,
-        total_sources=len(config.global_sources) + len(config.scoped_sources),
-    )
+    # Apply basic filtering if configured
+    if filtering:
+        exclude_terms = [t.lower() for t in filtering.get("exclude", [])]
+        if exclude_terms:
+            raw_topics = [
+                t for t in raw_topics if not any(term in t.title.lower() for term in exclude_terms)
+            ]
 
-    print(f"   - Topics: {len(topics)}")
-    print(f"   - Clusters: {len(clusters)}")
-
-    if clusters:
-        print("\n   Top clusters:")
-        for i, cluster in enumerate(clusters[:3], 1):
-            print(f"   {i}. [{cluster.topic_count} topics, {cluster.source_count} sources]")
-            print(f"      {cluster.primary_topic.title_normalized[:50]}...")
-
-    return topics, clusters
+    return raw_topics
 
 
-async def run_enriched_script_generation(
-    cluster: TopicCluster,
-    primary_topic: Topic,
-    channel: Channel,
-) -> Script:
-    """Run enriched script generation.
+async def normalize_topic(
+    raw: RawTopic,
+    target_language: str = "ko",
+) -> dict[str, Any]:
+    """Normalize a raw topic using LLM (translate, classify, summarize).
 
     Args:
-        cluster: Topic cluster
-        primary_topic: Primary topic (DB model)
-        channel: Channel model
+        raw: Raw topic to normalize
+        target_language: Target language code
 
     Returns:
-        Generated Script
+        Dict with title_translated, summary, terms keys
     """
-    print("\n" + "=" * 60)
-    print("PHASE 2: Enriched Script Generation")
-    print("=" * 60)
+    import uuid
 
-    container = get_container()
-    config = get_config()
+    from app.services.collector.normalizer import TopicNormalizer
 
-    print(f"\n   Cluster: {cluster.primary_topic.title_normalized[:50]}...")
-    print(f"   Topics in cluster: {cluster.topic_count}")
-    print(f"   Sources: {cluster.sources}")
-    print(f"   Combined terms: {cluster.combined_terms[:5]}")
+    llm_client = create_llm_client()
+    prompt_manager = create_prompt_manager()
+    normalizer = TopicNormalizer(llm_client=llm_client, prompt_manager=prompt_manager)
 
-    # Check Tavily API key
-    has_tavily = bool(config.tavily_api_key)
-    enable_research = ENABLE_WEB_RESEARCH and has_tavily
-
-    if not has_tavily:
-        print("\n   WARNING: TAVILY_API_KEY not set. Web research disabled.")
-
-    # Configure enrichment
-    enrichment_config = EnrichmentConfig(
-        cluster={"enabled": True, "min_cluster_size": MIN_CLUSTER_SIZE},
-        research=ResearchConfig(
-            enabled=enable_research,
-            query_strategy=QUERY_STRATEGY,
-            max_queries=3,
-            max_results_per_query=3,
-        ),
+    normalized = await normalizer.normalize(
+        raw=raw,
+        source_id=uuid.uuid4(),
+        target_language=target_language,
     )
 
-    print("\n   Enrichment config:")
-    print("   - Cluster enrichment: enabled")
-    print(f"   - Web research: {'enabled' if enable_research else 'disabled'}")
-    print(f"   - Query strategy: {QUERY_STRATEGY.value}")
+    return {
+        "title_original": normalized.title_original,
+        "title_translated": normalized.title_translated,
+        "summary": normalized.summary,
+        "terms": normalized.terms,
+    }
 
-    # Get enriched pipeline from container
-    enriched_pipeline: EnrichedGenerationPipeline = container.services.enriched_pipeline()
 
-    # Generate script
-    print("\n   Generating enriched script...")
-    script = await enriched_pipeline.generate_from_cluster(
-        cluster=cluster,
-        channel_id=channel.id,
-        primary_topic_id=primary_topic.id,
-        config=enrichment_config,
+def _make_visual_manager(http_client: HTTPClient) -> VisualSourcingManager:
+    """Create VisualSourcingManager with Pexels → Wan → solid-color priority."""
+    pexels = PexelsClient()
+    wan = WanVideoSource(http_client=http_client, config=WanConfig())
+    visual_config = VisualConfig(metadata_score_threshold=0.1)
+    return VisualSourcingManager(
+        http_client=http_client,
+        config=visual_config,
+        pexels_client=pexels,
+        wan_video_source=wan,
     )
-
-    print("\n   Script generated:")
-    print(f"   - ID: {script.id}")
-    print(f"   - Status: {script.status}")
-    print(f"   - Quality passed: {script.quality_passed}")
-
-    if script.generation_metadata:
-        meta = script.generation_metadata
-        print(f"   - Enriched: {meta.get('enriched', False)}")
-        print(f"   - Cluster sources: {meta.get('cluster_source_count', 0)}")
-        print(f"   - Research results: {meta.get('research_result_count', 0)}")
-
-    if script.has_scenes:
-        scene_script = script.get_scene_script()
-        if scene_script:
-            print(f"   - Scene count: {len(scene_script.scenes)}")
-            print(f"   - Headline: {scene_script.headline}")
-
-            print("\n   Scenes:")
-            for i, scene in enumerate(scene_script.scenes[:5], 1):
-                print(f"   {i}. [{scene.scene_type.value}] {scene.text[:40]}...")
-
-    return script
-
-
-async def run_video_generation(
-    script: Script,
-) -> VideoGenerationResult:
-    """Run video generation pipeline.
-
-    Args:
-        script: Script model
-
-    Returns:
-        VideoGenerationResult
-    """
-    print("\n" + "=" * 60)
-    print("PHASE 3: Video Generation")
-    print("=" * 60)
-
-    container = get_container()
-
-    print(f"\n   Script ID: {script.id}")
-    print(f"   Template: {VIDEO_TEMPLATE_NAME}")
-
-    # Get VideoGenerationPipeline from container
-    video_pipeline = container.services.video_pipeline()
-
-    # Get persona style
-    config_service = ConfigService()
-    channel_config_obj = config_service.get(CHANNEL_NAME)
-    persona_style = None
-    if channel_config_obj.persona and channel_config_obj.persona.visual_style:
-        persona_style = channel_config_obj.persona.visual_style
-
-    # Generate video (scene-based generation required)
-    scene_script = script.get_scene_script()
-    if not scene_script:
-        raise ValueError("Script must have scene data for video generation")
-
-    result = await video_pipeline.generate(
-        script=script,
-        scene_script=scene_script,
-        template_name=VIDEO_TEMPLATE_NAME,
-        persona_style=persona_style,
-    )
-
-    print("\n   Video generated:")
-    print(f"   - Path: {result.video_path}")
-    print(f"   - Duration: {result.duration_seconds:.1f}s")
-    print(f"   - Size: {result.file_size_bytes / 1024 / 1024:.2f} MB")
-    print(f"   - TTS: {result.tts_service} / {result.tts_voice_id}")
-    print(f"   - Visual sources: {result.visual_sources}")
-    print(f"   - Generation time: {result.generation_time_seconds}s")
-
-    return result
 
 
 async def main() -> None:
-    """Run enriched pipeline demo."""
+    """Run the channel-config-driven demo pipeline."""
+    # Parse optional config path from CLI args
+    config_path = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_CONFIG
+
     print("=" * 60)
-    print("BSForge Full Pipeline Demo")
-    print("Topic → Script → Video Generation")
+    print("BSForge Demo Pipeline (Channel-Driven)")
+    print("Config → Topics → Script → TTS → Subtitles → Visuals → Video")
     print("=" * 60)
 
-    # Check FFmpeg
+    # Check prerequisites
     if not shutil.which("ffmpeg"):
-        print("\nERROR: FFmpeg is required for video generation.")
-        return
+        print("\nERROR: FFmpeg is required.")
+        sys.exit(1)
 
-    # Import get_config for Tavily check
+    remotion_dir = Path("/workspace/remotion")
+    if not (remotion_dir / "node_modules").exists():
+        print("\nERROR: Remotion node_modules not found. Run: cd remotion && npm install")
+        sys.exit(1)
 
-    container = get_container()
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    # ========================================
+    # Phase 0: Load Channel Config
+    # ========================================
+    print(f"\n[0/6] Loading channel config: {config_path}")
+
+    channel_config = load_channel_config(config_path)
+    persona = PersonaConfig(**channel_config["persona"])
+    topic_config = channel_config["topic_collection"]
+    content_config = channel_config.get("content", {})
+    filtering_config = channel_config.get("filtering")
+
+    print(f"   Channel: {channel_config['channel']['name']}")
+    print(f"   Persona: {persona.name} — {persona.tagline}")
+    print(f"   Sources: {topic_config['sources']}")
+    print(f"   Target duration: {content_config.get('target_duration', 30)}s")
+
+    # ========================================
+    # Phase 1: Collect Real Topics
+    # ========================================
+    print("\n[1/6] Collecting real topics...")
+
+    topic_title = None
+    topic_summary = None
+    topic_terms: list[str] = []
+
+    try:
+        raw_topics = await collect_topics(topic_config, filtering_config)
+        print(f"   Collected {len(raw_topics)} topics from {topic_config['sources']}")
+
+        best = pick_best_topic(raw_topics)
+        if best:
+            print(f"   Best topic: {best.title[:60]}")
+            print(
+                f"   Score: {best.metrics.get('score', 0)}, "
+                f"Comments: {best.metrics.get('comments', 0)}"
+            )
+
+            # Phase 2: Normalize
+            print("\n[2/6] Normalizing topic...")
+            config = get_config()
+            if config.llm_api_key:
+                target_lang = topic_config.get("target_language", "ko")
+                normalized = await normalize_topic(best, target_lang)
+                topic_title = normalized["title_translated"] or normalized["title_original"]
+                topic_summary = normalized["summary"]
+                topic_terms = normalized["terms"]
+                print(f"   Normalized title: {topic_title}")
+                print(f"   Summary: {topic_summary[:80]}...")
+                print(f"   Terms: {topic_terms}")
+            else:
+                # No LLM key — use raw topic title directly
+                topic_title = best.title
+                topic_summary = best.content or best.title
+                topic_terms = []
+                print(f"   LLM_API_KEY not set, using raw title: {topic_title}")
+        else:
+            print("   No topics found after filtering")
+    except Exception as e:
+        print(f"   Topic collection failed: {e}")
+        print("   Will use fallback script")
+
+    # ========================================
+    # Phase 3: Script Generation
+    # ========================================
+    print("\n[3/6] Generating script...")
+
+    scene_script = None
     config = get_config()
 
-    # Load channel config
-    print("\n[0/3] Loading channel configuration...")
-    config_service = ConfigService()
-    channel_config_obj = config_service.get(CHANNEL_NAME)
+    if topic_title and config.llm_api_key:
+        try:
+            llm_client = create_llm_client()
+            prompt_manager = create_prompt_manager()
+            generator = ScriptGenerator(llm_client=llm_client, prompt_manager=prompt_manager)
 
-    channel_info = channel_config_obj.channel
-    persona_config = channel_config_obj.persona
-
-    print(f"   Channel: {channel_info.name}")
-    print(f"   Persona: {persona_config.name if persona_config else 'Unknown'}")
-    print(f"   Tavily API: {'configured' if config.tavily_api_key else 'NOT configured'}")
-
-    # Create or get Channel from DB
-    async with container.infrastructure.db_session() as session:
-        result = await session.execute(select(Channel).where(Channel.name == channel_info.name))
-        channel = result.scalar_one_or_none()
-
-        if not channel:
-            channel = Channel(
-                id=uuid.uuid4(),
-                name=channel_info.name,
-                description=channel_info.description,
-                youtube_channel_id=(
-                    channel_info.youtube.channel_id if channel_info.youtube.channel_id else None
-                ),
-                youtube_handle=channel_info.youtube.handle if channel_info.youtube else None,
-                topic_config=(
-                    channel_config_obj.topic_collection.model_dump()
-                    if channel_config_obj.topic_collection
-                    else {}
-                ),
-                content_config=(
-                    channel_config_obj.content.model_dump() if channel_config_obj.content else {}
-                ),
+            target_duration = content_config.get("target_duration", 30)
+            result = await generator.generate(
+                topic_title=topic_title,
+                topic_summary=topic_summary or topic_title,
+                topic_terms=topic_terms,
+                persona=persona,
+                target_duration=target_duration,
             )
-            session.add(channel)
-            await session.flush()
 
-            voice_config = persona_config.voice if persona_config else None
-            persona = Persona(
-                channel_id=channel.id,
-                name=persona_config.name if persona_config else channel_info.name,
-                tagline=persona_config.tagline if persona_config else None,
-                voice_gender=voice_config.gender if voice_config else None,
-                tts_service=(
-                    TTSService(voice_config.service)
-                    if voice_config and voice_config.service
-                    else TTSService.EDGE_TTS
-                ),
-                voice_id=voice_config.voice_id if voice_config else None,
-                voice_settings=(
-                    voice_config.settings.model_dump()
-                    if voice_config and voice_config.settings
-                    else None
-                ),
-                communication_style=(
-                    persona_config.communication.model_dump()
-                    if persona_config and persona_config.communication
-                    else None
-                ),
-                perspective=(
-                    persona_config.perspective.model_dump()
-                    if persona_config and persona_config.perspective
-                    else None
-                ),
-            )
-            session.add(persona)
-            await session.commit()
-            await session.refresh(channel)
-            print(f"   Created channel: {channel.id}")
-        else:
-            print(f"   Using existing channel: {channel.id}")
+            scene_script = result.scene_script
+            print(f"   LLM script: {len(scene_script.scenes)} scenes")
+            print(f"   Headline: {scene_script.headline}")
+            print(f"   Model: {result.model}")
+        except Exception as e:
+            print(f"   Script generation failed: {e}")
 
-    # Phase 1: Topic Collection & Clustering
-    topics, clusters = await run_topic_collection(channel)
+    if scene_script is None:
+        print("   Using fallback script")
+        scene_script = SceneScript(scenes=FALLBACK_SCENES, headline=FALLBACK_HEADLINE)
 
-    if not topics or not clusters:
-        # Try to get existing topics from DB
-        print("\n   No new topics. Fetching existing topics from DB...")
-        async with container.infrastructure.db_session() as session:
-            from app.models.topic import Topic as TopicModel
+    scene_script.apply_recommended_transitions()
 
-            result = await session.execute(
-                select(TopicModel)
-                .where(TopicModel.channel_id == channel.id)
-                .order_by(TopicModel.score_total.desc())
-                .limit(10)
-            )
-            db_topics = list(result.scalars().all())
+    scenes = scene_script.scenes
+    print(f"   Scenes: {len(scenes)}")
+    for i, s in enumerate(scenes):
+        print(f"   {i + 1}. [{s.scene_type.value}] {s.text[:50]}...")
 
-            if not db_topics:
-                print("\nNo topics available. Demo ended.")
-                return
+    # Load video template
+    template_name = content_config.get("video_template", "korean_shorts_standard")
+    video_template = load_template(template_name)
+    print(f"   Template: {template_name}")
 
-            print(f"   Found {len(db_topics)} existing topics in DB")
+    # ========================================
+    # Phase 4: TTS Generation (persona voice settings)
+    # ========================================
+    print("\n[4/6] Generating TTS audio...")
 
-            # Convert to ScoredTopic for clustering
-            from app.services.collector.base import ScoredTopic
-
-            scored_topics = []
-            for topic in db_topics:
-                # Use topic.id as fallback for source_id (required field)
-                source_id = topic.source_id if topic.source_id else str(topic.id)
-                scored = ScoredTopic(
-                    source_id=source_id,
-                    source_url=topic.source_url,
-                    title_original=topic.title_original,
-                    title_normalized=topic.title_normalized,
-                    title_translated=topic.title_translated,
-                    summary=topic.summary or "",
-                    terms=topic.terms or [],
-                    entities=topic.entities or {},
-                    language=topic.language,
-                    content_hash=topic.content_hash,
-                    metrics={},
-                    metadata={"source_name": "db", "topic_id": str(topic.id)},
-                    published_at=topic.published_at,
-                    score_source=topic.score_source or 0.0,
-                    score_freshness=topic.score_freshness or 0.0,
-                    score_trend=topic.score_trend or 0.0,
-                    score_relevance=topic.score_relevance or 0.0,
-                    score_total=topic.score_total or 0,
-                )
-                scored_topics.append(scored)
-
-            if not scored_topics:
-                print("\nNo valid topics available. Demo ended.")
-                return
-
-            clusters = cluster_topics(scored_topics, similarity_threshold=0.3)
-            topics = db_topics
-
-            print(f"   Clustered into {len(clusters)} clusters")
-
-    # Select best cluster using multi-source priority strategy
-    best_cluster = select_best_cluster(
-        clusters,
-        prefer_multi_source=True,  # Prioritize events covered by multiple sources
-        min_sources=1,
+    ffmpeg_wrapper = FFmpegWrapper()
+    tts_engine = EdgeTTSEngine(ffmpeg_wrapper=ffmpeg_wrapper)
+    tts_config = TTSSynthesisConfig(
+        voice_id=persona.voice.voice_id,
+        speed=persona.voice.settings.speed,
     )
 
-    if not best_cluster:
-        print("\nNo suitable cluster found. Demo ended.")
-        return
+    scene_tts_results = await tts_engine.synthesize_scenes(
+        scenes=scenes,
+        config=tts_config,
+        output_dir=OUTPUT_DIR / "audio_scenes",
+    )
 
-    print(f"\n   Selected cluster: {best_cluster.primary_topic.title_normalized[:50]}...")
-    reason = "Multi-source event" if best_cluster.source_count > 1 else "Top scored"
-    print(f"   Selection reason: {reason}")
-    print(f"   Sources: {best_cluster.sources}")
-    print(f"   Total engagement: {best_cluster.total_engagement}")
+    for i, r in enumerate(scene_tts_results):
+        print(f"   Scene {i + 1}: {r.duration_seconds:.1f}s -> {r.audio_path.name}")
 
-    # Find the primary topic in DB
-    primary_topic_id = best_cluster.primary_topic.metadata.get("topic_id")
-    if not primary_topic_id:
-        # Fallback: use first topic
-        primary_topic = topics[0]
+    combined_tts = await concatenate_scene_audio(
+        scene_results=scene_tts_results,
+        output_path=OUTPUT_DIR / "combined_audio",
+        ffmpeg_wrapper=ffmpeg_wrapper,
+    )
+    print(f"   Combined audio: {combined_tts.duration_seconds:.1f}s")
+
+    # ========================================
+    # Phase 5: Subtitles + Visuals
+    # ========================================
+    print("\n[5/6] Generating subtitles + visuals...")
+
+    subtitle_gen = SubtitleGenerator(
+        config=SubtitleConfig(),
+        composition_config=CompositionConfig(),
+        template_loader=ASSTemplateLoader(),
+    )
+
+    subtitle_file = subtitle_gen.generate_from_scene_results(
+        scene_results=scene_tts_results,
+        scenes=scenes,
+    )
+
+    subtitle_path = OUTPUT_DIR / "subtitles.ass"
+    subtitle_gen.to_ass(subtitle_file, subtitle_path)
+    print(f"   Subtitle segments: {len(subtitle_file.segments)}")
+
+    # Visuals — Pexels HD → Wan AI video → solid-color fallback
+    visuals_dir = OUTPUT_DIR / "visuals"
+    http_client = HTTPClient()
+    visual_manager = _make_visual_manager(http_client)
+
+    scene_visuals = await visual_manager.source_visuals_for_scenes(
+        scenes=scenes,
+        scene_results=scene_tts_results,
+        output_dir=visuals_dir,
+        orientation="portrait",
+    )
+
+    for i, sv in enumerate(scene_visuals):
+        src = sv.asset.source if sv.asset else "none"
+        name = sv.asset.path.name if sv.asset and sv.asset.path else "no-file"
+        print(f"   Visual {i + 1}: {src} -> {name}")
+
+    await visual_manager.close()
+    await http_client.close()
+
+    # ========================================
+    # Phase 6: Remotion Composition
+    # ========================================
+    print("\n[6/6] Composing video with Remotion...")
+
+    bgm_path: Path | None = None
+    bgm_candidates = list(Path("data/bgm").glob("*.mp3")) if Path("data/bgm").exists() else []
+    if bgm_candidates:
+        bgm_path = random.choice(bgm_candidates)
+        print(f"   BGM: {bgm_path.name}")
     else:
-        # Find matching topic
-        primary_topic = next(
-            (t for t in topics if str(t.id) == primary_topic_id),
-            topics[0],
-        )
+        print("   BGM: none (place .mp3 files in data/bgm/ to enable)")
 
-    # Phase 2: Enriched Script Generation
-    script = await run_enriched_script_generation(best_cluster, primary_topic, channel)
+    compositor = RemotionCompositor(config=CompositionConfig())
+    final_path = OUTPUT_DIR / "final_video"
 
-    if not script:
-        print("\nFailed to generate script. Demo ended.")
-        return
+    result = await compositor.compose_scenes(
+        scenes=scenes,
+        scene_tts_results=scene_tts_results,
+        scene_visuals=scene_visuals,
+        combined_audio_path=combined_tts.audio_path,
+        subtitle_file=subtitle_path,
+        output_path=final_path,
+        headline=scene_script.headline,
+        subtitle_data=subtitle_file,
+        video_template=video_template,
+        background_music_path=bgm_path,
+    )
 
-    # Phase 3: Video Generation
-    result = await run_video_generation(script)
-
-    # Summary
+    # ========================================
+    # Done
+    # ========================================
     print("\n" + "=" * 60)
     print("PIPELINE COMPLETE")
     print("=" * 60)
-
-    print(f"\nFinal video: {result.video_path}")
-    print(f"Duration: {result.duration_seconds:.1f}s")
-
-    if script.generation_metadata:
-        meta = script.generation_metadata
-        print("\nEnrichment stats:")
-        print(f"  - Sources integrated: {meta.get('cluster_source_count', 0)}")
-        print(f"  - Research results used: {meta.get('research_result_count', 0)}")
-
-    print("\nTo view the video:")
-    print(f"  docker cp <container>:{result.video_path} ./output.mp4")
+    print(f"\n   Video: {result.video_path}")
+    print(f"   Duration: {result.duration_seconds:.1f}s")
+    print(f"   Size: {result.file_size_bytes / 1024 / 1024:.1f} MB")
+    print(f"   Resolution: {result.resolution}")
+    print(f"   FPS: {result.fps}")
+    print(f"\n   Output dir: {OUTPUT_DIR}")
 
 
 if __name__ == "__main__":

@@ -17,12 +17,11 @@ from app.models.scene import Scene, SceneScript
 
 if TYPE_CHECKING:
     from app.models.channel import Channel
-    from app.models.content_chunk import ContentChunk
     from app.models.topic import Topic
     from app.models.video import Video
 
 
-class ScriptStatus(str, enum.Enum):
+class ScriptStatus(enum.StrEnum):
     """Script lifecycle status."""
 
     GENERATED = "generated"  # Generated, awaiting review
@@ -52,12 +51,11 @@ class Script(Base, UUIDMixin, TimestampMixin):
         forbidden_words: List of forbidden words found
         quality_passed: Whether quality checks passed
         generation_model: LLM model used (e.g., "claude-3-5-sonnet")
-        context_chunks_used: Number of RAG chunks used
+        context_chunks_used: Number of context chunks used
         generation_metadata: Additional generation info (JSONB)
         status: Current script status
         channel: Associated channel
         topic: Associated topic
-        content_chunks: ContentChunks created from this script
     """
 
     __tablename__ = "scripts"
@@ -121,9 +119,6 @@ class Script(Base, UUIDMixin, TimestampMixin):
     # Relationships
     channel: Mapped["Channel"] = relationship("Channel", back_populates="scripts")
     topic: Mapped["Topic"] = relationship("Topic", back_populates="scripts")
-    content_chunks: Mapped[list["ContentChunk"]] = relationship(
-        "ContentChunk", back_populates="script", cascade="all, delete-orphan"
-    )
     videos: Mapped[list["Video"]] = relationship(
         "Video", back_populates="script", cascade="all, delete-orphan"
     )

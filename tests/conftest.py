@@ -10,6 +10,8 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+import app.models  # noqa: F401 — ensure all models register with Base.metadata
+from app.core.database import Base
 from app.core.logging import setup_logging
 
 # Setup logging for tests
@@ -45,6 +47,10 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
         echo=False,
         pool_pre_ping=True,
     )
+
+    # Ensure all tables exist
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
     # Create a connection
     async with engine.connect() as connection:

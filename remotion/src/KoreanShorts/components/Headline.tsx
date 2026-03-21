@@ -17,6 +17,8 @@ interface HeadlineProps {
   animation?: TextAnimation;
   /** Current scene type — adjusts headline pulse for persona/emphasis scenes */
   currentSceneType?: SceneType;
+  /** Seconds after which the headline fades out (default: 3.0) */
+  exitAfterSeconds?: number;
 }
 
 const DEFAULT_SAFE_ZONE: SafeZone = {
@@ -59,6 +61,7 @@ export const Headline: React.FC<HeadlineProps> = ({
   safeZone,
   theme,
   currentSceneType,
+  exitAfterSeconds = 3.0,
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -66,16 +69,28 @@ export const Headline: React.FC<HeadlineProps> = ({
   if (!line1 && !line2) return null;
 
   const sz = safeZone ?? DEFAULT_SAFE_ZONE;
-  const fontFamily = `'${theme?.font_family ?? "Pretendard"}', 'Noto Sans KR', sans-serif`;
+  const fontFamily = `'${theme?.font_family ?? "Pretendard"}', 'Noto Sans CJK KR', sans-serif`;
   const line1Color = theme?.accent_color ?? accentColor;
   const line2Color = theme?.secondary_color ?? "#FFFFFF";
   const fontSize1 = theme?.headline_font_size_line1 ?? 110;
   const fontSize2 = theme?.headline_font_size_line2 ?? 80;
 
   // --- Container entrance: fade in over 12 frames ---
-  const containerOpacity = interpolate(frame, [0, 12], [0, 1], {
+  const entranceOpacity = interpolate(frame, [0, 12], [0, 1], {
     extrapolateRight: "clamp",
   });
+
+  // --- Exit: fade out after exitAfterSeconds ---
+  const exitStartFrame = Math.round(exitAfterSeconds * fps);
+  const exitDurationFrames = 20;
+  const exitOpacity = interpolate(
+    frame,
+    [exitStartFrame, exitStartFrame + exitDurationFrames],
+    [1, 0],
+    { extrapolateLeft: "clamp", extrapolateRight: "clamp" },
+  );
+
+  const containerOpacity = entranceOpacity * exitOpacity;
 
   // --- Line 1: spring slide from left ---
   const line1Spring = spring({

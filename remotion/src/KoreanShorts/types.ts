@@ -75,6 +75,13 @@ export interface Theme {
   outline_color: string;
 }
 
+export interface ColorGrading {
+  brightness: number; // e.g. 1.02 = +2%
+  contrast: number; // e.g. 1.05 = +5%
+  saturation: number; // e.g. 1.1 = +10%
+  warmth: number; // mapped to sepia(), e.g. 0.05
+}
+
 export type SceneType =
   | "hook"
   | "intro"
@@ -109,6 +116,8 @@ export interface KoreanShortsProps {
   audio_path: string;
   bgm_path: string | null;
   bgm_volume: number;
+  /** SFX file paths staged into public/: { whoosh, pop, ding } */
+  sfx_paths?: Record<string, string>;
 
   // Headline (top area)
   headline_line1: string;
@@ -126,11 +135,17 @@ export interface KoreanShortsProps {
   enable_ken_burns: boolean;
   enable_karaoke: boolean;
 
+  // Headline timing
+  headline_exit_after_seconds?: number; // fade out headline after N seconds (default: 3.0)
+
   // Safe zone
   safe_zone?: SafeZone;
 
   // Theme
   theme?: Theme;
+
+  // Color grading
+  color_grading?: ColorGrading;
 
   // Scene metadata (optional, backwards-compatible)
   scenes?: SceneInfo[];

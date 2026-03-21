@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from app.models.video import Video
 
 
-class PrivacyStatus(str, enum.Enum):
+class PrivacyStatus(enum.StrEnum):
     """YouTube video privacy status."""
 
     PUBLIC = "public"  # Visible to everyone
@@ -28,7 +28,7 @@ class PrivacyStatus(str, enum.Enum):
     UNLISTED = "unlisted"  # Visible to anyone with the link
 
 
-class UploadStatus(str, enum.Enum):
+class UploadStatus(enum.StrEnum):
     """Upload lifecycle status."""
 
     PENDING = "pending"  # Waiting to be scheduled

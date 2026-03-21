@@ -3,7 +3,7 @@
 Filtering happens after normalization, before scoring.
 """
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
@@ -14,7 +14,7 @@ from app.services.collector.base import NormalizedTopic
 logger = get_logger(__name__)
 
 
-class FilterReason(str, Enum):
+class FilterReason(StrEnum):
     """Reason for filter decision."""
 
     EXCLUDED_TERM = "excluded_term"

@@ -100,6 +100,7 @@ db_backups/
 # Channel-specific config (production)
 channels/
 config/channels/
+!config/channels/demo_*.yaml
 config/personas/
 
 # Production config
@@ -146,6 +147,7 @@ tmp/
 # Subtitles
 *.srt
 *.ass
+!app/services/generator/templates/ass_base.ass
 *.vtt
 
 # ============================================
@@ -338,3 +340,7 @@ celerybeat.pid
 !architecture/
 !diagrams/
 !*.mermaid
+
+# Generated demo assets (regenerate with scripts/setup_demo_assets.py)
+data/bgm/*.mp3
+data/sfx/*.mp3

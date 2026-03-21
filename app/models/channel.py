@@ -14,7 +14,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
-    from app.models.content_chunk import ContentChunk
     from app.models.script import Script
     from app.models.series import Series
     from app.models.source import Source
@@ -22,7 +21,7 @@ if TYPE_CHECKING:
     from app.models.video import Video
 
 
-class ChannelStatus(str, enum.Enum):
+class ChannelStatus(enum.StrEnum):
     """Channel operational status."""
 
     ACTIVE = "active"
@@ -93,9 +92,6 @@ class Channel(Base, UUIDMixin, TimestampMixin):
     scripts: Mapped[list["Script"]] = relationship(
         "Script", back_populates="channel", cascade="all, delete-orphan"
     )
-    content_chunks: Mapped[list["ContentChunk"]] = relationship(
-        "ContentChunk", back_populates="channel", cascade="all, delete-orphan"
-    )
     videos: Mapped[list["Video"]] = relationship(
         "Video", back_populates="channel", cascade="all, delete-orphan"
     )
@@ -108,7 +104,7 @@ class Channel(Base, UUIDMixin, TimestampMixin):
         return f"<Channel(id={self.id}, name={self.name}, status={self.status})>"
 
 
-class TTSService(str, enum.Enum):
+class TTSService(enum.StrEnum):
     """Text-to-Speech service provider."""
 
     EDGE_TTS = "edge-tts"

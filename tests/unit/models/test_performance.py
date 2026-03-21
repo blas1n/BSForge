@@ -1,5 +1,7 @@
 """Unit tests for Performance model structure."""
 
+# pyright: reportAttributeAccessIssue=false, reportAssignmentType=false
+
 from app.models.performance import Performance
 
 
