@@ -5,9 +5,10 @@ Configuration is validated at startup and provides type-safe access throughout t
 """
 
 import secrets
-from typing import Literal
+import warnings
+from typing import Any, Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -147,6 +148,18 @@ class Config(BaseSettings):
         if isinstance(v, str) and not v.startswith("postgresql+asyncpg://"):
             raise ValueError("database_url must use asyncpg driver (postgresql+asyncpg://)")
         return v
+
+    @model_validator(mode="after")
+    def _warn_default_secret_in_production(self) -> Any:
+        """Warn if secret_key was auto-generated in production."""
+        if self.app_env == "production" and len(self.secret_key) == 43:
+            warnings.warn(
+                "SECRET_KEY is auto-generated. Set it explicitly in production "
+                "to avoid session invalidation across restarts.",
+                UserWarning,
+                stacklevel=2,
+            )
+        return self
 
     @property
     def is_development(self) -> bool:

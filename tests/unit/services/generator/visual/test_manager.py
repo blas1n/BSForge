@@ -657,15 +657,18 @@ class TestEdgeCases:
         assert mock_pexels.search_images.await_count == 1
 
     @pytest.mark.asyncio
-    async def test_metadata_score_none_treated_as_zero(
+    async def test_metadata_score_none_passes_threshold(
         self,
         manager: VisualSourcingManager,
         mock_pexels: MagicMock,
         mock_wan: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """Asset with metadata_score=None is treated as 0.0, below threshold."""
-        asset = _make_asset(metadata_score=None)  # type: ignore[arg-type]
+        """Asset with metadata_score=None passes threshold (no score = allow)."""
+        # Create a real file so is_downloaded returns True
+        downloaded_file = tmp_path / "downloaded.jpg"
+        downloaded_file.write_bytes(b"fake-image")
+        asset = _make_asset(metadata_score=None, path=downloaded_file)  # type: ignore[arg-type]
         # Manually set to None since helper defaults to float
         asset.metadata_score = None
         mock_pexels.search_images.return_value = [asset]
@@ -679,5 +682,5 @@ class TestEdgeCases:
             orientation="portrait",
         )
 
-        # None metadata_score treated as 0.0 < 0.3 threshold -> skipped
-        assert result.type == VisualSourceType.SOLID_COLOR
+        # None metadata_score skips threshold check — search relevance is trusted
+        assert result.type != VisualSourceType.SOLID_COLOR

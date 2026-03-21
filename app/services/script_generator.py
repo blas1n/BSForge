@@ -103,13 +103,21 @@ class ScriptGenerator:
         # Call LLM
         logger.info("generating_script", topic=topic_title, model=llm_config.model)
 
-        response = await self.llm_client.complete(
-            config=llm_config,
-            messages=[{"role": "user", "content": prompt}],
-        )
+        try:
+            response = await self.llm_client.complete(
+                config=llm_config,
+                messages=[{"role": "user", "content": prompt}],
+            )
+        except Exception:
+            logger.exception("script_llm_call_failed", topic=topic_title, model=llm_config.model)
+            raise
 
         # Parse response into SceneScript
-        scene_script = self._parse_response(response.content)
+        try:
+            scene_script = self._parse_response(response.content)
+        except ValueError:
+            logger.error("script_parse_failed", topic=topic_title, model=llm_config.model)
+            raise
 
         logger.info(
             "script_generated",

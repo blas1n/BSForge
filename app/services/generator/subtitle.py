@@ -1208,7 +1208,10 @@ class SubtitleGenerator:
                     ts_word = word_timestamps[word_ts_idx]
                     ts_word_clean = ts_word.word.strip().strip(".,!?。！？")
 
-                    if seg_word_clean == ts_word_clean or seg_word_clean in ts_word_clean:
+                    if seg_word_clean == ts_word_clean or (
+                        seg_word_clean in ts_word_clean
+                        and len(seg_word_clean) >= len(ts_word_clean) * 0.5
+                    ):
                         matched_timestamps.append(ts_word)
                         word_ts_idx += 1
                         break
@@ -1275,7 +1278,7 @@ class SubtitleGenerator:
                     # ASS inline color override: {\c&HBBGGRR&}text{\c}
                     ass_color = _hex_to_ass_bgr(persona_style.secondary_color)
                     highlighted = f"{{\\c{ass_color}}}{word}{{\\c}}"
-                    result = result.replace(word, highlighted, 1)
+                    result = result.replace(word, highlighted)
 
         return result
 

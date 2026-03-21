@@ -32,6 +32,7 @@ from app.core.dependencies import (
     create_prompt_manager,
     create_script_generator,
     create_video_pipeline,
+    reset_singletons,
 )
 from app.core.logging import get_logger
 from app.infrastructure.http_client import HTTPClient
@@ -299,11 +300,16 @@ async def run_once() -> None:
 
     logger.info("active_channels_found", count=len(channels))
 
+    channel_timeout = 30 * 60  # 30 minutes per channel
+
     total_videos = 0
     for channel in channels:
         try:
-            count = await process_channel(channel)
+            count = await asyncio.wait_for(process_channel(channel), timeout=channel_timeout)
             total_videos += count
+        except TimeoutError:
+            logger.error("channel_timeout", channel=channel.name, timeout_s=channel_timeout)
+            continue
         except Exception:
             logger.exception("channel_failed", channel=channel.name)
             continue
@@ -374,6 +380,7 @@ async def main() -> None:
         # Cleanup shared singletons
         http_client = create_http_client()
         await http_client.close()
+        reset_singletons()
         await close_db()
 
 

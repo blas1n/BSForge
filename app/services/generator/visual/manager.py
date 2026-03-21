@@ -214,7 +214,10 @@ class VisualSourcingManager:
                     asset_key = (asset.source, asset.source_id or asset.url)
                     if asset_key in exclude_ids:
                         continue
-                    if (asset.metadata_score or 0.0) < metadata_threshold:
+                    if (
+                        asset.metadata_score is not None
+                        and asset.metadata_score < metadata_threshold
+                    ):
                         continue
 
                     if not asset.is_downloaded:
