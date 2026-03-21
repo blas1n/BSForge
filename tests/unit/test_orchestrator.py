@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.config.persona import PersonaConfig
 from app.orchestrator import (
     _build_persona_config,
     _get_tts_provider,
@@ -38,7 +39,7 @@ class TestBuildPersonaConfig:
         channel.persona.perspective = {"core_values": ["기술"], "contrarian_views": []}
 
         result = _build_persona_config(channel)
-        assert result is not None
+        assert isinstance(result, PersonaConfig)
         assert result.name == "테크브로"
         assert result.tagline == "핵심만"
 
@@ -55,7 +56,7 @@ class TestBuildPersonaConfig:
         channel.persona.perspective = {}
 
         result = _build_persona_config(channel)
-        assert result is not None
+        assert isinstance(result, PersonaConfig)
         assert result.name == "Test"
 
     def test_propagates_pydantic_validation_error(self) -> None:

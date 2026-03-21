@@ -342,8 +342,15 @@ class VisualSourcingManager:
 
     async def close(self) -> None:
         """Close all clients."""
-        await self._pexels.close()
-        await self._wan_video.close()
+        for client in (self._pexels, self._wan_video):
+            try:
+                await client.close()
+            except Exception:
+                logger.warning(
+                    "visual_client_close_error",
+                    client=type(client).__name__,
+                    exc_info=True,
+                )
 
 
 __all__ = ["VisualSourcingManager", "SceneVisualResult"]

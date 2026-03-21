@@ -147,7 +147,8 @@ async def _collect_topics(
         )
         topics, stats = await pipeline.collect_for_channel(channel, config)
         # Detach ORM objects before session closes so they remain usable.
-        # Only scalar fields (id, title_normalized, summary, terms) are accessed later.
+        # Safe to access after expunge: id, title_normalized, summary, terms.
+        # Do NOT access lazy-loaded relationships (e.g. topic.channel).
         session.expunge_all()
 
     logger.info(
@@ -168,7 +169,8 @@ async def _process_topic(
 ) -> bool:
     """Process a single topic: script → video → upload.
 
-    Returns True if a video was produced.
+    Returns True if video generation succeeded.  Upload is not yet
+    implemented (Phase 6) so True only indicates a rendered file exists.
     """
     logger.info("processing_topic", topic=topic.title_normalized, channel=channel.name)
 
@@ -310,21 +312,31 @@ async def run_once() -> None:
     channel_timeout = 30 * 60  # 30 minutes per channel
 
     total_videos = 0
+    failed_channels: list[str] = []
     for channel in channels:
         try:
             count = await asyncio.wait_for(process_channel(channel), timeout=channel_timeout)
             total_videos += count
         except TimeoutError:
             logger.error("channel_timeout", channel=channel.name, timeout_s=channel_timeout)
+            failed_channels.append(channel.name)
             continue
         except Exception:
             logger.exception("channel_failed", channel=channel.name)
+            failed_channels.append(channel.name)
             continue
 
     elapsed = (datetime.now(tz=UTC) - start).total_seconds()
+    if failed_channels:
+        logger.warning(
+            "orchestrator_channels_failed",
+            failed=failed_channels,
+            count=len(failed_channels),
+        )
     logger.info(
         "orchestrator_run_complete",
         channels_processed=len(channels),
+        channels_failed=len(failed_channels),
         videos_produced=total_videos,
         elapsed_seconds=elapsed,
     )

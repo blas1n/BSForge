@@ -163,9 +163,9 @@ class VideoGenerationPipeline:
         if template_name:
             try:
                 template = self.template_loader.load(template_name)
-                logger.info(f"Using video template: {template_name}")
-            except Exception as e:
-                logger.warning(f"Failed to load template '{template_name}': {e}")
+                logger.info("template_loaded", template=template_name)
+            except Exception:
+                logger.warning("template_load_failed", template=template_name, exc_info=True)
 
         # Determine output directory (simplified to single UUID)
         output_dir = Path(self.config.output_dir) / str(script.id)
@@ -177,8 +177,9 @@ class VideoGenerationPipeline:
 
         try:
             logger.info(
-                f"Starting scene-based video generation for script {script.id}, "
-                f"{len(scene_script.scenes)} scenes"
+                "video_generation_start",
+                script_id=str(script.id),
+                scene_count=len(scene_script.scenes),
             )
 
             # Step 1: Get TTS engine
@@ -314,10 +315,11 @@ class VideoGenerationPipeline:
             )
 
             logger.info(
-                f"Scene-based video generation complete: {result.video_path}, "
-                f"duration={result.duration_seconds:.1f}s, "
-                f"scenes={len(scene_script.scenes)}, "
-                f"time={generation_time}s"
+                "video_generation_complete",
+                video_path=str(result.video_path),
+                duration_s=result.duration_seconds,
+                scene_count=len(scene_script.scenes),
+                generation_time_s=generation_time,
             )
 
             return result
@@ -333,8 +335,10 @@ class VideoGenerationPipeline:
             if self.config.cleanup_temp and temp_dir.exists():
                 try:
                     shutil.rmtree(temp_dir)
-                except Exception as e:
-                    logger.warning(f"Failed to cleanup temp dir: {e}")
+                except Exception:
+                    logger.warning("temp_cleanup_failed", path=str(temp_dir), exc_info=True)
+            elif not self.config.cleanup_temp and temp_dir.exists():
+                logger.warning("temp_dir_retained", path=str(temp_dir))
 
     def _get_voice_for_script(self, script: Script) -> str:
         """Determine voice ID for script.
