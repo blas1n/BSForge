@@ -181,6 +181,13 @@ class LLMClient:
                 raise LLMError("LLM response choice has no message")
             content = message.content or ""
 
+            if not content:
+                logger.warning(
+                    "llm_empty_response",
+                    model=model,
+                    max_tokens=config.max_tokens,
+                )
+
             # Build usage dict (usage is dynamically set, not a declared field)
             usage = {}
             response_usage = getattr(response, "usage", None)

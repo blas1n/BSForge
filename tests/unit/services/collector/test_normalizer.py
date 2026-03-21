@@ -1,10 +1,12 @@
 """Unit tests for topic normalizer."""
 
 import json
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from app.infrastructure.llm import LLMResponse
+from app.prompts.manager import LLMSettings
 from app.services.collector.normalizer import ClassificationResult, TopicNormalizer
 
 
@@ -237,3 +239,99 @@ class TestTopicNormalizerExtractJson:
         result = normalizer._extract_first_json_object(text)
 
         assert "quoted" in result["summary"]
+
+
+class TestTopicNormalizerClassify:
+    """Tests for LLM-based classification."""
+
+    @pytest.fixture
+    def normalizer(self):
+        """Create normalizer with mocked LLM."""
+        mock_llm = MagicMock()
+        mock_llm.complete = AsyncMock()
+        mock_prompt_manager = MagicMock()
+        mock_prompt_manager.render.return_value = "classify this"
+        mock_prompt_manager.get_llm_settings.return_value = LLMSettings(
+            model="test",
+            max_tokens=500,
+            temperature=0.3,
+        )
+        return TopicNormalizer(
+            llm_client=mock_llm,
+            prompt_manager=mock_prompt_manager,
+        )
+
+    @pytest.mark.asyncio
+    async def test_empty_response_returns_fallback(self, normalizer):
+        """Empty LLM response returns fallback classification."""
+        normalizer.llm_client.complete.return_value = LLMResponse(
+            content="",
+            model="test",
+            usage={},
+        )
+
+        result = await normalizer._classify("Some title", "Some content")
+
+        assert result.terms == ["general"]
+        assert result.entities == {}
+        assert result.summary == "Some title"
+
+    @pytest.mark.asyncio
+    async def test_whitespace_only_response_returns_fallback(self, normalizer):
+        """Whitespace-only LLM response returns fallback classification."""
+        normalizer.llm_client.complete.return_value = LLMResponse(
+            content="   \n  ",
+            model="test",
+            usage={},
+        )
+
+        result = await normalizer._classify("Another title", None)
+
+        assert result.terms == ["general"]
+
+    @pytest.mark.asyncio
+    async def test_valid_json_response(self, normalizer):
+        """Valid JSON response is parsed correctly."""
+        json_content = (
+            '{"terms": ["AI", "Tech"], "entities": '
+            '{"companies": ["OpenAI"]}, "summary": "AI advances"}'
+        )
+        normalizer.llm_client.complete.return_value = LLMResponse(
+            content=json_content,
+            model="test",
+            usage={},
+        )
+
+        result = await normalizer._classify("AI Topic", None)
+
+        assert result.terms == ["ai", "tech"]
+        assert result.entities == {"companies": ["OpenAI"]}
+        assert result.summary == "AI advances"
+
+    @pytest.mark.asyncio
+    async def test_invalid_json_returns_fallback(self, normalizer):
+        """Invalid JSON returns fallback classification."""
+        normalizer.llm_client.complete.return_value = LLMResponse(
+            content="This is not JSON at all",
+            model="test",
+            usage={},
+        )
+
+        result = await normalizer._classify("Bad response title", None)
+
+        assert result.terms == ["general"]
+        assert result.entities == {}
+
+    @pytest.mark.asyncio
+    async def test_markdown_wrapped_json(self, normalizer):
+        """JSON wrapped in markdown code blocks is extracted."""
+        normalizer.llm_client.complete.return_value = LLMResponse(
+            content='```json\n{"terms": ["python"], "entities": {}, "summary": "Python news"}\n```',
+            model="test",
+            usage={},
+        )
+
+        result = await normalizer._classify("Python Topic", None)
+
+        assert result.terms == ["python"]
+        assert result.summary == "Python news"

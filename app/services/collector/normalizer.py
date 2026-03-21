@@ -271,6 +271,14 @@ class TopicNormalizer:
             # Parse JSON response
             response_text = response.content.strip()
 
+            if not response_text:
+                logger.warning("classification_empty_response", title=title[:50])
+                return ClassificationResult(
+                    terms=["general"],
+                    entities={},
+                    summary=title[:200],
+                )
+
             # Extract JSON from response (handle markdown code blocks)
             if "```json" in response_text:
                 json_start = response_text.find("```json") + 7
@@ -306,7 +314,12 @@ class TopicNormalizer:
             return result
 
         except Exception as e:
-            logger.error("Classification failed", error=str(e), exc_info=True)
+            logger.error(
+                "classification_failed",
+                error=str(e),
+                raw_response=response_text[:500] if "response_text" in locals() else "N/A",
+                exc_info=True,
+            )
             # Return fallback classification
             return ClassificationResult(
                 terms=["general"],
