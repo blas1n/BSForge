@@ -220,8 +220,14 @@ class ScriptGenerator:
 
         try:
             data = json.loads(cleaned)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Failed to parse LLM response as JSON: {e}") from e
+        except json.JSONDecodeError:
+            # Fallback: extract the outermost JSON object from the response
+            try:
+                start = cleaned.index("{")
+                end = cleaned.rindex("}") + 1
+                data = json.loads(cleaned[start:end])
+            except (ValueError, json.JSONDecodeError) as e:
+                raise ValueError(f"Failed to parse LLM response as JSON: {e}") from e
 
         headline = data.get("headline", "")
         scenes_data = data.get("scenes", [])

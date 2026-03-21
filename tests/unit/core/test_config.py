@@ -23,20 +23,27 @@ def test_config_default_values(monkeypatch):
     assert config.log_level == "INFO"
 
 
+_PROD_DEFAULTS = {
+    "secret_key": "prod-secret",
+    "llm_api_key": "sk-prod-key",
+    "database_url": "postgresql+asyncpg://u:p@localhost/db",
+}
+
+
 @pytest.mark.unit
 def test_config_is_development():
     """Test is_development property."""
     config = Config(app_env="development")
     assert config.is_development is True
 
-    config = Config(app_env="production")
+    config = Config(app_env="production", **_PROD_DEFAULTS)
     assert config.is_development is False
 
 
 @pytest.mark.unit
 def test_config_is_production():
     """Test is_production property."""
-    config = Config(app_env="production")
+    config = Config(app_env="production", **_PROD_DEFAULTS)
     assert config.is_production is True
 
     config = Config(app_env="development")
@@ -76,7 +83,8 @@ def test_config_env_literal():
     """Test that app_env only accepts valid values."""
     # Valid values
     for env in ["development", "staging", "production"]:
-        config = Config(app_env=env)
+        kwargs = _PROD_DEFAULTS if env == "production" else {}
+        config = Config(app_env=env, **kwargs)
         assert config.app_env == env
 
     # Invalid value
@@ -110,6 +118,9 @@ def test_config_from_env(monkeypatch):
     """Test loading config from environment variables."""
     monkeypatch.setenv("APP_NAME", "TestApp")
     monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("SECRET_KEY", "prod-secret")
+    monkeypatch.setenv("LLM_API_KEY", "sk-prod-key")
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@localhost/db")
     monkeypatch.setenv("DEBUG", "true")
 
     config = Config()
@@ -120,27 +131,51 @@ def test_config_from_env(monkeypatch):
 
 
 @pytest.mark.unit
-def test_production_warns_empty_api_key():
-    """Production with empty LLM API key emits warning."""
-    import warnings
-
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        Config(app_env="production", llm_api_key="", secret_key="explicit-key")
-        api_warnings = [x for x in w if "LLM_API_KEY" in str(x.message)]
-        assert len(api_warnings) == 1
+def test_production_raises_on_empty_api_key():
+    """Production with empty LLM API key raises ValueError."""
+    with pytest.raises(ValidationError, match="LLM_API_KEY"):
+        Config(
+            app_env="production",
+            llm_api_key="",
+            secret_key="explicit-key",
+            database_url="postgresql+asyncpg://u:p@localhost/db",
+        )
 
 
 @pytest.mark.unit
-def test_production_no_warning_with_api_key():
-    """Production with LLM API key set does not warn."""
-    import warnings
+def test_production_raises_on_auto_secret_key():
+    """Production with auto-generated secret key raises ValueError."""
+    with pytest.raises(ValidationError, match="SECRET_KEY"):
+        Config(
+            app_env="production",
+            llm_api_key="sk-test-key",
+            database_url="postgresql+asyncpg://u:p@localhost/db",
+        )
 
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        Config(app_env="production", llm_api_key="sk-test-key", secret_key="explicit-key")
-        api_warnings = [x for x in w if "LLM_API_KEY" in str(x.message)]
-        assert len(api_warnings) == 0
+
+@pytest.mark.unit
+def test_production_raises_on_empty_database_url():
+    """Production with empty database URL raises ValueError."""
+    with pytest.raises(ValidationError, match="DATABASE_URL"):
+        Config(
+            app_env="production",
+            llm_api_key="sk-test-key",
+            secret_key="explicit-key",
+            database_url="",
+        )
+
+
+@pytest.mark.unit
+def test_production_valid_config():
+    """Production with all required values succeeds."""
+    config = Config(
+        app_env="production",
+        llm_api_key="sk-test-key",
+        secret_key="explicit-key",
+        database_url="postgresql+asyncpg://u:p@localhost/db",
+    )
+    assert config.is_production is True
+    assert config.llm_api_key == "sk-test-key"
 
 
 @pytest.mark.unit

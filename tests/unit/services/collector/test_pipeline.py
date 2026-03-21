@@ -253,7 +253,7 @@ class TestSaveTopics:
 
     @pytest.mark.asyncio
     async def test_commit_failure_rolls_back(self) -> None:
-        """Session rollback is called when commit fails."""
+        """Session rollback is called and saved list cleared when commit fails."""
         session = AsyncMock()
         session.commit.side_effect = RuntimeError("DB error")
 
@@ -269,6 +269,28 @@ class TestSaveTopics:
         with pytest.raises(RuntimeError, match="DB error"):
             await pipeline._save_topics(channel, [(raw, norm)], max_topics=10)
 
+        session.rollback.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_integrity_error_returns_empty(self) -> None:
+        """IntegrityError on flush returns empty list without raising."""
+        from sqlalchemy.exc import IntegrityError
+
+        session = AsyncMock()
+        session.flush.side_effect = IntegrityError("dup", params=None, orig=Exception())
+
+        pipeline = TopicCollectionPipeline(
+            session=session, http_client=MagicMock(), normalizer=MagicMock()
+        )
+
+        norm = _make_normalized_topic()
+        raw = _make_raw_topic()
+        channel = MagicMock()
+        channel.id = uuid.uuid4()
+
+        result = await pipeline._save_topics(channel, [(raw, norm)], max_topics=10)
+
+        assert result == []
         session.rollback.assert_awaited_once()
 
     @pytest.mark.asyncio

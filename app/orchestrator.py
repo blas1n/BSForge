@@ -146,6 +146,9 @@ async def _collect_topics(
             prompt_manager=prompt_manager,
         )
         topics, stats = await pipeline.collect_for_channel(channel, config)
+        # Detach ORM objects before session closes so they remain usable.
+        # Only scalar fields (id, title_normalized, summary, terms) are accessed later.
+        session.expunge_all()
 
     logger.info(
         "topics_collected",
@@ -266,12 +269,12 @@ def _build_persona_config(channel: Channel) -> PersonaConfig | None:
 
         return PersonaConfig(
             name=persona.name,
-            tagline=persona.tagline or "",
+            tagline=persona.tagline or persona.name,
             voice=voice,
             communication=communication,
             perspective=perspective,
         )
-    except (ValueError, TypeError, KeyError) as e:
+    except KeyError as e:
         logger.warning("persona_config_build_failed", channel=channel.name, error=str(e))
         return None
 

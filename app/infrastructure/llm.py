@@ -47,6 +47,10 @@ class LLMConfig:
     temperature: float = 0.7
     timeout: int = 60
 
+    def __post_init__(self) -> None:
+        if self.timeout <= 0:
+            raise ValueError(f"timeout must be positive, got {self.timeout}")
+
     @classmethod
     def from_prompt_settings(cls, llm_settings: "LLMSettings", timeout: int = 60) -> "LLMConfig":
         """Create LLMConfig from prompt template LLMSettings.

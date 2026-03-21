@@ -5,7 +5,6 @@ Configuration is validated at startup and provides type-safe access throughout t
 """
 
 import secrets
-import warnings
 from typing import Any, Literal
 
 from pydantic import Field, field_validator, model_validator
@@ -154,18 +153,19 @@ class Config(BaseSettings):
         """Warn about insecure defaults in production."""
         if self.app_env == "production":
             if self.secret_key.startswith("auto:"):
-                warnings.warn(
-                    "SECRET_KEY is auto-generated. Set it explicitly in production "
-                    "to avoid session invalidation across restarts.",
-                    UserWarning,
-                    stacklevel=2,
+                raise ValueError(
+                    "SECRET_KEY must be set explicitly in production "
+                    "to avoid session invalidation across restarts."
                 )
             if not self.llm_api_key:
-                warnings.warn(
-                    "LLM_API_KEY is empty in production. "
-                    "LLM calls will fail unless the key is set via environment.",
-                    UserWarning,
-                    stacklevel=2,
+                raise ValueError(
+                    "LLM_API_KEY is required in production. "
+                    "Set it via environment variable or .env file."
+                )
+            if not self.database_url:
+                raise ValueError(
+                    "DATABASE_URL is required in production. "
+                    "Set it via environment variable or .env file."
                 )
         # Strip "auto:" prefix from secret_key (keep the random part only)
         if self.secret_key.startswith("auto:"):

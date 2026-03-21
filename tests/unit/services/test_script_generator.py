@@ -190,6 +190,30 @@ class TestScriptGenerator:
         assert len(result.scene_script.scenes) == 3
 
     @pytest.mark.asyncio
+    async def test_generate_extracts_json_from_extra_text(
+        self,
+        generator: ScriptGenerator,
+        mock_llm_client: MagicMock,
+        sample_llm_response: dict,
+    ) -> None:
+        """Test fallback JSON extraction when response has extra text around JSON."""
+        content = f"Here is the script:\n{json.dumps(sample_llm_response)}\nDone!"
+        mock_llm_client.complete.return_value = LLMResponse(
+            content=content,
+            model="test",
+            usage={},
+        )
+
+        result = await generator.generate(
+            topic_title="test",
+            topic_summary="test",
+            topic_terms=[],
+        )
+
+        assert result.scene_script.headline == "AI가 바꾸는 미래"
+        assert len(result.scene_script.scenes) == 3
+
+    @pytest.mark.asyncio
     async def test_generate_invalid_json_raises(
         self,
         generator: ScriptGenerator,

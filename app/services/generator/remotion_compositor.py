@@ -330,7 +330,11 @@ class RemotionCompositor:
         arch_dir = {"aarch64": "aarch64-linux-gnu", "x86_64": "x86_64-linux-gnu"}.get(
             arch, f"{arch}-linux-gnu"
         )
-        chromium_libs = Path.home() / ".local/lib/chromium-deps/usr/lib" / arch_dir
+        chromium_base = os.environ.get(
+            "CHROMIUM_LIB_PATH",
+            str(Path.home() / ".local/lib/chromium-deps/usr/lib"),
+        )
+        chromium_libs = Path(chromium_base) / arch_dir
         if chromium_libs.exists():
             env["LD_LIBRARY_PATH"] = f"{chromium_libs}:{env.get('LD_LIBRARY_PATH', '')}"
 

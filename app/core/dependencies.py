@@ -4,6 +4,7 @@ Replaces the DI container with simple factory functions.
 Each factory creates a fully-wired service instance.
 """
 
+import threading
 from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,6 +48,7 @@ logger = get_logger(__name__)
 _http_client: HTTPClient | None = None
 _llm_client: LLMClient | None = None
 _prompt_manager: PromptManager | None = None
+_singleton_lock = threading.Lock()
 
 
 def get_session_factory() -> SessionFactory:
@@ -57,30 +59,33 @@ def get_session_factory() -> SessionFactory:
 def create_http_client() -> HTTPClient:
     """Get or create shared HTTP client (singleton)."""
     global _http_client
-    if _http_client is None:
-        _http_client = HTTPClient()
-    return _http_client
+    with _singleton_lock:
+        if _http_client is None:
+            _http_client = HTTPClient()
+        return _http_client
 
 
 def create_llm_client() -> LLMClient:
     """Get or create LLM client with gateway config (singleton)."""
     global _llm_client
-    if _llm_client is None:
-        config = get_config()
-        _llm_client = LLMClient(
-            base_url=config.llm_api_base,
-            api_key=config.llm_api_key,
-            default_model=config.llm_model,
-        )
-    return _llm_client
+    with _singleton_lock:
+        if _llm_client is None:
+            config = get_config()
+            _llm_client = LLMClient(
+                base_url=config.llm_api_base,
+                api_key=config.llm_api_key,
+                default_model=config.llm_model,
+            )
+        return _llm_client
 
 
 def create_prompt_manager() -> PromptManager:
     """Get or create prompt manager (singleton)."""
     global _prompt_manager
-    if _prompt_manager is None:
-        _prompt_manager = PromptManager()
-    return _prompt_manager
+    with _singleton_lock:
+        if _prompt_manager is None:
+            _prompt_manager = PromptManager()
+        return _prompt_manager
 
 
 def create_script_generator(

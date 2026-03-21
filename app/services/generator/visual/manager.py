@@ -8,6 +8,8 @@ Source priority:
 3. Solid color fallback (generated locally)
 """
 
+import asyncio
+import shutil
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -132,14 +134,16 @@ class VisualSourcingManager:
                 )
                 continue
 
+            scene_dir = output_dir / f"scene_{i:03d}"
             try:
-                asset = await self._source_for_scene(
-                    keyword=keyword,
-                    duration=duration,
-                    output_dir=output_dir / f"scene_{i:03d}",
-                    orientation=orientation,
-                    exclude_source_ids=used_source_ids,
-                )
+                async with asyncio.timeout(30):
+                    asset = await self._source_for_scene(
+                        keyword=keyword,
+                        duration=duration,
+                        output_dir=scene_dir,
+                        orientation=orientation,
+                        exclude_source_ids=used_source_ids,
+                    )
                 asset.duration = duration
                 last_asset = asset
 
@@ -157,13 +161,15 @@ class VisualSourcingManager:
                     )
                 )
 
-            except (httpx.HTTPError, RuntimeError, ValueError, OSError) as e:
+            except (httpx.HTTPError, RuntimeError, ValueError, OSError, TimeoutError) as e:
                 logger.warning(
                     "scene_visual_failed",
                     scene=i,
                     error_type=type(e).__name__,
                     error=str(e),
                 )
+                # Clean up partial downloads from failed attempt
+                shutil.rmtree(scene_dir, ignore_errors=True)
                 fallback_asset = await self._create_fallback(
                     output_dir=output_dir / f"scene_{i:03d}",
                     duration=duration,

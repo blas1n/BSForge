@@ -322,6 +322,12 @@ class VideoGenerationPipeline:
 
             return result
 
+        except Exception:
+            # Clean up partial output on failure
+            if output_dir.exists():
+                shutil.rmtree(output_dir, ignore_errors=True)
+            raise
+
         finally:
             # Cleanup temp directory
             if self.config.cleanup_temp and temp_dir.exists():
@@ -341,14 +347,12 @@ class VideoGenerationPipeline:
         Returns:
             Voice ID string
         """
-        # Try to get from channel's persona
+        # Try to get from channel's persona (may fail if relationship not loaded)
         try:
-            if hasattr(script, "channel") and script.channel:
-                persona = script.channel.persona
-                if persona and persona.voice_id:
-                    return persona.voice_id
+            if script.channel and script.channel.persona and script.channel.persona.voice_id:
+                return script.channel.persona.voice_id
         except Exception:
-            pass
+            logger.debug("channel_persona_not_loaded", script_id=str(script.id))
 
         # Fallback to config defaults
         # Simple heuristic: use Korean if script contains Korean characters

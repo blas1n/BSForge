@@ -42,25 +42,45 @@ class TestBuildPersonaConfig:
         assert result.name == "테크브로"
         assert result.tagline == "핵심만"
 
-    def test_returns_none_on_validation_error(self) -> None:
-        """Test returns None when persona data causes ValueError."""
+    def test_returns_config_with_empty_dicts(self) -> None:
+        """Test builds config when persona has empty communication/perspective."""
         channel = MagicMock()
         channel.name = "test"
-        channel.persona.name = None  # Invalid — name is required
-        channel.persona.tagline = None
-        channel.persona.voice_gender = "invalid_gender"
-        channel.persona.tts_service = None
-        channel.persona.voice_id = None
-        channel.persona.communication_style = None
-        channel.persona.perspective = None
+        channel.persona.name = "Test"
+        channel.persona.tagline = "tagline"
+        channel.persona.voice_gender = "male"
+        channel.persona.tts_service = "edge-tts"
+        channel.persona.voice_id = "ko-KR-InJoonNeural"
+        channel.persona.communication_style = {}
+        channel.persona.perspective = {}
 
-        # Should not raise for ValueError/TypeError/KeyError, returns None
         result = _build_persona_config(channel)
-        # Either returns config with defaults or None on failure
-        assert result is None or result.name is None
+        assert result is not None
+        assert result.name == "Test"
+
+    def test_propagates_pydantic_validation_error(self) -> None:
+        """Test that Pydantic ValidationError (ValueError subclass) propagates.
+
+        PersonaConfig(name=None) raises ValidationError because name is required.
+        The outer except only catches KeyError, so this propagates to the caller.
+        """
+        channel = MagicMock()
+        channel.name = "test"
+        channel.persona.name = None  # Required field — Pydantic raises ValidationError
+        channel.persona.tagline = "tagline"
+        channel.persona.voice_gender = "male"
+        channel.persona.tts_service = "edge-tts"
+        channel.persona.voice_id = "ko-KR-InJoonNeural"
+        channel.persona.communication_style = {"tone": "friendly"}
+        channel.persona.perspective = {}
+
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            _build_persona_config(channel)
 
     def test_propagates_unexpected_errors(self) -> None:
-        """Test that unexpected errors (not ValueError/TypeError/KeyError) propagate."""
+        """Test that unexpected errors (not KeyError) propagate."""
         channel = MagicMock()
         channel.name = "test"
         # Accessing .persona raises an unexpected error

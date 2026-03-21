@@ -1036,7 +1036,10 @@ class SubtitleGenerator:
         ]
 
         for seg in all_segments:
-            # Find the scene boundary this segment falls under via binary search
+            # Find the scene boundary this segment should be clamped to.
+            # bisect_right returns the first boundary AFTER seg.start,
+            # which is the end of the scene this segment belongs to.
+            # e.g. boundaries=[5.0, 8.0], seg.start=5.0 → idx=1 → boundary=8.0 (scene 1 end)
             idx = bisect_right(scene_boundaries, seg.start)
             if idx < len(scene_boundaries):
                 boundary = scene_boundaries[idx]

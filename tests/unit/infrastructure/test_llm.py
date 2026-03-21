@@ -38,6 +38,14 @@ class TestLLMConfig:
         assert config.temperature == 0.5
         assert config.timeout == 120
 
+    def test_rejects_non_positive_timeout(self) -> None:
+        """Should reject zero or negative timeout."""
+        with pytest.raises(ValueError, match="timeout must be positive"):
+            LLMConfig(model="test-model", timeout=0)
+
+        with pytest.raises(ValueError, match="timeout must be positive"):
+            LLMConfig(model="test-model", timeout=-5)
+
     def test_from_prompt_settings(self) -> None:
         """Should create config from LLMSettings."""
         mock_settings = MagicMock()

@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_config
 from app.core.database import check_db_connection, close_db, init_db
+from app.core.dependencies import close_singletons
 from app.core.logging import get_logger, setup_logging
 
 # Setup logging
@@ -49,6 +50,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Shutdown
     logger.info("Shutting down BSForge application")
+    await close_singletons()
     await close_db()
     logger.info("Cleanup complete")
 
@@ -64,10 +66,15 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Configure CORS (permissive for development)
+# Configure CORS
+_cors_origins = (
+    ["http://localhost:3000", "http://localhost:8000"]
+    if _config.is_development
+    else []  # Production: configure via reverse proxy or extend this list
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -78,11 +85,10 @@ app.add_middleware(
 @app.get("/health")
 async def health_check() -> dict[str, str]:
     """Health check endpoint."""
-    cfg = get_config()
     return {
         "status": "healthy",
-        "app": cfg.app_name,
-        "env": cfg.app_env,
+        "app": _config.app_name,
+        "env": _config.app_env,
     }
 
 
@@ -92,5 +98,5 @@ async def root() -> dict[str, str]:
     return {
         "message": "BSForge API",
         "version": "0.1.0",
-        "docs": "/docs" if get_config().is_development else "disabled",
+        "docs": "/docs" if _config.is_development else "disabled",
     }

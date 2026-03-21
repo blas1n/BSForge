@@ -22,6 +22,7 @@ from typing import Any
 
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import FilteringConfig
@@ -318,7 +319,13 @@ class TopicCollectionPipeline:
             saved.append(topic)
 
         try:
+            await self.session.flush()
             await self.session.commit()
+        except IntegrityError:
+            # Defensive: concurrent insert of same content_hash — safe to skip
+            await self.session.rollback()
+            logger.warning("topic_duplicate_on_insert", count=len(saved))
+            saved.clear()
         except Exception as e:
             await self.session.rollback()
             logger.error("topic_commit_failed", error=str(e), count=len(saved))
