@@ -5,6 +5,7 @@ This module provides common fixtures used across all tests.
 
 import asyncio
 from collections.abc import AsyncGenerator, Generator
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import pytest_asyncio
@@ -83,3 +84,32 @@ def anyio_backend() -> str:
         Backend name
     """
     return "asyncio"
+
+
+# =============================================================================
+# Mock Session Factory
+# =============================================================================
+
+
+def make_mock_session_factory(session: AsyncMock | None = None) -> tuple[MagicMock, AsyncMock]:
+    """Create a mock async session factory for unit/e2e tests.
+
+    Args:
+        session: Pre-configured mock session. Creates a new one if None.
+
+    Returns:
+        Tuple of (factory, session) for test assertions.
+    """
+    if session is None:
+        session = AsyncMock()
+        session.get = AsyncMock()
+        session.add = MagicMock()
+        session.flush = AsyncMock()
+        session.commit = AsyncMock()
+        session.execute = AsyncMock()
+        session.refresh = AsyncMock()
+
+    factory = MagicMock()
+    factory.return_value.__aenter__ = AsyncMock(return_value=session)
+    factory.return_value.__aexit__ = AsyncMock(return_value=None)
+    return factory, session
