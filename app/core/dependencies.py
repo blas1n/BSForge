@@ -26,6 +26,8 @@ from app.infrastructure.llm import LLMClient
 from app.infrastructure.youtube_api import YouTubeAPIClient
 from app.infrastructure.youtube_auth import YouTubeAuthClient
 from app.prompts.manager import PromptManager
+from app.services.analytics.collector import YouTubeAnalyticsCollector
+from app.services.analytics.optimal_time import OptimalTimeAnalyzer
 from app.services.collector.normalizer import TopicNormalizer
 from app.services.collector.pipeline import TopicCollectionPipeline
 from app.services.generator.bgm import BGMManager
@@ -38,6 +40,7 @@ from app.services.generator.tts.factory import TTSEngineFactory
 from app.services.generator.visual.manager import VisualSourcingManager
 from app.services.generator.visual.pexels import PexelsClient
 from app.services.generator.visual.wan_video_source import WanVideoSource
+from app.services.scheduler.upload_scheduler import UploadScheduler
 from app.services.script_generator import ScriptGenerator
 from app.services.uploader.pipeline import UploadPipeline
 from app.services.uploader.youtube_uploader import YouTubeUploader
@@ -233,15 +236,20 @@ def create_youtube_auth() -> YouTubeAuthClient:
     )
 
 
+def _get_youtube_api(
+    youtube_auth: YouTubeAuthClient | None = None,
+) -> YouTubeAPIClient:
+    """Create a YouTubeAPIClient from auth (shared by upload/analytics factories)."""
+    auth = youtube_auth or create_youtube_auth()
+    return YouTubeAPIClient(auth_client=auth)
+
+
 def create_youtube_uploader(
     youtube_auth: YouTubeAuthClient | None = None,
 ) -> YouTubeUploader:
     """Create YouTube uploader service."""
-    auth = youtube_auth or create_youtube_auth()
-    youtube_api = YouTubeAPIClient(auth_client=auth)
-
     return YouTubeUploader(
-        youtube_api=youtube_api,
+        youtube_api=_get_youtube_api(youtube_auth),
         db_session_factory=get_session_factory(),
     )
 
@@ -261,6 +269,39 @@ def create_upload_pipeline(
 
     return UploadPipeline(
         uploader=uploader,
+        db_session_factory=get_session_factory(),
+    )
+
+
+def create_analytics_collector(
+    youtube_api: YouTubeAPIClient | None = None,
+    youtube_auth: YouTubeAuthClient | None = None,
+) -> YouTubeAnalyticsCollector:
+    """Create YouTube analytics collector.
+
+    Args:
+        youtube_api: YouTube API client (created if not provided)
+        youtube_auth: YouTube auth client (used if youtube_api not provided)
+
+    Returns:
+        Configured YouTubeAnalyticsCollector
+    """
+    return YouTubeAnalyticsCollector(
+        youtube_api=youtube_api or _get_youtube_api(youtube_auth),
+        db_session_factory=get_session_factory(),
+    )
+
+
+def create_optimal_time_analyzer() -> OptimalTimeAnalyzer:
+    """Create optimal time analyzer."""
+    return OptimalTimeAnalyzer(
+        db_session_factory=get_session_factory(),
+    )
+
+
+def create_upload_scheduler() -> UploadScheduler:
+    """Create upload scheduler."""
+    return UploadScheduler(
         db_session_factory=get_session_factory(),
     )
 
@@ -296,18 +337,21 @@ def reset_singletons() -> None:
 
 
 __all__ = [
+    "create_analytics_collector",
     "create_bgm_manager",
     "create_collector_pipeline",
     "create_ffmpeg_wrapper",
     "create_http_client",
     "create_llm_client",
     "create_normalizer",
+    "create_optimal_time_analyzer",
     "create_prompt_manager",
     "create_remotion_compositor",
     "create_script_generator",
     "create_subtitle_generator",
     "create_tts_factory",
     "create_upload_pipeline",
+    "create_upload_scheduler",
     "create_video_pipeline",
     "create_visual_manager",
     "create_youtube_auth",

@@ -15,6 +15,7 @@ from app.config.youtube_upload import SchedulePreferenceConfig
 from app.core.logging import get_logger
 from app.core.types import SessionFactory
 from app.models.upload import Upload, UploadStatus
+from app.models.video import Video
 from app.services.analytics.optimal_time import OptimalTimeAnalyzer, TimeSlotAnalysis
 
 logger = get_logger(__name__)
@@ -241,6 +242,7 @@ class UploadScheduler:
                 select(Upload.uploaded_at)
                 .join(Upload.video)
                 .where(
+                    Video.channel_id == channel_id,
                     Upload.upload_status == UploadStatus.COMPLETED,
                     Upload.uploaded_at.isnot(None),
                 )

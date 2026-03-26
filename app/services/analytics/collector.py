@@ -4,6 +4,7 @@ This module provides the YouTubeAnalyticsCollector for fetching and storing
 video performance metrics from YouTube Analytics API.
 """
 
+import asyncio
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -127,18 +128,18 @@ class YouTubeAnalyticsCollector:
                 datetime.now(tz=UTC) - timedelta(days=self.config.metrics_lookback_days)
             ).strftime("%Y-%m-%d")
 
-            # Fetch analytics from YouTube
-            analytics = await self.youtube_api.get_video_analytics(
-                video_id=upload.youtube_video_id,
-                start_date=start_date,
-                end_date=end_date,
-            )
-
-            # Fetch traffic sources
-            traffic_sources = await self.youtube_api.get_traffic_sources(
-                video_id=upload.youtube_video_id,
-                start_date=start_date,
-                end_date=end_date,
+            # Fetch analytics and traffic sources concurrently
+            analytics, traffic_sources = await asyncio.gather(
+                self.youtube_api.get_video_analytics(
+                    video_id=upload.youtube_video_id,
+                    start_date=start_date,
+                    end_date=end_date,
+                ),
+                self.youtube_api.get_traffic_sources(
+                    video_id=upload.youtube_video_id,
+                    start_date=start_date,
+                    end_date=end_date,
+                ),
             )
 
             # Create snapshot

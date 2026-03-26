@@ -6,18 +6,24 @@ import pytest
 
 from app.core.dependencies import (
     close_singletons,
+    create_analytics_collector,
     create_http_client,
     create_llm_client,
     create_normalizer,
+    create_optimal_time_analyzer,
     create_prompt_manager,
     create_script_generator,
+    create_upload_scheduler,
     get_session_factory,
     reset_singletons,
 )
 from app.infrastructure.http_client import HTTPClient
 from app.infrastructure.llm import LLMClient
 from app.prompts.manager import PromptManager
+from app.services.analytics.collector import YouTubeAnalyticsCollector
+from app.services.analytics.optimal_time import OptimalTimeAnalyzer
 from app.services.collector.normalizer import TopicNormalizer
+from app.services.scheduler.upload_scheduler import UploadScheduler
 from app.services.script_generator import ScriptGenerator
 
 
@@ -106,6 +112,35 @@ class TestCreateNormalizer:
         normalizer = create_normalizer(llm_client=llm, prompt_manager=pm)
         assert normalizer.llm_client is llm
         assert normalizer.prompt_manager is pm
+
+
+class TestCreateAnalyticsCollector:
+    """Tests for create_analytics_collector."""
+
+    def test_creates_with_youtube_api(self) -> None:
+        """Test analytics collector creation with YouTube API."""
+        mock_api = MagicMock()
+        collector = create_analytics_collector(youtube_api=mock_api)
+        assert isinstance(collector, YouTubeAnalyticsCollector)
+        assert collector.youtube_api is mock_api
+
+
+class TestCreateOptimalTimeAnalyzer:
+    """Tests for create_optimal_time_analyzer."""
+
+    def test_creates_instance(self) -> None:
+        """Test optimal time analyzer creation."""
+        analyzer = create_optimal_time_analyzer()
+        assert isinstance(analyzer, OptimalTimeAnalyzer)
+
+
+class TestCreateUploadScheduler:
+    """Tests for create_upload_scheduler."""
+
+    def test_creates_instance(self) -> None:
+        """Test upload scheduler creation."""
+        scheduler = create_upload_scheduler()
+        assert isinstance(scheduler, UploadScheduler)
 
 
 class TestCloseSingletons:
