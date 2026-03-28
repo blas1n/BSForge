@@ -1,9 +1,11 @@
 """Unit tests for dependency factory functions."""
 
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.core.config import Config
 from app.core.dependencies import (
     close_singletons,
     create_analytics_collector,
@@ -14,6 +16,7 @@ from app.core.dependencies import (
     create_prompt_manager,
     create_script_generator,
     create_upload_scheduler,
+    create_youtube_auth,
     get_session_factory,
     reset_singletons,
 )
@@ -141,6 +144,34 @@ class TestCreateUploadScheduler:
         """Test upload scheduler creation."""
         scheduler = create_upload_scheduler()
         assert isinstance(scheduler, UploadScheduler)
+
+
+class TestCreateYouTubeAuth:
+    """Tests for create_youtube_auth."""
+
+    def test_uses_config_paths(self) -> None:
+        """Test that create_youtube_auth reads paths from config."""
+        mock_config = MagicMock()
+        mock_config.youtube_credentials_path = "/custom/creds.json"
+        mock_config.youtube_token_path = "/custom/token.pickle"
+
+        with patch("app.core.dependencies.get_config", return_value=mock_config):
+            auth = create_youtube_auth()
+
+        assert auth.credentials_path == Path("/custom/creds.json")
+        assert auth.token_path == Path("/custom/token.pickle")
+
+    def test_env_var_override(self, monkeypatch) -> None:
+        """Test that env vars override default credentials paths."""
+        monkeypatch.setenv("YOUTUBE_CREDENTIALS_PATH", "/env/creds.json")
+        monkeypatch.setenv("YOUTUBE_TOKEN_PATH", "/env/token.pickle")
+
+        config = Config(_env_file=None)
+        with patch("app.core.dependencies.get_config", return_value=config):
+            auth = create_youtube_auth()
+
+        assert auth.credentials_path == Path("/env/creds.json")
+        assert auth.token_path == Path("/env/token.pickle")
 
 
 class TestCloseSingletons:

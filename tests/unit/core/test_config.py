@@ -184,3 +184,33 @@ def test_auto_secret_key_prefix_stripped():
     config = Config(_env_file=None)
     assert not config.secret_key.startswith("auto:")
     assert len(config.secret_key) > 20  # random token is sufficiently long
+
+
+@pytest.mark.unit
+def test_youtube_credentials_path_default():
+    """Test youtube_credentials_path has correct default."""
+    config = Config(_env_file=None)
+    assert config.youtube_credentials_path == "config/youtube_credentials.json"
+
+
+@pytest.mark.unit
+def test_youtube_token_path_default():
+    """Test youtube_token_path has correct default."""
+    config = Config(_env_file=None)
+    assert config.youtube_token_path == "config/youtube_token.pickle"
+
+
+@pytest.mark.unit
+def test_youtube_credentials_path_from_env(monkeypatch):
+    """Test youtube_credentials_path can be overridden via env var."""
+    monkeypatch.setenv("YOUTUBE_CREDENTIALS_PATH", "/custom/path/creds.json")
+    config = Config(_env_file=None)
+    assert config.youtube_credentials_path == "/custom/path/creds.json"
+
+
+@pytest.mark.unit
+def test_youtube_token_path_from_env(monkeypatch):
+    """Test youtube_token_path can be overridden via env var."""
+    monkeypatch.setenv("YOUTUBE_TOKEN_PATH", "/custom/path/token.pickle")
+    config = Config(_env_file=None)
+    assert config.youtube_token_path == "/custom/path/token.pickle"
